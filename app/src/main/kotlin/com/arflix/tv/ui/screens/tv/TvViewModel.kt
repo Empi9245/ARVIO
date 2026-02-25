@@ -94,6 +94,10 @@ class TvViewModel @Inject constructor(
     private var warmVodJob: Job? = null
     private var periodicEpgJob: Job? = null
     private var pendingForcedReload: Boolean = false
+    /** Set to true once the init coroutine finishes its initial data load.
+     *  Prevents the config observer's auto-heal from racing with init. */
+    @Volatile
+    private var initialLoadDone: Boolean = false
 
     companion object {
         /** EPG auto-refresh interval while the TV page is active */
@@ -119,15 +123,15 @@ class TvViewModel @Inject constructor(
                     loadingMessage = null,
                     loadingPercent = 0
                 )
-                System.err.println("[IPTV] TV page opened: showing ${cached.channels.size} cached channels instantly")
-                // Only refresh EPG in background if it's actually stale
+                System.err.println("[IPTV] TV page opened: showing ${cached.channels.size} cached channels, EPG entries=${cached.nowNext.size}")
+                // Refresh EPG in background if missing or stale
                 val hasPotentialEpg = config.epgUrl.isNotBlank() || config.m3uUrl.contains("get.php", ignoreCase = true) || config.m3uUrl.contains("player_api.php", ignoreCase = true)
                 if (hasPotentialEpg && cached.channels.isNotEmpty()) {
                     val hasEpg = hasAnyEpgData(cached)
                     val epgIsStale = iptvRepository.isEpgStaleForBackgroundRefresh()
-                    val shouldForce = !hasEpg || epgIsStale
-                    System.err.println("[EPG] Startup: hasEpg=$hasEpg epgIsStale=$epgIsStale shouldForce=$shouldForce")
-                    if (shouldForce) {
+                    val shouldRefresh = !hasEpg || epgIsStale
+                    System.err.println("[EPG] Startup: hasEpg=$hasEpg epgIsStale=$epgIsStale shouldRefresh=$shouldRefresh")
+                    if (shouldRefresh) {
                         refreshEpgLightweight()
                     }
                 }
@@ -147,6 +151,7 @@ class TvViewModel @Inject constructor(
                 // No cached data at all — full load (first time or cache was cleared)
                 refresh(force = false, showLoading = true)
             }
+            initialLoadDone = true
             // Start periodic EPG refresh (every 30 min) while this screen is active
             startPeriodicEpgRefresh()
         }
@@ -168,7 +173,10 @@ class TvViewModel @Inject constructor(
                 _uiState.value = _uiState.value.copy(config = config, snapshot = snapshot)
 
                 // Auto-heal cases where the app has IPTV config but an empty in-memory snapshot.
-                if (config.m3uUrl.isNotBlank() && snapshot.channels.isEmpty() && refreshJob?.isActive != true) {
+                // Only trigger AFTER initial load is done to prevent racing with the init coroutine
+                // (which would see an empty snapshot and force a redundant full network reload,
+                // wiping EPG data and showing an unnecessary loading spinner on revisit).
+                if (initialLoadDone && config.m3uUrl.isNotBlank() && snapshot.channels.isEmpty() && refreshJob?.isActive != true) {
                     refresh(force = true, showLoading = true)
                 }
             }
