@@ -312,16 +312,16 @@ class PlayerViewModel @Inject constructor(
                         fetchSkipIntervals(imdbId, seasonNumber, episodeNumber)
                     }
                 }
-                // Start VOD append in background - supplementary, cache should already be warm
-                // from DetailsViewModel prefetch. Short timeout; don't block on slow lookups.
+                // Start VOD append in background - single fast attempt, no retries blocking UI
                 vodAppendJob?.cancel()
                 vodAppendJob = launch {
+                    // Single attempt with reasonable timeout - VOD is supplementary, not critical
                     appendVodSourceInBackground(
                         mediaType = mediaType,
                         imdbId = imdbId,
                         seasonNumber = seasonNumber,
                         episodeNumber = episodeNumber,
-                        timeoutMs = 3_500L
+                        timeoutMs = 2_500L
                     )
                 }
 

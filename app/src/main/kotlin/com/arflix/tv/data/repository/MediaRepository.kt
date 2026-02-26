@@ -139,6 +139,7 @@ class MediaRepository @Inject constructor(
 
     fun getDefaultCatalogConfigs(): List<CatalogConfig> {
         return listOf(
+            CatalogConfig("favorite_tv", "Favorite TV", CatalogSourceType.PREINSTALLED, isPreinstalled = true),
             CatalogConfig("trending_movies", "Trending Movies", CatalogSourceType.PREINSTALLED, isPreinstalled = true),
             CatalogConfig("trending_tv", "Trending Series", CatalogSourceType.PREINSTALLED, isPreinstalled = true),
             CatalogConfig("trending_anime", "Trending Anime", CatalogSourceType.PREINSTALLED, isPreinstalled = true),
@@ -956,7 +957,11 @@ class MediaRepository @Inject constructor(
      */
     suspend fun getMovieDetails(movieId: Int): MediaItem {
         val cacheKey = "movie_$movieId"
-        getFromCache(detailsCache, cacheKey)?.let { return it }
+        getFromCache(detailsCache, cacheKey)?.let { cached ->
+            // Only use cache hit if it was populated from the full TMDB details API.
+            // Home screen items share the same cache key but lack detail-level fields.
+            if (cached.duration.isNotBlank()) return cached
+        }
 
         val details = tmdbApi.getMovieDetails(movieId, apiKey)
         val item = details.toMediaItem()
@@ -969,7 +974,14 @@ class MediaRepository @Inject constructor(
      */
     suspend fun getTvDetails(tvId: Int): MediaItem {
         val cacheKey = "tv_$tvId"
-        getFromCache(detailsCache, cacheKey)?.let { return it }
+        getFromCache(detailsCache, cacheKey)?.let { cached ->
+            // Only use cache hit if it was populated from the full TMDB details API.
+            // Home screen items (from trending/discover lists) share the same cache key
+            // but lack totalEpisodes (which stores numberOfSeasons). Without this check,
+            // the stale list-level item prevents the real details fetch, causing the
+            // season selector to never appear (totalSeasons stays at 1).
+            if (cached.totalEpisodes != null) return cached
+        }
 
         val details = tmdbApi.getTvDetails(tvId, apiKey)
         val item = details.toMediaItem()

@@ -47,6 +47,7 @@ import androidx.compose.material.icons.filled.HighQuality
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.Icon
 import com.arflix.tv.ui.components.LoadingIndicator
 import com.arflix.tv.ui.components.QrCodeImage
@@ -123,8 +124,12 @@ fun SettingsScreen(
 
     // Sub-focus for addon rows: 0 = toggle, 1 = delete
     var addonActionIndex by remember { mutableIntStateOf(0) }
-    // Sub-focus for catalog rows: 0 = up, 1 = down, 2 = delete
+    // Sub-focus for catalog rows: 0 = edit, 1 = up, 2 = down, 3 = delete
     var catalogActionIndex by remember { mutableIntStateOf(0) }
+    // Rename dialog state
+    var showCatalogRename by remember { mutableStateOf(false) }
+    var renameCatalogId by remember { mutableStateOf("") }
+    var renameCatalogTitle by remember { mutableStateOf("") }
 
     // Input modal states
     var showCustomAddonInput by remember { mutableStateOf(false) }
@@ -190,15 +195,17 @@ fun SettingsScreen(
         }
     }
 
-    // Keep auto-scroll only for long, dynamic sections to avoid jumpy motion in General/IPTV.
+    // Auto-scroll content to keep focused item visible in all sections.
     LaunchedEffect(contentFocusIndex, sectionIndex, activeZone, uiState.catalogs.size, uiState.addons.size) {
         if (activeZone != Zone.CONTENT) return@LaunchedEffect
-        if (sectionIndex != 2 && sectionIndex != 3) return@LaunchedEffect
         if (scrollState.maxValue <= 0) return@LaunchedEffect
 
         val maxIndex = when (sectionIndex) {
-            2 -> uiState.catalogs.size // Add + N catalogs
-            3 -> uiState.addons.size // N addons + add button
+            0 -> 6 // General: 7 items
+            1 -> 2 // IPTV
+            2 -> uiState.catalogs.size // Catalogs
+            3 -> uiState.addons.size // Addons
+            4 -> 2 // Accounts
             else -> 0
         }.coerceAtLeast(1)
 
@@ -305,7 +312,7 @@ fun SettingsScreen(
                                         focusedAddonCanDelete
                                     ) {
                                         addonActionIndex = 1
-                                    } else if (currentSection == "catalogs" && contentFocusIndex > 0 && catalogActionIndex < 2) {
+} else if (currentSection == "catalogs" && contentFocusIndex > 0 && catalogActionIndex < 3) {
                                         catalogActionIndex++
                                     }
                                 }
@@ -420,8 +427,13 @@ fun SettingsScreen(
                                                 val catalog = uiState.catalogs.getOrNull(contentFocusIndex - 1)
                                                 if (catalog != null) {
                                                     when (catalogActionIndex) {
-                                                        0 -> viewModel.moveCatalogUp(catalog.id)
-                                                        1 -> viewModel.moveCatalogDown(catalog.id)
+                                                        0 -> {
+                                                            renameCatalogId = catalog.id
+                                                            renameCatalogTitle = catalog.title
+                                                            showCatalogRename = true
+                                                        }
+                                                        1 -> viewModel.moveCatalogUp(catalog.id)
+                                                        2 -> viewModel.moveCatalogDown(catalog.id)
                                                         else -> viewModel.removeCatalog(catalog.id)
                                                     }
                                                 }
@@ -533,7 +545,7 @@ fun SettingsScreen(
                 Spacer(modifier = Modifier.weight(1f))
                 
                 Text(
-                    text = "ARVIO V1.7",
+                    text = "ARVIO V1.8",
                     style = ArflixTypography.caption,
                     color = TextSecondary.copy(alpha = 0.5f),
                     modifier = Modifier.padding(start = 16.dp)
@@ -693,6 +705,24 @@ fun SettingsScreen(
                 onDismiss = {
                     catalogInputUrl = ""
                     showCatalogInput = false
+                }
+            )
+        }
+
+        if (showCatalogRename) {
+            InputModal(
+                title = "Rename Catalog",
+                fields = listOf(
+                    InputField(label = "Title", value = renameCatalogTitle, onValueChange = { renameCatalogTitle = it })
+                ),
+                onConfirm = {
+                    if (renameCatalogTitle.isNotBlank()) {
+                        viewModel.renameCatalog(renameCatalogId, renameCatalogTitle)
+                        showCatalogRename = false
+                    }
+                },
+                onDismiss = {
+                    showCatalogRename = false
                 }
             )
         }
@@ -1668,21 +1698,23 @@ private fun CatalogsSettings(
                 }
 
                 CatalogActionChip(
-                    icon = Icons.Default.ArrowUpward,
-                    label = "Up",
+                    icon = Icons.Default.Edit,
                     isFocused = isRowFocused && focusedActionIndex == 0
                 )
-                Spacer(modifier = Modifier.width(8.dp))
+                Spacer(modifier = Modifier.width(6.dp))
                 CatalogActionChip(
-                    icon = Icons.Default.ArrowDownward,
-                    label = "Down",
+                    icon = Icons.Default.ArrowUpward,
                     isFocused = isRowFocused && focusedActionIndex == 1
                 )
-                Spacer(modifier = Modifier.width(8.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                CatalogActionChip(
+                    icon = Icons.Default.ArrowDownward,
+                    isFocused = isRowFocused && focusedActionIndex == 2
+                )
+                Spacer(modifier = Modifier.width(6.dp))
                 CatalogActionChip(
                     icon = Icons.Default.Delete,
-                    label = "Delete",
-                    isFocused = isRowFocused && focusedActionIndex == 2,
+                    isFocused = isRowFocused && focusedActionIndex == 3,
                     isDestructive = true,
                     enabled = true
                 )
@@ -1696,7 +1728,6 @@ private fun CatalogsSettings(
 @Composable
 private fun CatalogActionChip(
     icon: ImageVector,
-    label: String,
     isFocused: Boolean,
     isDestructive: Boolean = false,
     enabled: Boolean = true
@@ -1713,27 +1744,23 @@ private fun CatalogActionChip(
         isFocused -> Color.Black
         else -> Color.White
     }
-    Row(
+    Box(
         modifier = Modifier
-            .requiredWidth(86.dp)
+            .size(36.dp)
             .background(bgColor, RoundedCornerShape(8.dp))
             .border(
                 width = if (isFocused) 0.dp else 1.dp,
                 color = Color.White.copy(alpha = 0.15f),
                 shape = RoundedCornerShape(8.dp)
-            )
-            .padding(horizontal = 10.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.Center
+            ),
+        contentAlignment = Alignment.Center
     ) {
         Icon(
             imageVector = icon,
             contentDescription = null,
             tint = fgColor,
-            modifier = Modifier.size(14.dp)
+            modifier = Modifier.size(16.dp)
         )
-        Spacer(modifier = Modifier.width(4.dp))
-        Text(text = label, style = ArflixTypography.caption, color = fgColor)
     }
 }
 

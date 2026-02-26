@@ -8,7 +8,6 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.stringPreferencesKey
-import androidx.datastore.preferences.preferencesDataStore
 import com.arflix.tv.data.api.*
 import com.arflix.tv.data.model.MediaItem
 import com.arflix.tv.data.model.MediaType
@@ -18,6 +17,7 @@ import com.arflix.tv.util.EpisodePointer
 import com.arflix.tv.util.EpisodeProgressSnapshot
 import com.arflix.tv.util.WatchedEpisodeSnapshot
 import com.arflix.tv.util.Constants
+import com.arflix.tv.util.authDataStore
 import com.arflix.tv.util.settingsDataStore
 import com.arflix.tv.util.traktDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -119,8 +119,6 @@ class TraktRepository @Inject constructor(
         val trakt_token: JsonObject,
         val updated_at: String
     )
-
-    private val Context.authDataStore: DataStore<Preferences> by preferencesDataStore(name = "auth_prefs")
 
     // ========== Authentication ==========
 
@@ -1302,16 +1300,14 @@ class TraktRepository @Inject constructor(
         if (preloadedProfileCache.containsKey(profileId)) return
 
         try {
+            // Directly access the cache with the specific profile's key
+            val cacheKey = stringPreferencesKey("profile_${profileId}_trakt_continue_watching_cache_v1")
             val prefs = context.traktDataStore.data.first()
+            val json = prefs[cacheKey] ?: return
+
             val type = com.google.gson.reflect.TypeToken
                 .getParameterized(MutableList::class.java, ContinueWatchingItem::class.java)
                 .type
-
-            // Try Trakt cache key first, then fall back to local CW key (for non-Trakt profiles)
-            val traktCacheKey = stringPreferencesKey("profile_${profileId}_trakt_continue_watching_cache_v1")
-            val localCacheKey = stringPreferencesKey("profile_${profileId}_local_continue_watching_v1")
-            val json = prefs[traktCacheKey] ?: prefs[localCacheKey] ?: return
-
             val parsed: List<ContinueWatchingItem> = gson.fromJson(json, type)
             preloadedProfileCache[profileId] = parsed
 
@@ -2365,21 +2361,23 @@ class TraktRepository @Inject constructor(
         }
         cacheInitializing = true
         try {
+            // PROFILE ISOLATION: Check if this profile has Trakt auth
+            // If not, leave caches empty so all content appears unwatched
             val hasAuth = refreshTokenIfNeeded() != null
+            if (!hasAuth) {
+                // No Trakt for this profile - caches stay empty
+                watchedMoviesCache.clear()
+                watchedEpisodesCache.clear()
+                cacheInitialized = true
+                return
+            }
 
-            // Always try Supabase first (works for both Trakt and non-Trakt profiles).
-            // Supabase watched_movies/watched_episodes are written by TraktSyncService
-            // regardless of Trakt auth status.
-            val supabaseMovies = runCatching { syncService.getWatchedMovies() }.getOrDefault(emptySet())
-            val supabaseEpisodes = runCatching { syncService.getWatchedEpisodes() }.getOrDefault(emptySet())
+            // Try to load from Supabase first (source of truth)
+            val supabaseMovies = syncService.getWatchedMovies()
+            val supabaseEpisodes = syncService.getWatchedEpisodes()
 
-            // For Trakt-authenticated profiles, also fetch from Trakt as fallback
-            val traktMovies = if (hasAuth && supabaseMovies.isEmpty()) {
-                runCatching { getWatchedMovies() }.getOrDefault(emptySet())
-            } else emptySet()
-            val traktEpisodes = if (hasAuth && supabaseEpisodes.isEmpty()) {
-                runCatching { getWatchedEpisodes() }.getOrDefault(emptySet())
-            } else emptySet()
+            val traktMovies = if (supabaseMovies.isEmpty()) getWatchedMovies() else emptySet()
+            val traktEpisodes = if (supabaseEpisodes.isEmpty()) getWatchedEpisodes() else emptySet()
 
             watchedMoviesCache.clear()
             watchedMoviesCache.addAll(if (supabaseMovies.isNotEmpty()) supabaseMovies else traktMovies)
@@ -2389,15 +2387,12 @@ class TraktRepository @Inject constructor(
 
             cacheInitialized = true
         } catch (e: Exception) {
-            // If all sources fail, try direct Trakt load as last resort
+            // If sync service fails, try direct Trakt load
             try {
-                val hasAuth = refreshTokenIfNeeded() != null
-                if (hasAuth) {
-                    watchedMoviesCache.clear()
-                    watchedMoviesCache.addAll(getWatchedMovies())
-                    watchedEpisodesCache.clear()
-                    watchedEpisodesCache.addAll(getWatchedEpisodes())
-                }
+                watchedMoviesCache.clear()
+                watchedMoviesCache.addAll(getWatchedMovies())
+                watchedEpisodesCache.clear()
+                watchedEpisodesCache.addAll(getWatchedEpisodes())
                 cacheInitialized = true
             } catch (_: Exception) {
                 // No data available - mark as initialized with empty caches

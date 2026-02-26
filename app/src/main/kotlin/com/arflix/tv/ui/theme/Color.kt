@@ -115,7 +115,7 @@ val OngoingBlue = ArcticWhite
 // SPECIAL COLORS
 // ============================================
 val ImdbYellow = AccentYellow                 // Star ratings
-val AccentRed = ArcticWhite
+val AccentRed = Color(0xFFE53935)
 
 // ============================================
 // FOCUS & GLOW STATES (Kodi Inspired)

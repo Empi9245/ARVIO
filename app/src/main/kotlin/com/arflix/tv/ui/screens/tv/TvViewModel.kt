@@ -8,7 +8,6 @@ import com.arflix.tv.data.repository.AuthRepository
 import com.arflix.tv.data.repository.IptvConfig
 import com.arflix.tv.data.repository.IptvRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -16,7 +15,6 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -92,25 +90,15 @@ class TvViewModel @Inject constructor(
     private var refreshJob: Job? = null
     private var epgRefreshJob: Job? = null
     private var warmVodJob: Job? = null
-    private var periodicEpgJob: Job? = null
     private var pendingForcedReload: Boolean = false
-    /** Set to true once the init coroutine finishes its initial data load.
-     *  Prevents the config observer's auto-heal from racing with init. */
-    @Volatile
-    private var initialLoadDone: Boolean = false
-
-    companion object {
-        /** EPG auto-refresh interval while the TV page is active */
-        private const val EPG_PERIODIC_REFRESH_MS = 30L * 60_000L // 30 minutes
-    }
 
     init {
         observeConfigAndFavorites()
         viewModelScope.launch {
-            // The IPTV data (channels + EPG + VOD catalogs) was already loaded during
-            // profile selection. Just grab the cached snapshot — instant, no network.
-            val cached = iptvRepository.getCachedSnapshotOrNull()
-            if (cached != null && cached.channels.isNotEmpty()) {
+            // Try fast non-blocking in-memory read first; fall back to mutex-guarded disk read
+            val cached = iptvRepository.getMemoryCachedSnapshot()
+                ?: iptvRepository.getCachedSnapshotOrNull()
+            if (cached != null) {
                 val config = iptvRepository.observeConfig().first()
                 val lookup = withContext(Dispatchers.Default) {
                     cached.channels.associateBy { it.id }
@@ -123,37 +111,25 @@ class TvViewModel @Inject constructor(
                     loadingMessage = null,
                     loadingPercent = 0
                 )
-                System.err.println("[IPTV] TV page opened: showing ${cached.channels.size} cached channels, EPG entries=${cached.nowNext.size}")
-                // Refresh EPG in background if missing or stale
+                warmXtreamVodCache()
                 val hasPotentialEpg = config.epgUrl.isNotBlank() || config.m3uUrl.contains("get.php", ignoreCase = true) || config.m3uUrl.contains("player_api.php", ignoreCase = true)
-                if (hasPotentialEpg && cached.channels.isNotEmpty()) {
-                    val hasEpg = hasAnyEpgData(cached)
-                    val epgIsStale = iptvRepository.isEpgStaleForBackgroundRefresh()
-                    val shouldRefresh = !hasEpg || epgIsStale
-                    System.err.println("[EPG] Startup: hasEpg=$hasEpg epgIsStale=$epgIsStale shouldRefresh=$shouldRefresh")
-                    if (shouldRefresh) {
-                        refreshEpgLightweight()
-                    }
+                val needsChannelReload = config.m3uUrl.isNotBlank() && cached.channels.isEmpty()
+                // Only force EPG refresh if cached EPG is older than 2 minutes.
+                // When navigating from Home, EPG was likely just loaded — no need to re-fetch.
+                val epgAgeMs = iptvRepository.cachedEpgAgeMs()
+                val epgIsRecent = epgAgeMs < 120_000L
+                if (hasPotentialEpg && cached.channels.isNotEmpty() && !epgIsRecent) {
+                    System.err.println("[EPG] Startup: forcing EPG refresh (cached EPG age=${epgAgeMs / 1000}s, hasEpg=${hasAnyEpgData(cached)})")
+                    maybeRefreshEpgInBackground(cached, forceRefresh = true)
+                } else if (hasPotentialEpg && cached.channels.isNotEmpty()) {
+                    System.err.println("[EPG] Startup: skipping EPG refresh (EPG is recent, age=${epgAgeMs / 1000}s)")
                 }
-                // Full channel reload only if playlist itself is stale (>24h)
-                if (iptvRepository.isSnapshotStale(cached)) {
-                    refresh(force = false, showLoading = false)
-                }
-            } else if (cached != null && cached.channels.isEmpty()) {
-                // Config exists but no channels — need network load
-                val config = iptvRepository.observeConfig().first()
-                if (config.m3uUrl.isNotBlank()) {
-                    refresh(force = true, showLoading = true)
-                } else {
-                    _uiState.value = _uiState.value.copy(isLoading = false)
+                if (iptvRepository.isSnapshotStale(cached) || needsChannelReload) {
+                    refresh(force = needsChannelReload, showLoading = needsChannelReload)
                 }
             } else {
-                // No cached data at all — full load (first time or cache was cleared)
                 refresh(force = false, showLoading = true)
             }
-            initialLoadDone = true
-            // Start periodic EPG refresh (every 30 min) while this screen is active
-            startPeriodicEpgRefresh()
         }
     }
 
@@ -173,10 +149,7 @@ class TvViewModel @Inject constructor(
                 _uiState.value = _uiState.value.copy(config = config, snapshot = snapshot)
 
                 // Auto-heal cases where the app has IPTV config but an empty in-memory snapshot.
-                // Only trigger AFTER initial load is done to prevent racing with the init coroutine
-                // (which would see an empty snapshot and force a redundant full network reload,
-                // wiping EPG data and showing an unnecessary loading spinner on revisit).
-                if (initialLoadDone && config.m3uUrl.isNotBlank() && snapshot.channels.isEmpty() && refreshJob?.isActive != true) {
+                if (config.m3uUrl.isNotBlank() && snapshot.channels.isEmpty() && refreshJob?.isActive != true) {
                     refresh(force = true, showLoading = true)
                 }
             }
@@ -259,92 +232,40 @@ class TvViewModel @Inject constructor(
         }
     }
 
-    /**
-     * Periodically refresh EPG every 30 minutes while the TV page is active.
-     * This keeps the program guide current without requiring a full page reload.
-     * The job is automatically cancelled when the ViewModel is cleared (user navigates away).
-     */
-    private fun startPeriodicEpgRefresh() {
-        if (periodicEpgJob?.isActive == true) return
-        periodicEpgJob = viewModelScope.launch {
-            while (isActive) {
-                delay(EPG_PERIODIC_REFRESH_MS)
-                val config = _uiState.value.config
-                val hasPotentialEpg = config.epgUrl.isNotBlank() || config.m3uUrl.contains("get.php", ignoreCase = true) || config.m3uUrl.contains("player_api.php", ignoreCase = true)
-                if (hasPotentialEpg && _uiState.value.snapshot.channels.isNotEmpty()) {
-                    System.err.println("[EPG] Periodic 30-min refresh triggered")
-                    refreshEpgLightweight()
-                }
-            }
-        }
-    }
-
-    /**
-     * Called after a full refresh (loadSnapshot) completes to backfill EPG data
-     * if the snapshot doesn't have any. Uses the lightweight path to avoid
-     * re-acquiring the loadMutex.
-     */
-    private fun maybeRefreshEpgInBackground(snapshot: IptvSnapshot) {
+    private fun maybeRefreshEpgInBackground(snapshot: IptvSnapshot, forceRefresh: Boolean = false) {
         val config = _uiState.value.config
         val hasPotentialEpg = config.epgUrl.isNotBlank() || config.m3uUrl.contains("get.php", ignoreCase = true) || config.m3uUrl.contains("player_api.php", ignoreCase = true)
         if (!hasPotentialEpg) return
-        if (snapshot.channels.isEmpty() || hasAnyEpgData(snapshot)) return
-        // Snapshot from loadSnapshot has no EPG – use lightweight path to fetch it
-        refreshEpgLightweight()
-    }
-
-    /**
-     * Lightweight EPG refresh that does NOT go through the heavy loadSnapshot/loadMutex path.
-     * This allows the TV screen to remain responsive while EPG updates in the background.
-     */
-    private fun refreshEpgLightweight() {
+        if (!forceRefresh && (snapshot.channels.isEmpty() || hasAnyEpgData(snapshot))) return
         if (epgRefreshJob?.isActive == true) return
 
         epgRefreshJob = viewModelScope.launch {
             _uiState.value = _uiState.value.copy(
-                loadingMessage = "Refreshing EPG...",
+                loadingMessage = "Loading EPG in background...",
                 loadingPercent = 90
             )
             runCatching {
-                iptvRepository.refreshEpgOnly(
-                    onProgress = { progress ->
-                        _uiState.value = _uiState.value.copy(
-                            loadingMessage = progress.message,
-                            loadingPercent = progress.percent ?: _uiState.value.loadingPercent
-                        )
-                    },
-                    onEpgSnapshot = { intermediate ->
-                        // Progressive update: push partial EPG results to UI immediately
-                        // (e.g., short EPG now/next arrives before XMLTV full schedule)
-                        val lookup = intermediate.channels.associateBy { it.id }
-                        _uiState.value = _uiState.value.copy(
-                            snapshot = intermediate,
-                            channelLookup = lookup
-                        )
-                        System.err.println("[EPG] Progressive EPG update: ${intermediate.nowNext.size} channels")
-                    }
-                )
-            }.onSuccess { refreshed ->
-                if (refreshed != null) {
-                    val lookup = withContext(Dispatchers.Default) {
-                        refreshed.channels.associateBy { it.id }
-                    }
+                iptvRepository.loadSnapshot(
+                    forcePlaylistReload = false,
+                    forceEpgReload = true
+                ) { progress ->
                     _uiState.value = _uiState.value.copy(
-                        error = null,
-                        snapshot = refreshed,
-                        channelLookup = lookup,
-                        loadingMessage = null,
-                        loadingPercent = 0
-                    )
-                    System.err.println("[EPG] Lightweight refresh completed (${refreshed.nowNext.size} channels with EPG)")
-                } else {
-                    _uiState.value = _uiState.value.copy(
-                        loadingMessage = null,
-                        loadingPercent = 0
+                        loadingMessage = progress.message,
+                        loadingPercent = progress.percent ?: _uiState.value.loadingPercent
                     )
                 }
+            }.onSuccess { refreshed ->
+                val lookup = withContext(Dispatchers.Default) {
+                    refreshed.channels.associateBy { it.id }
+                }
+                _uiState.value = _uiState.value.copy(
+                    error = null,
+                    snapshot = refreshed,
+                    channelLookup = lookup,
+                    loadingMessage = null,
+                    loadingPercent = 0
+                )
             }.onFailure {
-                System.err.println("[EPG] Lightweight refresh failed: ${it.message}")
                 _uiState.value = _uiState.value.copy(
                     loadingMessage = null,
                     loadingPercent = 0

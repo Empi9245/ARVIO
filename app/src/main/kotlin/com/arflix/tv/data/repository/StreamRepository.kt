@@ -619,15 +619,15 @@ class StreamRepository @Inject constructor(
         }
     }
 
-    // Stream source requests should return quickly to keep player startup responsive.
-    // Most addons respond in 1-3 seconds; 5s is enough to catch slow ones without blocking UI.
-    private val ADDON_TIMEOUT_MS = 5000L
-    // Subtitles should never block source availability.
-    private val SUBTITLE_TIMEOUT_MS = 3000L
-    // If addons return nothing, allow a short Xtream VOD lookup to recover playback.
-    private val VOD_LOOKUP_TIMEOUT_MS = 2500L
-    // If addons already returned streams, keep VOD lookup short to avoid UI delay.
-    private val VOD_APPEND_TIMEOUT_MS = 1000L
+    // Stream source requests — generous timeouts to accommodate slow wifi and
+    // debrid-backed addons (Torrentio, MediaFusion, etc.) that resolve remotely.
+    private val ADDON_TIMEOUT_MS = 15_000L
+    // Subtitles should not block playback but need enough time on slow connections.
+    private val SUBTITLE_TIMEOUT_MS = 8_000L
+    // If addons return nothing, allow Xtream VOD lookup to recover playback.
+    private val VOD_LOOKUP_TIMEOUT_MS = 6_000L
+    // If addons already returned streams, keep VOD lookup shorter to avoid UI delay.
+    private val VOD_APPEND_TIMEOUT_MS = 3_000L
     private val STREAM_RESULT_CACHE_TTL_MS = 120_000L
     private val STREAM_RESULT_CACHE_HTTP_TTL_MS = 30_000L
     private val STREAM_RESULT_CACHE_HTTP_EPHEMERAL_TTL_MS = 10_000L
@@ -870,7 +870,7 @@ class StreamRepository @Inject constructor(
         val isAnime = animeMapper.isAnimeContent(tmdbId, genreIds, originalLanguage)
         // Get anime query using 5-tier fallback resolution (reduced timeout for faster startup)
         val animeQuery = if (isAnime) {
-            withTimeoutOrNull(600L) {
+            withTimeoutOrNull(3_000L) {
                 animeMapper.resolveAnimeEpisodeQuery(
                     tmdbId = tmdbId,
                     tvdbId = tvdbId,
@@ -971,8 +971,6 @@ class StreamRepository @Inject constructor(
         tmdbId: Int? = null,
         timeoutMs: Long = 12_000L
     ): StreamSource? = withContext(Dispatchers.IO) {
-        val start = System.currentTimeMillis()
-        System.err.println("[VOD-TV] resolveEpisodeVodOnly START: title=$title S${season}E${episode} imdb=$imdbId tmdb=$tmdbId timeout=${timeoutMs}ms")
         val result = withTimeoutOrNull(timeoutMs.coerceIn(500L, 90_000L)) {
             runCatching {
                 iptvRepository.findEpisodeVodSource(
@@ -984,12 +982,9 @@ class StreamRepository @Inject constructor(
                     allowNetwork = true
                 )
             }.getOrElse { e ->
-                System.err.println("[VOD-TV] resolveEpisodeVodOnly EXCEPTION: ${e.javaClass.simpleName}: ${e.message}")
                 null
             }
         }
-        val elapsed = System.currentTimeMillis() - start
-        System.err.println("[VOD-TV] resolveEpisodeVodOnly DONE in ${elapsed}ms: result=${if (result != null) "found(${result.url?.take(60)})" else "null"}")
         result
     }
 
@@ -1117,8 +1112,8 @@ class StreamRepository @Inject constructor(
         }
     }
 
-    // Timeout for resolving a single stream (dead streams should fail fast).
-    private val STREAM_RESOLUTION_TIMEOUT_MS = 3500L
+    // Timeout for resolving a single stream URL (redirect chains, debrid resolvers).
+    private val STREAM_RESOLUTION_TIMEOUT_MS = 12_000L
 
     /**
      * Resolve a single stream for playback - with timeout to prevent hanging forever
@@ -1189,7 +1184,7 @@ class StreamRepository @Inject constructor(
         }
     }
 
-    suspend fun isHttpStreamReachable(stream: StreamSource, timeoutMs: Long = 4_500L): Boolean =
+    suspend fun isHttpStreamReachable(stream: StreamSource, timeoutMs: Long = 10_000L): Boolean =
         withContext(Dispatchers.IO) {
             val resolved = resolveStreamInternal(stream) ?: return@withContext false
             val rawUrl = resolved.url?.trim().orEmpty()

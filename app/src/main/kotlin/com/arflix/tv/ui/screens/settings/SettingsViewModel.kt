@@ -866,6 +866,15 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun renameCatalog(catalogId: String, newTitle: String) {
+        viewModelScope.launch {
+            val success = catalogRepository.renameCatalog(catalogId, newTitle)
+            if (success) {
+                syncLocalStateToCloud(silent = true)
+            }
+        }
+    }
+
     fun moveCatalogUp(catalogId: String) {
         viewModelScope.launch {
             catalogRepository.moveCatalogUp(catalogId)

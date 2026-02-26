@@ -34,7 +34,14 @@ sealed class Screen(val route: String) {
     object Home : Screen("home")
     object Search : Screen("search")
     object Watchlist : Screen("watchlist")
-    object Tv : Screen("tv")
+    object Tv : Screen("tv?channelId={channelId}&streamUrl={streamUrl}") {
+        fun createRoute(channelId: String? = null, streamUrl: String? = null): String {
+            if (channelId == null) return "tv"
+            val enc = java.net.URLEncoder.encode(channelId, "UTF-8")
+            val streamEnc = streamUrl?.let { java.net.URLEncoder.encode(it, "UTF-8") }
+            return if (streamEnc != null) "tv?channelId=$enc&streamUrl=$streamEnc" else "tv?channelId=$enc"
+        }
+    }
     object Settings : Screen("settings")
     object ProfileSelection : Screen("profile_selection")
     
@@ -102,13 +109,15 @@ fun AppNavigation(
         }
     }
 
-    // navigateHome uses a clean pop-to-Home strategy without restoreState.
-    // This prevents stale saved state from being restored (which could
-    // include a Details screen entry in the saved back stack).
     val navigateHome: () -> Unit = {
+        // Navigate to Home clearing the entire back stack above it.
+        // Uses navigate() instead of popBackStack() because popBackStack can
+        // silently fail if Home is not found, and restoreState on other
+        // navigateTopLevel calls can bring back stale Details pages.
         navController.navigate(Screen.Home.route) {
-            popUpTo(Screen.Home.route) { inclusive = true }
+            popUpTo(Screen.Home.route) { inclusive = true; saveState = false }
             launchSingleTop = true
+            restoreState = false
         }
     }
 
@@ -144,8 +153,8 @@ fun AppNavigation(
                 onNavigateToWatchlist = {
                     navigateTopLevel(Screen.Watchlist.route)
                 },
-                onNavigateToTv = {
-                    navigateTopLevel(Screen.Tv.route)
+                onNavigateToTv = { channelId, streamUrl ->
+                    navigateTopLevel(Screen.Tv.createRoute(channelId, streamUrl))
                 },
                 onNavigateToSettings = {
                     navigateTopLevel(Screen.Settings.route)
@@ -169,7 +178,7 @@ fun AppNavigation(
                 },
                 onNavigateToHome = { navigateHome() },
                 onNavigateToWatchlist = { navigateTopLevel(Screen.Watchlist.route) },
-                onNavigateToTv = { navigateTopLevel(Screen.Tv.route) },
+                onNavigateToTv = { navigateTopLevel(Screen.Tv.createRoute()) },
                 onNavigateToSettings = { navigateTopLevel(Screen.Settings.route) },
                 onSwitchProfile = {
                     onSwitchProfile()
@@ -190,7 +199,7 @@ fun AppNavigation(
                 },
                 onNavigateToHome = { navigateHome() },
                 onNavigateToSearch = { navigateTopLevel(Screen.Search.route) },
-                onNavigateToTv = { navigateTopLevel(Screen.Tv.route) },
+                onNavigateToTv = { navigateTopLevel(Screen.Tv.createRoute()) },
                 onNavigateToSettings = { navigateTopLevel(Screen.Settings.route) },
                 onSwitchProfile = {
                     onSwitchProfile()
@@ -203,9 +212,19 @@ fun AppNavigation(
         }
 
         // TV screen
-        composable(Screen.Tv.route) {
+        composable(
+            route = Screen.Tv.route,
+            arguments = listOf(
+                navArgument("channelId") { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument("streamUrl") { type = NavType.StringType; nullable = true; defaultValue = null }
+            )
+        ) { backStackEntry ->
+            val initialChannelId = backStackEntry.arguments?.getString("channelId")
+            val initialStreamUrl = backStackEntry.arguments?.getString("streamUrl")
             TvScreen(
                 currentProfile = currentProfile,
+                initialChannelId = initialChannelId,
+                initialStreamUrl = initialStreamUrl,
                 onNavigateToHome = { navigateHome() },
                 onNavigateToSearch = { navigateTopLevel(Screen.Search.route) },
                 onNavigateToWatchlist = { navigateTopLevel(Screen.Watchlist.route) },
@@ -226,7 +245,7 @@ fun AppNavigation(
                 currentProfile = currentProfile,
                 onNavigateToHome = { navigateHome() },
                 onNavigateToSearch = { navigateTopLevel(Screen.Search.route) },
-                onNavigateToTv = { navigateTopLevel(Screen.Tv.route) },
+                onNavigateToTv = { navigateTopLevel(Screen.Tv.createRoute()) },
                 onNavigateToWatchlist = { navigateTopLevel(Screen.Watchlist.route) },
                 onSwitchProfile = {
                     onSwitchProfile()
@@ -303,7 +322,7 @@ fun AppNavigation(
                     navigateTopLevel(Screen.Search.route)
                 },
                 onNavigateToTv = {
-                    navigateTopLevel(Screen.Tv.route)
+                    navigateTopLevel(Screen.Tv.createRoute())
                 },
                 onNavigateToWatchlist = {
                     navigateTopLevel(Screen.Watchlist.route)

@@ -44,6 +44,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -111,6 +112,8 @@ private enum class TvFocusZone {
 fun TvScreen(
     viewModel: TvViewModel = hiltViewModel(),
     currentProfile: com.arflix.tv.data.model.Profile? = null,
+    initialChannelId: String? = null,
+    initialStreamUrl: String? = null,
     onNavigateToHome: () -> Unit = {},
     onNavigateToSearch: () -> Unit = {},
     onNavigateToWatchlist: () -> Unit = {},
@@ -129,7 +132,9 @@ fun TvScreen(
     var channelIndex by rememberSaveable { mutableIntStateOf(0) }
     var selectedChannelId by rememberSaveable { mutableStateOf<String?>(null) }
     var playingChannelId by rememberSaveable { mutableStateOf<String?>(null) }
-    var isFullScreen by rememberSaveable { mutableStateOf(false) }
+    // When launched from Home with a stream URL, start in fullscreen immediately
+    // to avoid a flash of the TV page channel list.
+    var isFullScreen by rememberSaveable { mutableStateOf(initialStreamUrl != null) }
     var showFullscreenOverlay by remember { mutableStateOf(false) }
     var fullscreenOverlayTrigger by remember { mutableStateOf(0L) } // timestamp to reset auto-hide timer
     var centerDownAtMs by remember { mutableStateOf<Long?>(null) }
@@ -146,6 +151,23 @@ fun TvScreen(
     val safeChannelIndex = channelIndex.coerceIn(0, (channels.size - 1).coerceAtLeast(0))
     val selectedChannel = selectedChannelId?.let { uiState.channelLookup[it] }
     val playingChannel = selectedChannel ?: playingChannelId?.let { uiState.channelLookup[it] }
+
+    // Auto-select channel when navigated from Home "Favorite TV" row.
+    // If initialStreamUrl was provided, playback already started instantly —
+    // this just updates selectedChannelId once the lookup is ready.
+    LaunchedEffect(initialChannelId, uiState.snapshot.channels.size) {
+        if (initialChannelId != null && uiState.snapshot.channels.isNotEmpty()) {
+            val channel = uiState.channelLookup[initialChannelId]
+            if (channel != null) {
+                selectedChannelId = channel.id
+                // Only set playingChannelId if not already playing (instant start already did it)
+                if (playingChannelId != channel.id) {
+                    playingChannelId = channel.id
+                }
+                isFullScreen = true
+            }
+        }
+    }
 
     LaunchedEffect(groups.size) {
         if (groupIndex >= groups.size) groupIndex = 0
@@ -219,6 +241,9 @@ fun TvScreen(
             .setDataSourceFactory(iptvDataSourceFactory)
     }
 
+    // Track whether ExoPlayer has been released to guard against post-dispose calls
+    var isPlayerReleased by remember { mutableStateOf(false) }
+
     val exoPlayer = remember {
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(12_000, 60_000, 2_000, 4_000)
@@ -238,12 +263,20 @@ fun TvScreen(
     var miniPlayerView by remember { mutableStateOf<PlayerView?>(null) }
     var fullPlayerView by remember { mutableStateOf<PlayerView?>(null) }
 
+    // Keep an always-current reference to the playing channel's stream URL
+    // so the error listener never captures a stale closure.
+    val currentStreamUrl by rememberUpdatedState(playingChannel?.streamUrl)
+
     DisposableEffect(Unit) {
-        onDispose { exoPlayer.release() }
+        onDispose {
+            isPlayerReleased = true
+            exoPlayer.release()
+        }
     }
 
-    LaunchedEffect(playingChannelId, playingChannel?.streamUrl) {
-        val stream = playingChannel?.streamUrl ?: return@LaunchedEffect
+    // Helper: prepare ExoPlayer with a stream URL (shared by normal play + error retry)
+    fun prepareStream(stream: String) {
+        if (isPlayerReleased) return
         exoPlayer.stop()
         exoPlayer.clearMediaItems()
         val mediaItem = MediaItem.Builder()
@@ -256,8 +289,6 @@ fun TvScreen(
                     .build()
             )
             .build()
-        // Use HLS factory with chunkless prep when URL looks like HLS,
-        // otherwise use default factory (handles MPEG-TS, progressive, etc.)
         val streamLower = stream.lowercase()
         if (streamLower.contains(".m3u8") || streamLower.contains("/hls") || streamLower.contains("format=hls")) {
             exoPlayer.setMediaSource(iptvHlsFactory.createMediaSource(mediaItem))
@@ -268,18 +299,46 @@ fun TvScreen(
         exoPlayer.playWhenReady = true
     }
 
+    // Track the last stream URL prepared to avoid redundant prepareStream calls
+    var lastPreparedStreamUrl by remember { mutableStateOf<String?>(null) }
+
+    // Instant playback: if we have a stream URL from Home, start playing immediately
+    // before the full channel list is loaded.
+    LaunchedEffect(Unit) {
+        if (initialStreamUrl != null && initialChannelId != null) {
+            playingChannelId = initialChannelId
+            isFullScreen = true
+            lastPreparedStreamUrl = initialStreamUrl
+            prepareStream(initialStreamUrl)
+        }
+    }
+
+    LaunchedEffect(playingChannelId, playingChannel?.streamUrl) {
+        val stream = playingChannel?.streamUrl ?: return@LaunchedEffect
+        if (isPlayerReleased) return@LaunchedEffect
+        // Skip if this exact stream was already prepared (e.g., by instant playback above)
+        if (stream == lastPreparedStreamUrl) return@LaunchedEffect
+        lastPreparedStreamUrl = stream
+        prepareStream(stream)
+    }
+
     LaunchedEffect(isFullScreen, miniPlayerView, fullPlayerView) {
+        if (isPlayerReleased) return@LaunchedEffect
         if (isFullScreen) {
             miniPlayerView?.player = null
             fullPlayerView?.post {
-                fullPlayerView?.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
-                fullPlayerView?.player = exoPlayer
+                if (!isPlayerReleased) {
+                    fullPlayerView?.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                    fullPlayerView?.player = exoPlayer
+                }
             }
         } else {
             fullPlayerView?.player = null
             miniPlayerView?.post {
-                miniPlayerView?.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
-                miniPlayerView?.player = exoPlayer
+                if (!isPlayerReleased) {
+                    miniPlayerView?.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                    miniPlayerView?.player = exoPlayer
+                }
             }
         }
     }
@@ -287,7 +346,9 @@ fun TvScreen(
     DisposableEffect(exoPlayer) {
         val listener = object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
-                val stream = playingChannel?.streamUrl ?: return
+                if (isPlayerReleased) return
+                // Use the always-current stream URL (not a stale captured value)
+                val stream = currentStreamUrl ?: return
                 exoPlayer.clearMediaItems()
                 val mediaItem = MediaItem.Builder()
                     .setUri(stream)
@@ -304,6 +365,7 @@ fun TvScreen(
                 exoPlayer.playWhenReady = true
             }
             override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
+                if (isPlayerReleased) return
                 // Force PlayerView to re-apply resize mode once real video
                 // dimensions are known, preventing the initial stretched frame.
                 miniPlayerView?.let { pv ->
@@ -328,8 +390,13 @@ fun TvScreen(
                     if (event.type == KeyEventType.KeyDown) {
                         when (event.key) {
                             Key.Back, Key.Escape -> {
-                                isFullScreen = false
-                                showFullscreenOverlay = false
+                                if (initialChannelId != null) {
+                                    // Launched from Home — back goes directly to previous screen
+                                    onBack()
+                                } else {
+                                    isFullScreen = false
+                                    showFullscreenOverlay = false
+                                }
                                 return@onPreviewKeyEvent true
                             }
                             Key.Enter, Key.DirectionCenter -> {
@@ -627,56 +694,60 @@ fun TvScreen(
 
         TopBarClock(modifier = Modifier.align(Alignment.TopEnd))
 
-        if (isFullScreen && playingChannel != null) {
-            val fsNowNext = uiState.snapshot.nowNext[playingChannel.id]
-            val fsNow = fsNowNext?.now
-            val fsNext = fsNowNext?.next
-
-            // Auto-hide overlay after 5 seconds
-            LaunchedEffect(fullscreenOverlayTrigger, showFullscreenOverlay) {
-                if (showFullscreenOverlay && fullscreenOverlayTrigger > 0L) {
-                    kotlinx.coroutines.delay(5000L)
-                    showFullscreenOverlay = false
-                }
-            }
-
+        if (isFullScreen) {
+            // Show black screen immediately when fullscreen is active.
+            // Player and EPG overlay only render once playingChannel resolves.
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(Color.Black)
             ) {
-                AndroidView(
-                    factory = { ctx ->
-                        PlayerView(ctx).apply {
-                            fullPlayerView = this
-                            player = null
-                            useController = false
-                            resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
-                            setKeepContentOnPlayerReset(true)
-                            setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
-                        }
-                    },
-                    modifier = Modifier.fillMaxSize(),
-                    update = { playerView ->
-                        fullPlayerView = playerView
-                        if (isFullScreen) {
-                            playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
-                            if (playerView.player !== exoPlayer) playerView.player = exoPlayer
+                if (playingChannel != null) {
+                    val fsNowNext = uiState.snapshot.nowNext[playingChannel.id]
+                    val fsNow = fsNowNext?.now
+                    val fsNext = fsNowNext?.next
+
+                    // Auto-hide overlay after 5 seconds
+                    LaunchedEffect(fullscreenOverlayTrigger, showFullscreenOverlay) {
+                        if (showFullscreenOverlay && fullscreenOverlayTrigger > 0L) {
+                            kotlinx.coroutines.delay(5000L)
+                            showFullscreenOverlay = false
                         }
                     }
-                )
 
-                // Premium EPG overlay (toggle with OK, auto-hides after 5s)
-                AnimatedVisibility(
-                    visible = showFullscreenOverlay,
-                    enter = fadeIn(),
-                    exit = fadeOut()
-                ) {
-                    FullscreenEpgOverlay(
-                        channel = playingChannel,
-                        nowProgram = fsNow,
-                        nextProgram = fsNext
+                    AndroidView(
+                        factory = { ctx ->
+                            PlayerView(ctx).apply {
+                                fullPlayerView = this
+                                player = null
+                                useController = false
+                                resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                                setKeepContentOnPlayerReset(true)
+                                setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
+                            }
+                        },
+                        modifier = Modifier.fillMaxSize(),
+                        update = { playerView ->
+                            fullPlayerView = playerView
+                            if (isFullScreen) {
+                                playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                                if (playerView.player !== exoPlayer) playerView.player = exoPlayer
+                            }
+                        }
                     )
+
+                    // Premium EPG overlay (toggle with OK, auto-hides after 5s)
+                    AnimatedVisibility(
+                        visible = showFullscreenOverlay,
+                        enter = fadeIn(),
+                        exit = fadeOut()
+                    ) {
+                        FullscreenEpgOverlay(
+                            channel = playingChannel,
+                            nowProgram = fsNow,
+                            nextProgram = fsNext
+                        )
+                    }
                 }
             }
         }

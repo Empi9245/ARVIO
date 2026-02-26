@@ -4,6 +4,7 @@ import android.text.InputType
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -47,6 +48,7 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
+import com.arflix.tv.data.model.Profile
 import com.arflix.tv.data.model.ProfileColors
 import com.arflix.tv.ui.components.AvatarIcon
 import com.arflix.tv.ui.components.AvatarRegistry
@@ -61,6 +63,7 @@ fun AddProfileDialog(
     name: String,
     onNameChange: (String) -> Unit,
     selectedColorIndex: Int,
+    onColorSelected: (Int) -> Unit,
     selectedAvatarId: Int = 0,
     onAvatarSelected: (Int) -> Unit = {},
     onConfirm: () -> Unit,
@@ -71,6 +74,7 @@ fun AddProfileDialog(
         name = name,
         onNameChange = onNameChange,
         selectedColorIndex = selectedColorIndex,
+        onColorSelected = onColorSelected,
         selectedAvatarId = selectedAvatarId,
         onAvatarSelected = onAvatarSelected,
         confirmLabel = "Create",
@@ -87,9 +91,11 @@ fun AddProfileDialog(
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun EditProfileDialog(
+    profile: Profile,
     name: String,
     onNameChange: (String) -> Unit,
     selectedColorIndex: Int,
+    onColorSelected: (Int) -> Unit,
     selectedAvatarId: Int = 0,
     onAvatarSelected: (Int) -> Unit = {},
     onConfirm: () -> Unit,
@@ -101,6 +107,7 @@ fun EditProfileDialog(
         name = name,
         onNameChange = onNameChange,
         selectedColorIndex = selectedColorIndex,
+        onColorSelected = onColorSelected,
         selectedAvatarId = selectedAvatarId,
         onAvatarSelected = onAvatarSelected,
         confirmLabel = "Save",
@@ -121,6 +128,7 @@ private fun ProfileDialogContent(
     name: String,
     onNameChange: (String) -> Unit,
     selectedColorIndex: Int,
+    onColorSelected: (Int) -> Unit,
     selectedAvatarId: Int,
     onAvatarSelected: (Int) -> Unit,
     confirmLabel: String,
@@ -144,8 +152,9 @@ private fun ProfileDialogContent(
             Row(
                 modifier = Modifier
                     .padding(horizontal = 48.dp)
-                    .background(Color(0xFF141414), RoundedCornerShape(16.dp))
-                    .padding(start = 28.dp, top = 28.dp, bottom = 28.dp, end = 20.dp),
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color(0xFF141414))
+                    .padding(start = 28.dp, top = 28.dp, bottom = 28.dp, end = 12.dp),
                 verticalAlignment = Alignment.Top,
                 horizontalArrangement = Arrangement.spacedBy(28.dp)
             ) {
@@ -275,22 +284,18 @@ private fun ProfileDialogContent(
                     ) {
                         DialogButton(
                             text = confirmLabel,
+                            isPrimary = true,
                             enabled = name.isNotBlank(),
                             onClick = onConfirm,
                             modifier = Modifier.fillMaxWidth()
                         )
-                        DialogButton(
-                            text = "Cancel",
-                            onClick = onDismiss,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        if (onDelete != null) {
-                            DialogButton(
-                                text = "Delete",
-                                isDestructive = true,
-                                onClick = onDelete,
-                                modifier = Modifier.fillMaxWidth()
-                            )
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            DialogButton(text = "Cancel", isPrimary = false, onClick = onDismiss)
+                            if (onDelete != null) {
+                                DialogButton(text = "Delete", isPrimary = false, isDestructive = true, onClick = onDelete)
+                            }
                         }
                     }
                 }
@@ -310,8 +315,8 @@ private fun ProfileDialogContent(
                         )
 
                         LazyRow(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            contentPadding = PaddingValues(start = 4.dp, end = 4.dp)
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp)
                         ) {
                             // "None" option only in first row
                             if (rowIdx == 0) {
@@ -354,17 +359,19 @@ private fun AvatarGridItem(
     onClick: () -> Unit,
     isNone: Boolean = false
 ) {
+    var isFocused by remember { mutableIntStateOf(0) }
+
     val (c1, c2) = if (isNone) {
         Color(0xFF2A2A2A) to Color(0xFF333333)
     } else {
         AvatarRegistry.gradientColors(avatarId)
     }
 
-    // Fixed-size surface — no size animation to avoid LazyRow viewport clipping
     Surface(
         onClick = onClick,
         modifier = Modifier
-            .size(58.dp),
+            .size(54.dp)
+            .onFocusChanged { isFocused = if (it.isFocused) 1 else 0 },
         shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(10.dp)),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = Color.Transparent,
@@ -383,7 +390,7 @@ private fun AvatarGridItem(
                 )
             },
             focusedBorder = androidx.tv.material3.Border(
-                border = androidx.compose.foundation.BorderStroke(2.5.dp, Color.White),
+                border = androidx.compose.foundation.BorderStroke(2.dp, Color.White),
                 shape = RoundedCornerShape(10.dp)
             )
         )
@@ -436,6 +443,7 @@ private fun AvatarGridItem(
 @Composable
 private fun DialogButton(
     text: String,
+    isPrimary: Boolean,
     isDestructive: Boolean = false,
     enabled: Boolean = true,
     onClick: () -> Unit,
@@ -445,10 +453,12 @@ private fun DialogButton(
 
     val containerColor = when {
         isDestructive -> Color(0xFFDC2626)
+        isPrimary -> Color(0xFFE50914)
         else -> Color.Transparent
     }
     val focusedContainerColor = when {
         isDestructive -> Color(0xFFEF4444)
+        isPrimary -> Color(0xFFFF1A1A)
         else -> Color.White.copy(alpha = 0.1f)
     }
 
@@ -461,7 +471,7 @@ private fun DialogButton(
             containerColor = containerColor,
             focusedContainerColor = focusedContainerColor
         ),
-        border = if (!isDestructive) {
+        border = if (!isPrimary && !isDestructive) {
             ClickableSurfaceDefaults.border(
                 border = androidx.tv.material3.Border(
                     border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.3f)),

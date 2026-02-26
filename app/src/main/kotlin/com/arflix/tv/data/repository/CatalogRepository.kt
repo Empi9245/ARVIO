@@ -222,16 +222,40 @@ class CatalogRepository @Inject constructor(
         } else {
             val kept = existing.mapNotNull { config ->
                 if (config.isPreinstalled) {
-                    defaultMap[config.id]
+                    val defaultCfg = defaultMap[config.id] ?: return@mapNotNull null
+                    // Preserve user-renamed titles: if the user changed the title
+                    // from a previous default, keep their custom title.
+                    if (config.title != defaultCfg.title && config.title.isNotBlank()) {
+                        defaultCfg.copy(title = config.title)
+                    } else {
+                        defaultCfg
+                    }
                 } else {
                     config
                 }
             }.toMutableList()
 
+            // Insert missing preinstalled catalogs at their intended default position
+            // so new catalogs (like "Favorite TV") appear where they were defined,
+            // but only re-sort when there are actually new catalogs to add.
             val missingPreinstalled = effectiveDefaults.filter { pre ->
                 kept.none { it.id == pre.id }
             }
-            kept.addAll(missingPreinstalled)
+            if (missingPreinstalled.isNotEmpty()) {
+                val defaultOrder = effectiveDefaults.mapIndexed { idx, cfg -> cfg.id to idx }.toMap()
+                for (missing in missingPreinstalled) {
+                    val targetIdx = defaultOrder[missing.id] ?: kept.size
+                    // Insert after the last kept entry whose default index < targetIdx
+                    var insertAt = 0
+                    for (i in kept.indices) {
+                        val keptIdx = defaultOrder[kept[i].id]
+                        if (keptIdx != null && keptIdx < targetIdx) {
+                            insertAt = i + 1
+                        }
+                    }
+                    kept.add(insertAt, missing)
+                }
+            }
             kept
         }
 
@@ -449,6 +473,17 @@ class CatalogRepository @Inject constructor(
         current.removeAll { it.id == catalogId }
         saveCatalogs(current)
         return Result.success(Unit)
+    }
+
+    suspend fun renameCatalog(catalogId: String, newTitle: String): Boolean {
+        val trimmed = newTitle.trim()
+        if (trimmed.isBlank()) return false
+        val current = getCatalogs().toMutableList()
+        val index = current.indexOfFirst { it.id == catalogId }
+        if (index < 0) return false
+        current[index] = current[index].copy(title = trimmed)
+        saveCatalogs(current)
+        return true
     }
 
     suspend fun moveCatalogUp(catalogId: String): Boolean {

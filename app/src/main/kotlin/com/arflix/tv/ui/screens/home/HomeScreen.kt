@@ -127,6 +127,18 @@ import com.arflix.tv.ui.theme.BackgroundGradientEnd
 import com.arflix.tv.ui.theme.BackgroundGradientStart
 import com.arflix.tv.util.isInCinema
 import com.arflix.tv.util.parseRatingValue
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.common.C
+import androidx.media3.datasource.okhttp.OkHttpDataSource
+import androidx.media3.exoplayer.DefaultLoadControl
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.hls.HlsMediaSource
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.PlayerView
+import okhttp3.ConnectionPool
+import okhttp3.OkHttpClient
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -197,7 +209,7 @@ fun HomeScreen(
     onNavigateToDetails: (MediaType, Int, Int?, Int?) -> Unit = { _, _, _, _ -> },
     onNavigateToSearch: () -> Unit = {},
     onNavigateToWatchlist: () -> Unit = {},
-    onNavigateToTv: () -> Unit = {},
+    onNavigateToTv: (channelId: String?, streamUrl: String?) -> Unit = { _, _ -> },
     onNavigateToSettings: () -> Unit = {},
     onSwitchProfile: () -> Unit = {},
     onExitApp: () -> Unit = {}
@@ -377,12 +389,75 @@ fun HomeScreen(
         }
     }
 
+    // ── IPTV hero live-player state ──
+    val isHeroIptv = displayHeroItem != null && viewModel.isIptvItem(displayHeroItem)
+    val heroStreamUrl = displayHeroItem?.let { if (isHeroIptv) viewModel.getIptvStreamUrl(it.id) else null }
+
+    val heroOkHttp = remember {
+        OkHttpClient.Builder()
+            .connectionPool(ConnectionPool(2, 2, TimeUnit.MINUTES))
+            .followRedirects(true).followSslRedirects(true)
+            .retryOnConnectionFailure(true)
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(20, TimeUnit.SECONDS)
+            .build()
+    }
+    val heroDataSourceFactory = remember(heroOkHttp) {
+        OkHttpDataSource.Factory(heroOkHttp).setUserAgent("ARVIO/1.7.0 (Android TV)")
+    }
+    val heroHlsFactory = remember(heroDataSourceFactory) {
+        HlsMediaSource.Factory(heroDataSourceFactory).setAllowChunklessPreparation(true)
+    }
+    val heroDefaultFactory = remember(heroDataSourceFactory) {
+        DefaultMediaSourceFactory(context).setDataSourceFactory(heroDataSourceFactory)
+    }
+    val heroExoPlayer = remember {
+        val loadControl = DefaultLoadControl.Builder()
+            .setBufferDurationsMs(8_000, 30_000, 1_500, 3_000)
+            .setPrioritizeTimeOverSizeThresholds(true)
+            .build()
+        ExoPlayer.Builder(context)
+            .setMediaSourceFactory(heroDefaultFactory)
+            .setLoadControl(loadControl)
+            .build().apply {
+                playWhenReady = false
+                videoScalingMode = C.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING
+                volume = 1f
+            }
+    }
+    DisposableEffect(Unit) { onDispose { heroExoPlayer.release() } }
+
+    LaunchedEffect(heroStreamUrl) {
+        if (heroStreamUrl != null) {
+            heroExoPlayer.stop()
+            heroExoPlayer.clearMediaItems()
+            val mi = androidx.media3.common.MediaItem.Builder()
+                .setUri(heroStreamUrl)
+                .setLiveConfiguration(
+                    androidx.media3.common.MediaItem.LiveConfiguration.Builder()
+                        .setMinPlaybackSpeed(1.0f).setMaxPlaybackSpeed(1.0f)
+                        .setTargetOffsetMs(4_000).build()
+                ).build()
+            val lower = heroStreamUrl.lowercase()
+            if (lower.contains(".m3u8") || lower.contains("/hls") || lower.contains("format=hls")) {
+                heroExoPlayer.setMediaSource(heroHlsFactory.createMediaSource(mi))
+            } else {
+                heroExoPlayer.setMediaItem(mi)
+            }
+            heroExoPlayer.prepare()
+            heroExoPlayer.playWhenReady = true
+        } else {
+            heroExoPlayer.stop()
+            heroExoPlayer.clearMediaItems()
+            heroExoPlayer.playWhenReady = false
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(BackgroundDark)
       ) {
-        // Smooth hero background transition
         val currentBackdrop = displayHeroItem?.backdrop ?: displayHeroItem?.image
         Box(
             modifier = Modifier
@@ -396,32 +471,49 @@ fun HomeScreen(
                     )
             )
 
-            Crossfade(
-                targetState = currentBackdrop,
-                animationSpec = tween(durationMillis = 300),
-                label = "hero_backdrop_crossfade"
-            ) { backdropUrl ->
-                if (backdropUrl != null) {
-                    val (backdropWidthPx, backdropHeightPx) = backdropSize
-                    val request = remember(backdropUrl, backdropWidthPx, backdropHeightPx) {
-                        ImageRequest.Builder(context)
-                            .data(backdropUrl)
-                            .size(backdropWidthPx, backdropHeightPx)
-                            .precision(Precision.INEXACT)  // allow cache reuse for similar sizes
-                            .allowHardware(true)
-                            .crossfade(false)
-                            .build()
+            // Show live ExoPlayer for IPTV hero, static image for everything else
+            if (isHeroIptv && heroStreamUrl != null) {
+                AndroidView(
+                    factory = { ctx ->
+                        PlayerView(ctx).apply {
+                            player = heroExoPlayer
+                            useController = false
+                            resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                            setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
+                            setKeepContentOnPlayerReset(true)
+                        }
+                    },
+                    update = { pv -> pv.player = heroExoPlayer },
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                Crossfade(
+                    targetState = currentBackdrop,
+                    animationSpec = tween(durationMillis = 300),
+                    label = "hero_backdrop_crossfade"
+                ) { backdropUrl ->
+                    if (backdropUrl != null) {
+                        val (backdropWidthPx, backdropHeightPx) = backdropSize
+                        val request = remember(backdropUrl, backdropWidthPx, backdropHeightPx) {
+                            ImageRequest.Builder(context)
+                                .data(backdropUrl)
+                                .size(backdropWidthPx, backdropHeightPx)
+                                .precision(Precision.INEXACT)
+                                .allowHardware(true)
+                                .crossfade(false)
+                                .build()
+                        }
+                        AsyncImage(
+                            model = request,
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
                     }
-                    AsyncImage(
-                        model = request,
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize()
-                    )
                 }
             }
 
-            // === SCRIM SYSTEM - single draw pass for all 3 gradients (avoids 3x fullscreen overdraw) ===
+            // === SCRIM SYSTEM ===
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -453,6 +545,7 @@ fun HomeScreen(
             onNavigateToSearch = onNavigateToSearch,
             onNavigateToWatchlist = onNavigateToWatchlist,
             onNavigateToTv = onNavigateToTv,
+            getIptvStreamUrl = { itemId -> viewModel.getIptvStreamUrl(itemId) },
             onNavigateToSettings = onNavigateToSettings,
             onSwitchProfile = onSwitchProfile,
             onExitApp = onExitApp,
@@ -508,10 +601,18 @@ fun HomeScreen(
                 isWatched = item.isWatched,
                 isContinueWatching = contextMenuIsContinueWatching,
                 onPlay = {
-                    onNavigateToDetails(item.mediaType, item.id, item.nextEpisode?.seasonNumber, item.nextEpisode?.episodeNumber)
+                    if (viewModel.isIptvItem(item)) {
+                        onNavigateToTv(viewModel.getIptvChannelId(item), viewModel.getIptvStreamUrl(item.id))
+                    } else {
+                        onNavigateToDetails(item.mediaType, item.id, item.nextEpisode?.seasonNumber, item.nextEpisode?.episodeNumber)
+                    }
                 },
                 onViewDetails = {
-                    onNavigateToDetails(item.mediaType, item.id, item.nextEpisode?.seasonNumber, item.nextEpisode?.episodeNumber)
+                    if (viewModel.isIptvItem(item)) {
+                        onNavigateToTv(viewModel.getIptvChannelId(item), viewModel.getIptvStreamUrl(item.id))
+                    } else {
+                        onNavigateToDetails(item.mediaType, item.id, item.nextEpisode?.seasonNumber, item.nextEpisode?.episodeNumber)
+                    }
                 },
                 onToggleWatchlist = {
                     viewModel.toggleWatchlist(item)
@@ -662,7 +763,41 @@ private fun HeroSection(
         // Performance: Use key instead of AnimatedContent for faster transitions
         key(item.id) {
             val currentItem = item
+            val isIptvHero = currentItem.status?.startsWith("iptv:") == true
             Column {
+                if (isIptvHero) {
+                    // IPTV hero: LIVE badge + channel group
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .background(AccentRed, RoundedCornerShape(4.dp))
+                                .padding(horizontal = 8.dp, vertical = 3.dp)
+                        ) {
+                            Text(
+                                text = "LIVE",
+                                style = ArflixTypography.caption.copy(
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Black
+                                ),
+                                color = Color.White
+                            )
+                        }
+                        if (currentItem.subtitle.isNotBlank()) {
+                            Text(
+                                text = currentItem.subtitle,
+                                style = ArflixTypography.caption.copy(
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    shadow = textShadow
+                                ),
+                                color = Color.White
+                            )
+                        }
+                    }
+                } else {
                 // Get actual genre names from genre IDs (memoized to avoid list allocations per recomposition)
                 val genreText = remember(currentItem.id, currentItem.genreIds) {
                     val genreMap = if (currentItem.mediaType == MediaType.TV) tvGenres else movieGenres
@@ -774,10 +909,11 @@ private fun HeroSection(
                         }
                     }
                 }
+                } // end else (non-IPTV metadata)
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // Overview text
+                // Overview text (EPG data for IPTV, synopsis for movies/shows)
                 Text(
                     text = currentItem.overview,
                     style = ArflixTypography.body.copy(
@@ -833,7 +969,8 @@ private fun HomeInputLayer(
     onNavigateToDetails: (MediaType, Int, Int?, Int?) -> Unit,
     onNavigateToSearch: () -> Unit,
     onNavigateToWatchlist: () -> Unit,
-    onNavigateToTv: () -> Unit,
+    onNavigateToTv: (channelId: String?, streamUrl: String?) -> Unit,
+    getIptvStreamUrl: (itemId: Int) -> String?,
     onNavigateToSettings: () -> Unit,
     onSwitchProfile: () -> Unit,
     onExitApp: () -> Unit,
@@ -979,7 +1116,7 @@ private fun HomeInputLayer(
                                         SidebarItem.SEARCH -> onNavigateToSearch()
                                         SidebarItem.HOME -> { }
                                         SidebarItem.WATCHLIST -> onNavigateToWatchlist()
-                                        SidebarItem.TV -> onNavigateToTv()
+                                        SidebarItem.TV -> onNavigateToTv(null, null)
                                         SidebarItem.SETTINGS -> onNavigateToSettings()
                                     }
                                 }
@@ -990,7 +1127,12 @@ private fun HomeInputLayer(
                                     focusState.currentItemIndex
                                 )
                                 currentItem?.let { item ->
-                                    onNavigateToDetails(item.mediaType, item.id, item.nextEpisode?.seasonNumber, item.nextEpisode?.episodeNumber)
+                                    val iptvId = item.status?.removePrefix("iptv:")?.takeIf { item.status?.startsWith("iptv:") == true && it.isNotBlank() }
+                                    if (iptvId != null) {
+                                        onNavigateToTv(iptvId, getIptvStreamUrl(item.id))
+                                    } else {
+                                        onNavigateToDetails(item.mediaType, item.id, item.nextEpisode?.seasonNumber, item.nextEpisode?.episodeNumber)
+                                    }
                                 }
                             }
                             true
@@ -1012,7 +1154,7 @@ private fun HomeInputLayer(
                     SidebarItem.SEARCH -> onNavigateToSearch()
                     SidebarItem.HOME -> { }
                     SidebarItem.WATCHLIST -> onNavigateToWatchlist()
-                    SidebarItem.TV -> onNavigateToTv()
+                    SidebarItem.TV -> onNavigateToTv(null, null)
                     SidebarItem.SETTINGS -> onNavigateToSettings()
                 }
             }
@@ -1025,7 +1167,14 @@ private fun HomeInputLayer(
             contentStartPadding = contentStartPadding,
             fastScrollThresholdMs = fastScrollThresholdMs,
             usePosterCards = usePosterCards,
-            onItemClick = { item -> onNavigateToDetails(item.mediaType, item.id, item.nextEpisode?.seasonNumber, item.nextEpisode?.episodeNumber) }
+            onItemClick = { item ->
+                val iptvId = item.status?.removePrefix("iptv:")?.takeIf { item.status?.startsWith("iptv:") == true && it.isNotBlank() }
+                if (iptvId != null) {
+                    onNavigateToTv(iptvId, getIptvStreamUrl(item.id))
+                } else {
+                    onNavigateToDetails(item.mediaType, item.id, item.nextEpisode?.seasonNumber, item.nextEpisode?.episodeNumber)
+                }
+            }
         )
     }
 }

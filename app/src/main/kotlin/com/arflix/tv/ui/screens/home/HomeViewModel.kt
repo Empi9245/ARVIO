@@ -103,6 +103,101 @@ class HomeViewModel @Inject constructor(
         var isLoading: Boolean = false
     )
 
+    // IPTV favorite channels — maps MediaItem.id (Int hash) to channel data
+    private val iptvChannelMap = mutableMapOf<Int, com.arflix.tv.data.model.IptvChannel>()
+
+    companion object {
+        const val FAVORITE_TV_CATEGORY_ID = "favorite_tv"
+        /** Prefix used in MediaItem.status to identify IPTV items. */
+        const val IPTV_STATUS_PREFIX = "iptv:"
+    }
+
+    /** Check if a MediaItem represents an IPTV channel. */
+    fun isIptvItem(item: MediaItem): Boolean = item.status?.startsWith(IPTV_STATUS_PREFIX) == true
+
+    /** Extract the IPTV channel ID from a MediaItem's status field. */
+    fun getIptvChannelId(item: MediaItem): String? =
+        item.status?.removePrefix(IPTV_STATUS_PREFIX)?.takeIf { it.isNotBlank() }
+
+    /** Get the stream URL for an IPTV MediaItem. */
+    fun getIptvStreamUrl(itemId: Int): String? = iptvChannelMap[itemId]?.streamUrl
+
+    private fun iptvChannelToMediaItem(
+        channel: com.arflix.tv.data.model.IptvChannel,
+        epg: com.arflix.tv.data.model.IptvNowNext?
+    ): MediaItem {
+        val stableId = channel.id.hashCode() and 0x7FFFFFFF
+        iptvChannelMap[stableId] = channel
+
+        val nowProgram = epg?.now
+        val nextProgram = epg?.next ?: epg?.later ?: epg?.upcoming?.firstOrNull()
+        val timeFmt = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).apply {
+            timeZone = java.util.TimeZone.getDefault()
+        }
+        fun fmtRange(p: com.arflix.tv.data.model.IptvProgram): String {
+            val s = timeFmt.format(java.util.Date(p.startUtcMillis))
+            val e = timeFmt.format(java.util.Date(p.endUtcMillis))
+            return "$s - $e"
+        }
+        val overviewParts = mutableListOf<String>()
+        if (nowProgram != null) {
+            overviewParts.add("Now: ${fmtRange(nowProgram)}  ${nowProgram.title}")
+            if (!nowProgram.description.isNullOrBlank()) {
+                overviewParts.add(nowProgram.description)
+            }
+        }
+        if (nextProgram != null) {
+            overviewParts.add("Next: ${fmtRange(nextProgram)}  ${nextProgram.title}")
+        }
+
+        return MediaItem(
+            id = stableId,
+            title = channel.name,
+            subtitle = channel.group,
+            overview = overviewParts.joinToString("\n").ifBlank { "Live TV" },
+            mediaType = MediaType.TV,
+            image = channel.logo ?: "",
+            backdrop = channel.logo,
+            badge = "LIVE",
+            status = "$IPTV_STATUS_PREFIX${channel.id}",
+            isOngoing = true
+        )
+    }
+
+    private suspend fun buildFavoriteTvCategory(): Category? {
+        // Use non-blocking memory read first; fall back to mutex-guarded disk read
+        val snapshot = iptvRepository.getMemoryCachedSnapshot()
+            ?: iptvRepository.getCachedSnapshotOrNull()
+            ?: return null
+        val favoriteIds = snapshot.favoriteChannels.toHashSet()
+        if (favoriteIds.isEmpty()) return null
+
+        // Re-derive now/next from cached programs so "Now" shifts when a program ends.
+        // This is free (no network) — just recalculates which program is live.
+        val favoriteChannelIds = snapshot.channels
+            .filter { favoriteIds.contains(it.id) }
+            .map { it.id }
+            .toSet()
+        iptvRepository.reDeriveCachedNowNext(favoriteChannelIds)
+        // Re-read snapshot after re-derive to get updated nowNext
+        val freshSnapshot = iptvRepository.getMemoryCachedSnapshot() ?: snapshot
+
+        // Iterate channels in their original list order (matching TV page order)
+        val items = freshSnapshot.channels
+            .filter { favoriteIds.contains(it.id) }
+            .mapNotNull { channel ->
+                val epg = freshSnapshot.nowNext[channel.id]
+                iptvChannelToMediaItem(channel, epg)
+            }
+        if (items.isEmpty()) return null
+
+        return Category(
+            id = FAVORITE_TV_CATEGORY_ID,
+            title = "Favorite TV",
+            items = items
+        )
+    }
+
     private fun isCustomCatalogConfig(cfg: CatalogConfig): Boolean {
         return !cfg.isPreinstalled ||
             cfg.id.startsWith("custom_") ||
@@ -114,16 +209,104 @@ class HomeViewModel @Inject constructor(
         return category?.items?.any { !it.isPlaceholder } == true
     }
 
+    /**
+     * Refresh the Favorite TV category's EPG data (Now/Next display).
+     * @param networkFetch If true, also fetch fresh EPG from the Xtream short EPG API.
+     *                     If false, only re-derive from cached program data (free, no network).
+     */
+    private fun refreshFavoriteTvEpg(networkFetch: Boolean = false) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val categories = _uiState.value.categories
+                val favTvIndex = categories.indexOfFirst { it.id == FAVORITE_TV_CATEGORY_ID }
+                if (favTvIndex < 0) return@launch
+
+                val currentFavTv = categories[favTvIndex]
+                // Collect channel IDs from current items
+                val channelIds = currentFavTv.items.mapNotNull { getIptvChannelId(it) }.toSet()
+                if (channelIds.isEmpty()) return@launch
+
+                // Optionally do network refresh first
+                if (networkFetch) {
+                    val now = SystemClock.elapsedRealtime()
+                    if (now - lastEpgNetworkRefreshMs >= EPG_NETWORK_REFRESH_MS) {
+                        lastEpgNetworkRefreshMs = now
+                        runCatching { iptvRepository.refreshEpgForChannels(channelIds) }
+                    }
+                }
+
+                // Re-derive now/next from (possibly updated) cached data
+                iptvRepository.reDeriveCachedNowNext(channelIds)
+
+                // Rebuild the category with updated EPG text
+                val freshCategory = withContext(Dispatchers.IO) {
+                    runCatching { buildFavoriteTvCategory() }.getOrNull()
+                } ?: return@launch
+
+                // Check if anything actually changed to avoid needless recomposition
+                val oldOverviews = currentFavTv.items.map { it.overview }
+                val newOverviews = freshCategory.items.map { it.overview }
+                if (oldOverviews == newOverviews) return@launch
+
+                // Apply user-renamed title if applicable
+                val cfg = savedCatalogById[FAVORITE_TV_CATEGORY_ID]
+                val titled = if (cfg != null && cfg.title.isNotBlank() && cfg.title != freshCategory.title) {
+                    freshCategory.copy(title = cfg.title)
+                } else {
+                    freshCategory
+                }
+
+                withContext(Dispatchers.Main.immediate) {
+                    val current = _uiState.value.categories.toMutableList()
+                    val idx = current.indexOfFirst { it.id == FAVORITE_TV_CATEGORY_ID }
+                    if (idx >= 0) {
+                        current[idx] = titled
+                        _uiState.value = _uiState.value.copy(categories = current)
+                        System.err.println("[EPG-Refresh] Updated Favorite TV row (network=$networkFetch)")
+                    }
+                }
+            } catch (e: Exception) {
+                System.err.println("[EPG-Refresh] Error: ${e.message}")
+            }
+        }
+    }
+
+    /** Start periodic EPG refresh for the Favorite TV home row. */
+    private fun startEpgRefreshTimer() {
+        epgRefreshJob?.cancel()
+        epgRefreshJob = viewModelScope.launch {
+            // Initial delay — let home data + IPTV warmup finish first
+            delay(if (isLowRamDevice) 10_000L else 5_000L)
+            var tickCount = 0L
+            while (true) {
+                tickCount++
+                // Every tick (60s): local re-derive
+                // Every 5th tick (5 min): also do network refresh
+                val doNetwork = tickCount % ((EPG_NETWORK_REFRESH_MS / EPG_LOCAL_REFRESH_MS).coerceAtLeast(1)) == 0L
+                refreshFavoriteTvEpg(networkFetch = doNetwork)
+                delay(EPG_LOCAL_REFRESH_MS)
+            }
+        }
+    }
+
     private val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
     private val isLowRamDevice = activityManager.isLowRamDevice || activityManager.memoryClass <= 256
-    // Keep IO concurrency conservative on TV hardware to avoid starving UI thread.
-    private val networkParallelism = if (isLowRamDevice) 2 else 3
+    // IO concurrency for network requests (logo fetches, catalog loads, etc.)
+    private val networkParallelism = if (isLowRamDevice) 3 else 5
     private val networkDispatcher = Dispatchers.IO.limitedParallelism(networkParallelism)
     private var lastContinueWatchingItems: List<MediaItem> = emptyList()
     private var lastContinueWatchingUpdateMs: Long = 0L
     private var lastResolvedBaseCategories: List<Category> = emptyList()
     private val CONTINUE_WATCHING_REFRESH_MS = 45_000L
     private val HOME_PLACEHOLDER_ITEM_COUNT = 8
+
+    // EPG refresh intervals for Favorite TV row
+    /** Local re-derive: shift now/next from cached programs when a program ends. */
+    private val EPG_LOCAL_REFRESH_MS = 60_000L
+    /** Network refresh: fetch fresh short EPG for favorite channels (Xtream only). */
+    private val EPG_NETWORK_REFRESH_MS = 5 * 60_000L
+    private var epgRefreshJob: Job? = null
+    private var lastEpgNetworkRefreshMs: Long = 0L
 
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
@@ -160,12 +343,12 @@ class HomeViewModel @Inject constructor(
         .coerceAtLeast(1)
     private val backdropPreloadWidth = cardBackdropWidth
     private val backdropPreloadHeight = cardBackdropHeight
-    private val initialLogoPrefetchRows = 1
-    private val initialLogoPrefetchItemsPerRow = if (isLowRamDevice) 3 else 4
-    private val initialBackdropPrefetchItems = if (isLowRamDevice) 2 else 2
-    private val incrementalLogoPrefetchItems = if (isLowRamDevice) 3 else 4
-    private val prioritizedLogoPrefetchItems = if (isLowRamDevice) 6 else 5
-    private val incrementalBackdropPrefetchItems = if (isLowRamDevice) 2 else 2
+    private val initialLogoPrefetchRows = if (isLowRamDevice) 2 else 3
+    private val initialLogoPrefetchItemsPerRow = if (isLowRamDevice) 4 else 6
+    private val initialBackdropPrefetchItems = if (isLowRamDevice) 3 else 4
+    private val incrementalLogoPrefetchItems = if (isLowRamDevice) 5 else 7
+    private val prioritizedLogoPrefetchItems = if (isLowRamDevice) 7 else 8
+    private val incrementalBackdropPrefetchItems = if (isLowRamDevice) 3 else 4
     private val initialCategoryItemCap = if (isLowRamDevice) 28 else 40
     private val categoryPageSize = if (isLowRamDevice) 14 else 20
     private val nearEndThreshold = 4
@@ -182,6 +365,8 @@ class HomeViewModel @Inject constructor(
     private val logoCache = LinkedHashMap<String, String>(maxLogoCacheEntries + 32, 0.75f, true)
     private var logoCacheRevision: Long = 0L
     private var lastPublishedLogoCacheRevision: Long = -1L
+    private val logoCachePrefs = context.getSharedPreferences("logo_cache", Context.MODE_PRIVATE)
+    private var logoCacheDiskWriteJob: Job? = null
     private val logoFetchInFlight = Collections.synchronizedSet(mutableSetOf<String>())
     private val heroDetailsCache = ConcurrentHashMap<String, HeroDetailsSnapshot>()
     private val savedCatalogById = ConcurrentHashMap<String, CatalogConfig>()
@@ -191,9 +376,9 @@ class HomeViewModel @Inject constructor(
     @Volatile
     private var pendingLogoPublishPriority: Boolean = false
     private var lastLogoCachePublishMs: Long = 0L
-    private val LOGO_CACHE_PUBLISH_THROTTLE_MS = if (isLowRamDevice) 900L else 420L
-    private val LOGO_CACHE_IDLE_REQUIRED_MS = if (isLowRamDevice) 820L else 480L
-    private val LOGO_CACHE_FAST_SCROLL_IDLE_MS = if (isLowRamDevice) 260L else 180L
+    private val LOGO_CACHE_PUBLISH_THROTTLE_MS = if (isLowRamDevice) 400L else 180L
+    private val LOGO_CACHE_IDLE_REQUIRED_MS = if (isLowRamDevice) 350L else 200L
+    private val LOGO_CACHE_FAST_SCROLL_IDLE_MS = if (isLowRamDevice) 180L else 100L
 
     private fun getCachedLogo(key: String): String? = synchronized(logoCacheLock) {
         logoCache[key]
@@ -235,6 +420,7 @@ class HomeViewModel @Inject constructor(
                 logoCacheRevision += 1L
             }
         }
+        if (changed) saveLogoCacheToDisk()
         return changed
     }
 
@@ -295,7 +481,53 @@ class HomeViewModel @Inject constructor(
         }
     }
 
+    /** Restore logo URL cache from disk (SharedPreferences). Called once at init. */
+    private fun restoreLogoCacheFromDisk() {
+        try {
+            val json = logoCachePrefs.getString("urls", null) ?: return
+            val map = org.json.JSONObject(json)
+            val keys = map.keys()
+            synchronized(logoCacheLock) {
+                while (keys.hasNext()) {
+                    val key = keys.next()
+                    logoCache[key] = map.getString(key)
+                }
+                if (logoCache.isNotEmpty()) {
+                    logoCacheRevision += 1L
+                }
+            }
+            System.err.println("HomeVM: restored ${logoCache.size} logo URLs from disk cache")
+        } catch (e: Exception) {
+            System.err.println("HomeVM: failed to restore logo cache: ${e.message}")
+        }
+    }
+
+    /** Persist logo URL cache to disk (debounced). */
+    private fun saveLogoCacheToDisk() {
+        logoCacheDiskWriteJob?.cancel()
+        logoCacheDiskWriteJob = viewModelScope.launch(Dispatchers.IO) {
+            delay(2_000L) // debounce: wait 2s after last change before writing
+            try {
+                val snapshot = synchronized(logoCacheLock) { LinkedHashMap(logoCache) }
+                val json = org.json.JSONObject(snapshot as Map<*, *>).toString()
+                logoCachePrefs.edit().putString("urls", json).apply()
+            } catch (e: Exception) {
+                System.err.println("HomeVM: failed to save logo cache: ${e.message}")
+            }
+        }
+    }
+
     init {
+        // Restore logo URL cache from disk for instant clearlogos on cold start
+        restoreLogoCacheFromDisk()
+        if (logoCache.isNotEmpty()) {
+            _cardLogoUrls.value = snapshotLogoCache()
+            // Pre-warm Coil memory cache with disk-cached logo URLs so images are
+            // decoded and ready before categories render (eliminates visible pop-in).
+            val cachedUrls = synchronized(logoCacheLock) { logoCache.values.toList() }
+            preloadLogoImages(cachedUrls.takeLast(if (isLowRamDevice) 12 else 24), batchLimit = if (isLowRamDevice) 12 else 24)
+        }
+
         // Instantly show Continue Watching from disk cache before anything else loads.
         viewModelScope.launch {
             try {
@@ -337,12 +569,43 @@ class HomeViewModel @Inject constructor(
             }
         }
         viewModelScope.launch(Dispatchers.IO) {
-            // Warm IPTV/EPG in background shortly after app start so TV page opens with data.
-            delay(if (isLowRamDevice) 6000L else 2500L)
-            runCatching {
-                iptvRepository.warmupFromCacheOnly()
+            // Warm IPTV channels + EPG in background immediately on startup.
+            // First load from disk cache (fast), then do targeted network EPG refresh
+            // for favorite channels so home screen shows current program info.
+            try {
+                // Phase 1: Load channels from disk cache
+                val snapshot = iptvRepository.getMemoryCachedSnapshot()
+                    ?: iptvRepository.getCachedSnapshotOrNull()
+                if (snapshot == null || snapshot.channels.isEmpty()) {
+                    // No disk cache — do full network load so Favorite TV row can appear
+                    runCatching {
+                        iptvRepository.loadSnapshot(forcePlaylistReload = false, forceEpgReload = false)
+                    }
+                }
+                // Phase 2: Refresh EPG for favorite channels (lightweight network call)
+                val snap = iptvRepository.getMemoryCachedSnapshot()
+                if (snap != null) {
+                    val favIds = snap.favoriteChannels.toHashSet()
+                    val favChannelIds = snap.channels
+                        .filter { favIds.contains(it.id) }
+                        .map { it.id }
+                        .toSet()
+                    if (favChannelIds.isNotEmpty()) {
+                        val refreshed = runCatching { iptvRepository.refreshEpgForChannels(favChannelIds) }.getOrNull()
+                        if (refreshed == null) {
+                            // refreshEpgForChannels failed (not Xtream?) — do full EPG reload
+                            runCatching { iptvRepository.loadSnapshot(forcePlaylistReload = false, forceEpgReload = true) }
+                        }
+                        // Rebuild Favorite TV row with fresh EPG data
+                        refreshFavoriteTvEpg(networkFetch = false)
+                    }
+                }
+            } catch (e: Exception) {
+                System.err.println("HomeVM: IPTV warmup failed: ${e.message}")
             }
         }
+        // Periodically refresh EPG data for Favorite TV row on home screen
+        startEpgRefreshTimer()
         viewModelScope.launch {
             catalogRepository.observeCatalogs()
                 .map { catalogs ->
@@ -486,6 +749,11 @@ class HomeViewModel @Inject constructor(
                 }
 
                 val currentBaseCategories = _uiState.value.categories.filter { it.id != "continue_watching" }
+                // Build Favorite TV category from IPTV cache (runs on IO)
+                val favoriteTvCategory = withContext(Dispatchers.IO) {
+                    runCatching { buildFavoriteTvCategory() }.getOrNull()
+                }
+
                 val categories = withContext(networkDispatcher) {
                     val baseCategories = runCatching {
                         mediaRepository.getHomeCategories()
@@ -494,11 +762,26 @@ class HomeViewModel @Inject constructor(
                     val baseById = LinkedHashMap<String, Category>().apply {
                         currentBaseCategories.forEach { put(it.id, it) }
                         baseCategories.forEach { put(it.id, it) }
+                        // Inject Favorite TV so catalog ordering picks it up, or remove
+                        // stale skeleton/placeholder if no favorites exist for this profile.
+                        if (favoriteTvCategory != null) {
+                            put(FAVORITE_TV_CATEGORY_ID, favoriteTvCategory)
+                        } else {
+                            remove(FAVORITE_TV_CATEGORY_ID)
+                        }
                     }
 
                     val preinstalled = savedCatalogs
                         .filter { it.isPreinstalled }
-                        .mapNotNull { baseById[it.id] }
+                        .mapNotNull { cfg ->
+                            val category = baseById[cfg.id] ?: return@mapNotNull null
+                            // Apply user-renamed title from saved catalog config
+                            if (cfg.title.isNotBlank() && cfg.title != category.title) {
+                                category.copy(title = cfg.title)
+                            } else {
+                                category
+                            }
+                        }
                     val customCatalogConfigs = savedCatalogs.filter { cfg -> isCustomCatalogConfig(cfg) }
                     val stickyCustomById = currentBaseCategories
                         .filter { category ->
@@ -566,10 +849,47 @@ class HomeViewModel @Inject constructor(
                 val heroItem = categories.firstOrNull()?.items?.firstOrNull()
 
                 // Preload logos for the first visible rows so card overlays appear immediately.
+                // Skip IPTV items — their channel logo is already in item.image.
+                // Skip items with disk-cached logos — no network call needed.
                 val itemsToPreload = categories
                     .take(initialLogoPrefetchRows)
                     .flatMap { it.items.take(initialLogoPrefetchItemsPerRow) }
-                val logoJobs = itemsToPreload.map { item ->
+                    .filter { !isIptvItem(it) }
+
+                // Separate: items already in logo cache (instant) vs items needing fetch
+                val cachedLogoResults = mutableMapOf<String, String>()
+                val itemsNeedingFetch = mutableListOf<MediaItem>()
+                for (item in itemsToPreload) {
+                    val key = "${item.mediaType}_${item.id}"
+                    val cached = getCachedLogo(key)
+                    if (cached != null) {
+                        cachedLogoResults[key] = cached
+                    } else {
+                        itemsNeedingFetch.add(item)
+                    }
+                }
+
+                // If we have disk-cached logos, publish them immediately (before network fetch)
+                if (cachedLogoResults.isNotEmpty()) {
+                    val heroLogoFromCache = heroItem?.let { item ->
+                        val key = "${item.mediaType}_${item.id}"
+                        cachedLogoResults[key]
+                    }
+                    if (heroLogoFromCache != null || cachedLogoResults.isNotEmpty()) {
+                        // Use high batch limit for initial display — preload all cached logos at once
+                        preloadLogoImages(cachedLogoResults.values.toList(), batchLimit = if (isLowRamDevice) 8 else 20)
+                        _uiState.value = _uiState.value.copy(
+                            isLoading = _uiState.value.isLoading,
+                            categories = categories,
+                            heroItem = heroItem,
+                            heroLogoUrl = heroLogoFromCache ?: _uiState.value.heroLogoUrl
+                        )
+                        _cardLogoUrls.value = snapshotLogoCache()
+                    }
+                }
+
+                // Fetch remaining logos from TMDB (only items not in disk cache)
+                val logoJobs = itemsNeedingFetch.map { item ->
                     async(networkDispatcher) {
                         val key = "${item.mediaType}_${item.id}"
                         try {
@@ -580,11 +900,15 @@ class HomeViewModel @Inject constructor(
                         }
                     }
                 }
-                val logoResults = logoJobs.awaitAll().filterNotNull().toMap()
+                val fetchedLogoResults = logoJobs.awaitAll().filterNotNull().toMap()
                 if (requestId != loadHomeRequestId) return@loadHome
 
-                // Phase 1.2: Preload actual images with Coil
-                preloadLogoImages(logoResults.values.toList())
+                val logoResults = cachedLogoResults + fetchedLogoResults
+
+                // Phase 1.2: Preload actual images with Coil (only newly fetched)
+                if (fetchedLogoResults.isNotEmpty()) {
+                    preloadLogoImages(fetchedLogoResults.values.toList(), batchLimit = if (isLowRamDevice) 8 else 20)
+                }
 
                 // Also preload backdrop images for first row
                 val backdropUrls = categories.firstOrNull()?.items?.take(initialBackdropPrefetchItems)?.mapNotNull {
@@ -610,6 +934,38 @@ class HomeViewModel @Inject constructor(
                 )
                 _cardLogoUrls.value = snapshotLogoCache()
                 refreshWatchedBadges()
+
+                // Immediately refresh EPG for Favorite TV row if the cached data
+                // produced "Live TV" fallback (stale/empty EPG).
+                // The background init warmup may also be refreshing EPG concurrently —
+                // this is a fast-path that fires as soon as categories are set.
+                val favTvCat = _uiState.value.categories.firstOrNull { it.id == FAVORITE_TV_CATEGORY_ID }
+                if (favTvCat != null && favTvCat.items.any { it.overview == "Live TV" }) {
+                    viewModelScope.launch(Dispatchers.IO) {
+                        val channelIds = favTvCat.items.mapNotNull { getIptvChannelId(it) }.toSet()
+                        if (channelIds.isNotEmpty()) {
+                            // Try lightweight Xtream short EPG first
+                            val refreshed = runCatching { iptvRepository.refreshEpgForChannels(channelIds) }.getOrNull()
+                            if (refreshed == null) {
+                                // Not Xtream or failed — fall back to full EPG reload
+                                runCatching { iptvRepository.loadSnapshot(forcePlaylistReload = false, forceEpgReload = true) }
+                            }
+                            refreshFavoriteTvEpg(networkFetch = false)
+                            // Also update hero if it's an IPTV item showing stale EPG
+                            val currentHero = _uiState.value.heroItem
+                            if (currentHero != null && isIptvItem(currentHero) && currentHero.overview == "Live TV") {
+                                val updatedCat = _uiState.value.categories.firstOrNull { it.id == FAVORITE_TV_CATEGORY_ID }
+                                val updatedHero = updatedCat?.items?.firstOrNull { it.id == currentHero.id }
+                                if (updatedHero != null) {
+                                    withContext(Dispatchers.Main.immediate) {
+                                        _uiState.value = _uiState.value.copy(heroItem = updatedHero)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 val allCatalogs = catalogRepository.getCatalogs()
                 loadCustomCatalogsIncrementally(allCatalogs)
 
@@ -695,7 +1051,7 @@ class HomeViewModel @Inject constructor(
     private fun loadCustomCatalogsIncrementally(savedCatalogs: List<CatalogConfig>) {
         customCatalogsJob?.cancel()
         customCatalogsJob = viewModelScope.launch(networkDispatcher) {
-            delay(if (isLowRamDevice) 1800L else 700L)
+            delay(if (isLowRamDevice) 400L else 150L)
             val customCatalogs = savedCatalogs.filter { cfg -> isCustomCatalogConfig(cfg) }
             if (customCatalogs.isEmpty()) return@launch
             val customIds = customCatalogs.map { it.id }.toSet()
@@ -705,7 +1061,7 @@ class HomeViewModel @Inject constructor(
             val baseCategories = _uiState.value.categories.filterNot { customIds.contains(it.id) }
             val baseById = baseCategories.associateBy { it.id }
 
-            val loadedById = LinkedHashMap<String, Category>()
+            val loadedById = java.util.concurrent.ConcurrentHashMap<String, Category>()
             fun publishMerged(currentState: HomeUiState) {
                 // Read latest state for Continue Watching to avoid race condition
                 // where refreshContinueWatchingOnly() adds CW between snapshot and write.
@@ -744,41 +1100,47 @@ class HomeViewModel @Inject constructor(
             }
             publishMerged(_uiState.value)
 
-            customCatalogs.forEach { catalog ->
-                val firstPage = runCatching {
-                    mediaRepository.loadCustomCatalogPage(
-                        catalog = catalog,
-                        offset = 0,
-                        limit = initialCategoryItemCap
-                    )
-                }.getOrNull()
-                if (firstPage == null || firstPage.items.isEmpty()) {
-                    // Mark as resolved-empty so placeholder rows are removed instead of sticking forever.
-                    loadedById[catalog.id] = Category(
-                        id = catalog.id,
-                        title = catalog.title,
-                        items = emptyList()
-                    )
-                    categoryPaginationStates[catalog.id] = CategoryPaginationState(
-                        loadedCount = 0,
-                        hasMore = false
-                    )
-                    publishMerged(_uiState.value)
-                    return@forEach
+            // Load custom catalogs in parallel (up to 3 concurrently) for faster appearance
+            val catalogSemaphore = kotlinx.coroutines.sync.Semaphore(if (isLowRamDevice) 2 else 3)
+            val jobs = customCatalogs.map { catalog ->
+                async(networkDispatcher) {
+                    catalogSemaphore.withPermit {
+                        val firstPage = runCatching {
+                            mediaRepository.loadCustomCatalogPage(
+                                catalog = catalog,
+                                offset = 0,
+                                limit = initialCategoryItemCap
+                            )
+                        }.getOrNull()
+                        if (firstPage == null || firstPage.items.isEmpty()) {
+                            loadedById[catalog.id] = Category(
+                                id = catalog.id,
+                                title = catalog.title,
+                                items = emptyList()
+                            )
+                            categoryPaginationStates[catalog.id] = CategoryPaginationState(
+                                loadedCount = 0,
+                                hasMore = false
+                            )
+                        } else {
+                            loadedById[catalog.id] = Category(
+                                id = catalog.id,
+                                title = catalog.title,
+                                items = firstPage.items
+                            )
+                            categoryPaginationStates[catalog.id] = CategoryPaginationState(
+                                loadedCount = firstPage.items.size,
+                                hasMore = firstPage.hasMore
+                            )
+                        }
+                        // Publish as each catalog completes so rows appear incrementally
+                        withContext(Dispatchers.Main.immediate) {
+                            publishMerged(_uiState.value)
+                        }
+                    }
                 }
-
-                loadedById[catalog.id] = Category(
-                    id = catalog.id,
-                    title = catalog.title,
-                    items = firstPage.items
-                )
-                categoryPaginationStates[catalog.id] = CategoryPaginationState(
-                    loadedCount = firstPage.items.size,
-                    hasMore = firstPage.hasMore
-                )
-                val current = _uiState.value
-                publishMerged(current)
             }
+            jobs.awaitAll()
         }
     }
 
@@ -925,13 +1287,15 @@ class HomeViewModel @Inject constructor(
      * Phase 1.2: Preload images into Coil's memory/disk cache
      * Uses target display sizes to reduce decode overhead.
      */
-    private fun preloadImagesWithCoil(urls: List<String>, width: Int, height: Int) {
+    private fun preloadImagesWithCoil(urls: List<String>, width: Int, height: Int, batchLimit: Int = 0) {
         if (preloadedRequests.size > if (isLowRamDevice) 1_200 else 4_000) {
             preloadedRequests.clear()
         }
+        val defaultLimit = if (isLowRamDevice) 2 else 4
+        val limit = if (batchLimit > 0) batchLimit else defaultLimit
         val uniqueUrls = urls.filter { url ->
             preloadedRequests.add("$url|${width}x${height}")
-        }.take(if (isLowRamDevice) 2 else 4)
+        }.take(limit)
         if (uniqueUrls.isEmpty()) return
 
         uniqueUrls.forEach { url ->
@@ -946,8 +1310,8 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    private fun preloadLogoImages(urls: List<String>) {
-        preloadImagesWithCoil(urls, logoPreloadWidth, logoPreloadHeight)
+    private fun preloadLogoImages(urls: List<String>, batchLimit: Int = 0) {
+        preloadImagesWithCoil(urls, logoPreloadWidth, logoPreloadHeight, batchLimit)
     }
 
     private fun preloadBackdropImages(urls: List<String>) {
@@ -1123,8 +1487,9 @@ class HomeViewModel @Inject constructor(
     private fun refreshWatchedBadges() {
         viewModelScope.launch(networkDispatcher) {
             try {
-            // Initialize watched cache - works for both Trakt and non-Trakt profiles.
-            // For non-Trakt, it loads from Supabase watched_movies/watched_episodes.
+            val isAuth = traktRepository.isAuthenticated.first()
+            if (!isAuth) return@launch
+
             traktRepository.initializeWatchedCache()
             val categories = _uiState.value.categories
             if (categories.isEmpty()) return@launch
@@ -1242,8 +1607,8 @@ class HomeViewModel @Inject constructor(
             performHeroUpdate(item, currentCachedLogo)
             scheduleHeroDetailsFetch(item, fastScrolling)
 
-            // Fetch logo async if not cached
-            if (currentCachedLogo == null) {
+            // Fetch logo async if not cached (skip IPTV — uses channel logo directly)
+            if (currentCachedLogo == null && !isIptvItem(item)) {
                 try {
                     val logoUrl = withContext(networkDispatcher) {
                         mediaRepository.getLogoUrl(item.mediaType, item.id)
@@ -1426,9 +1791,9 @@ class HomeViewModel @Inject constructor(
         val targetJob = viewModelScope.launch(networkDispatcher) {
             delay(
                 if (prioritizeVisible) {
-                    if (isLowRamDevice) 120L else 70L
+                    if (isLowRamDevice) 60L else 30L
                 } else {
-                    if (isLowRamDevice) 520L else 280L
+                    if (isLowRamDevice) 200L else 100L
                 }
             )
             val categories = _uiState.value.categories
@@ -1437,6 +1802,7 @@ class HomeViewModel @Inject constructor(
             val maxLogoItems = if (prioritizeVisible) prioritizedLogoPrefetchItems else incrementalLogoPrefetchItems
 
             val itemsToLoad = category.items.take(maxLogoItems).filter { item ->
+                if (isIptvItem(item)) return@filter false  // IPTV items use channel logo directly
                 val key = "${item.mediaType}_${item.id}"
                 !hasCachedLogo(key) && logoFetchInFlight.add(key)
             }

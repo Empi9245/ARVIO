@@ -222,6 +222,7 @@ fun ProfileSelectionScreen(
                 name = uiState.newProfileName,
                 onNameChange = { viewModel.setNewProfileName(it) },
                 selectedColorIndex = uiState.selectedColorIndex,
+                onColorSelected = { viewModel.setSelectedColorIndex(it) },
                 selectedAvatarId = uiState.selectedAvatarId,
                 onAvatarSelected = { viewModel.setSelectedAvatarId(it) },
                 onConfirm = { viewModel.createProfile() },
@@ -232,9 +233,11 @@ fun ProfileSelectionScreen(
         // Edit Profile Dialog
         uiState.editingProfile?.let { profile ->
             EditProfileDialog(
+                profile = profile,
                 name = uiState.newProfileName,
                 onNameChange = { viewModel.setNewProfileName(it) },
                 selectedColorIndex = uiState.selectedColorIndex,
+                onColorSelected = { viewModel.setSelectedColorIndex(it) },
                 selectedAvatarId = uiState.selectedAvatarId,
                 onAvatarSelected = { viewModel.setSelectedAvatarId(it) },
                 onConfirm = { viewModel.updateProfile() },

@@ -11,9 +11,9 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
-import androidx.datastore.preferences.preferencesDataStore
 import com.arflix.tv.util.AppLogger
 import com.arflix.tv.util.Constants
+import com.arflix.tv.util.authDataStore
 import com.arflix.tv.util.hash
 import com.arflix.tv.util.sanitizeEmail
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
@@ -50,7 +50,7 @@ import javax.inject.Inject
 import javax.inject.Provider
 import javax.inject.Singleton
 
-private val Context.authDataStore: DataStore<Preferences> by preferencesDataStore(name = "auth_prefs")
+// authDataStore is defined in com.arflix.tv.util.DataStores to avoid duplicate DataStore instances
 
 /**
  * User profile data from Supabase

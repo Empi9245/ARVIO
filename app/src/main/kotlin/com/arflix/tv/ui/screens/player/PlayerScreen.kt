@@ -87,7 +87,6 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.common.Player
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
-import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -220,7 +219,7 @@ fun PlayerScreen(
     var dvStartupFallbackStage by remember { mutableIntStateOf(0) } // 0=none, 1=HEVC forced, 2=AVC forced
     var blackVideoRecoveryStage by remember { mutableIntStateOf(0) } // 0=none, 1=HEVC forced, 2=AVC forced
     var blackVideoReadySinceMs by remember { mutableStateOf<Long?>(null) }
-    val heavyStartupMaxRetries = 2
+    val heavyStartupMaxRetries = 6
     var rebufferRecoverAttempted by remember { mutableStateOf(false) }
     var longRebufferCount by remember { mutableIntStateOf(0) }
     var autoAdvanceAttempts by remember { mutableIntStateOf(0) }
@@ -306,7 +305,7 @@ fun PlayerScreen(
     val playbackHttpClient = remember(playbackCookieJar) {
         OkHttpClient.Builder()
             .cookieJar(playbackCookieJar)
-            .connectionPool(ConnectionPool(16, 5, TimeUnit.MINUTES))
+            .connectionPool(ConnectionPool(5, 5, TimeUnit.MINUTES))
             .followRedirects(true)
             .followSslRedirects(true)
             .retryOnConnectionFailure(true)
@@ -338,25 +337,16 @@ fun PlayerScreen(
             .setDataSourceFactory(httpDataSourceFactory)
     }
 
-    // Bandwidth meter with high initial estimate so adaptive streams start at good quality.
-    // Debrid CDNs typically deliver 50-200 Mbps; 50 Mbps initial avoids quality ramp-up stutter.
-    val bandwidthMeter = remember {
-        DefaultBandwidthMeter.Builder(context)
-            .setInitialBitrateEstimate(50_000_000L) // 50 Mbps initial estimate
-            .build()
-    }
-
     // ExoPlayer - configured for maximum codec compatibility and smooth streaming
     val exoPlayer = remember {
-        // Ultra-fast startup: minimal bufferForPlaybackMs so STATE_READY fires ASAP.
-        // Debrid CDNs have high bandwidth so 500ms is plenty for first-frame.
-        // The startup gate provides an additional buffering safety net.
+        // Balanced startup buffering: lowered bufferForPlaybackMs from 7000 to 3500
+        // for faster time-to-first-frame while keeping deep buffers for stability.
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
-                30_000,     // minBufferMs: 30s - keep filling buffer in background
-                240_000,    // maxBufferMs: 4 min deep buffer for no mid-stream buffering
-                500,        // bufferForPlaybackMs: 500ms (was 2s) - fastest STATE_READY transition
-                5_000       // bufferForPlaybackAfterRebufferMs: 5s (was 8s) - recover quickly
+                45_000,
+                240_000,
+                3_500,
+                12_000
             )
             .setTargetBufferBytes(C.LENGTH_UNSET)
             .setPrioritizeTimeOverSizeThresholds(true)
@@ -365,13 +355,11 @@ fun PlayerScreen(
 
         ExoPlayer.Builder(context)
             .setMediaSourceFactory(mediaSourceFactory)
-            .setBandwidthMeter(bandwidthMeter)
             .setRenderersFactory(
                 DefaultRenderersFactory(context)
-                    // Hardware decoders first, extension (software) decoders only as fallback.
-                    // EXTENSION_RENDERER_MODE_ON means: try HW first, fall back to SW.
-                    // (PREFER would use SW decoders first -- too slow for large 4K files)
-                    .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
+                    // Prefer hardware decoders first, use extension decoders as fallback.
+                    // This is more stable for heavy 4K remux streams on TV devices.
+                    .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
                     // Enable fallback decoders for any format issues
                     .setEnableDecoderFallback(true)
             )
@@ -710,11 +698,6 @@ fun PlayerScreen(
                     hlsFactory.createMediaSource(mediaItem)
                 urlLower.contains(".mpd") || urlLower.contains("/dash") || urlLower.contains("format=dash") ->
                     dashFactory.createMediaSource(mediaItem)
-                // Use ProgressiveMediaSource directly for known file extensions
-                // (debrid CDN links, direct downloads). Skips content-type sniffing.
-                urlLower.contains(".mkv") || urlLower.contains(".mp4") ||
-                    urlLower.contains(".avi") || urlLower.contains(".webm") ->
-                    progressiveFactory.createMediaSource(mediaItem)
                 else -> mediaSourceFactory.createMediaSource(mediaItem)
             }
             val resumePosition = uiState.savedPosition
@@ -723,14 +706,13 @@ fun PlayerScreen(
             } else {
                 exoPlayer.setMediaSource(mediaSource)
             }
-            // Startup gate: play as soon as STATE_READY fires.
-            // bufferForPlaybackMs (500ms) ensures minimal data is buffered before READY.
-            // The gate just waits for READY state - no additional buffered-ahead requirement
-            // beyond what DefaultLoadControl already enforces.
-            // Heavy streams get a small extra cushion (1s) to prevent immediate rebuffer.
+            // Startup gate: wait for a minimum buffered-ahead window before playing.
+            // Lowered targets for faster time-to-first-frame:
+            // - Normal/debrid streams: 2.5s (just above bufferForPlaybackMs, trust the CDN)
+            // - Heavy 4K/remux/DV streams: 5s (need a bit more to avoid early rebuffer)
             val heavy = isLikelyHeavyStream(uiState.selectedStream)
-            val startupBufferedTargetMs = if (heavy) 1_000L else 0L
-            val startupWaitTimeoutMs = if (heavy) 45_000L else 20_000L
+            val startupBufferedTargetMs = if (heavy) 5_000L else 2_500L
+            val startupWaitTimeoutMs = if (heavy) 75_000L else 35_000L
 
             exoPlayer.playWhenReady = false
             exoPlayer.prepare()
@@ -738,14 +720,11 @@ fun PlayerScreen(
             launch {
                 val waitStart = System.currentTimeMillis()
                 while (!playerReleased) {
+                    val bufferedAheadMs = (exoPlayer.bufferedPosition - exoPlayer.currentPosition).coerceAtLeast(0L)
                     val ready = exoPlayer.playbackState == Player.STATE_READY
-                    if (ready) {
-                        if (startupBufferedTargetMs <= 0L) break
-                        val bufferedAheadMs = (exoPlayer.bufferedPosition - exoPlayer.currentPosition).coerceAtLeast(0L)
-                        if (bufferedAheadMs >= startupBufferedTargetMs) break
-                    }
+                    if (ready && bufferedAheadMs >= startupBufferedTargetMs) break
                     if (System.currentTimeMillis() - waitStart >= startupWaitTimeoutMs) break
-                    delay(50) // 50ms poll for snappier response
+                    delay(100) // 100ms poll for faster response when target is reached
                 }
                 if (!playerReleased) {
                     exoPlayer.playWhenReady = true
@@ -1101,13 +1080,11 @@ fun PlayerScreen(
                 blackVideoReadySinceMs = null
             }
 
-            // Mark playback as started as soon as the player is playing.
-            // The loading overlay hides when this is true - keep the threshold minimal
-            // so the video appears immediately once frames are rendering.
+            // Mark playback as started only after media time moves beyond 00:00.
             if (!hasPlaybackStarted &&
                 exoPlayer.playbackState == Player.STATE_READY &&
                 exoPlayer.isPlaying &&
-                exoPlayer.currentPosition > 100L
+                exoPlayer.currentPosition > 800L
             ) {
                 hasPlaybackStarted = true
             }
@@ -2744,7 +2721,7 @@ private fun estimateInitialStartupTimeoutMs(
     stream: StreamSource?,
     isManualSelection: Boolean
 ): Long {
-    var timeoutMs = if (isManualSelection) 30_000L else 15_000L
+    var timeoutMs = if (isManualSelection) 40_000L else 18_000L
     if (stream == null) return timeoutMs
 
     val haystack = buildString {
@@ -2762,21 +2739,21 @@ private fun estimateInitialStartupTimeoutMs(
     val sizeBytes = parseSizeToBytes(stream.size)
 
     if (haystack.contains("4k") || haystack.contains("2160")) {
-        timeoutMs = timeoutMs.coerceAtLeast(40_000L)
+        timeoutMs = timeoutMs.coerceAtLeast(70_000L)
     }
     if (haystack.contains("remux") || haystack.contains("dolby vision") || haystack.contains(" dovi")) {
-        timeoutMs = timeoutMs.coerceAtLeast(45_000L)
+        timeoutMs = timeoutMs.coerceAtLeast(80_000L)
     }
 
     timeoutMs = when {
-        sizeBytes >= 40L * 1024 * 1024 * 1024 -> timeoutMs.coerceAtLeast(60_000L)
-        sizeBytes >= 30L * 1024 * 1024 * 1024 -> timeoutMs.coerceAtLeast(50_000L)
-        sizeBytes >= 20L * 1024 * 1024 * 1024 -> timeoutMs.coerceAtLeast(45_000L)
-        sizeBytes >= 10L * 1024 * 1024 * 1024 -> timeoutMs.coerceAtLeast(35_000L)
+        sizeBytes >= 40L * 1024 * 1024 * 1024 -> timeoutMs.coerceAtLeast(110_000L)
+        sizeBytes >= 30L * 1024 * 1024 * 1024 -> timeoutMs.coerceAtLeast(95_000L)
+        sizeBytes >= 20L * 1024 * 1024 * 1024 -> timeoutMs.coerceAtLeast(80_000L)
+        sizeBytes >= 10L * 1024 * 1024 * 1024 -> timeoutMs.coerceAtLeast(60_000L)
         else -> timeoutMs
     }
 
-    return timeoutMs.coerceAtMost(75_000L)
+    return timeoutMs.coerceAtMost(120_000L)
 }
 
 private fun parseSizeToBytes(sizeStr: String): Long {
