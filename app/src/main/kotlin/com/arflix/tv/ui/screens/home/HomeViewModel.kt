@@ -552,11 +552,9 @@ class HomeViewModel @Inject constructor(
             }
         }
         loadHomeData()
-        // Pre-warm Xtream VOD caches in the background so VOD sources are ready
-        // when the user navigates to movie/show details (avoids cold-catalog timeout).
-        viewModelScope.launch(Dispatchers.IO) {
-            runCatching { iptvRepository.warmXtreamVodCachesIfPossible() }
-        }
+        // Note: VOD cache warmup is NOT done here because loadXtreamVodStreams/loadXtreamSeriesList
+        // use a mutex — warming up would block all concurrent VOD lookups for 20-30s on large providers.
+        // Instead, VOD functions download on-demand and cache in memory for 6 hours.
         viewModelScope.launch {
             try {
                 // Ensure Continue Watching appears once Trakt tokens are loaded
