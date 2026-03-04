@@ -9,20 +9,12 @@ All notable changes to this project are documented in this file.
 
 ## [1.8.4] - 2026-03-04
 
-### Changed
-- App version label and package version updated to `1.8.4` (`versionCode 184`).
-
-### Removed
-- Search suggestions/typeahead flow from Search screen, including D-pad suggestion navigation and inline suggestion list.
-
-## [1.8.3] - 2026-03-04
-
 ### Added
-- Search suggestions/typeahead flow with D-pad navigation and quick open from suggestion list.
 - Player binge-group-aware next-episode preference handoff for more consistent source continuity.
 - TMDB watch-provider data support in repository layer (used for details enrichment and future UI extensions).
 
 ### Changed
+- App version label and package version updated to `1.8.4` (`versionCode 184`).
 - Home vertical catalog navigation tuned for smoother up/down transitions and lower frame-skip risk.
 - Home focus retention now survives category/custom-catalog list updates more reliably.
 - Custom catalog incremental load starts earlier to reduce time-to-visible after entering Home.
@@ -35,6 +27,9 @@ All notable changes to this project are documented in this file.
 - Subtitle switching no longer requires full media-source rebuild in normal track-switch cases.
 - Home hero metadata (time/budget/rating) now appears much faster when focus changes.
 - Cross-screen focus loss regressions when custom catalogs finished loading on Home.
+
+### Removed
+- Search suggestions/typeahead flow from Search screen, including D-pad suggestion navigation and inline suggestion list.
 
 ## [1.8.2] - 2026-03-02
 
