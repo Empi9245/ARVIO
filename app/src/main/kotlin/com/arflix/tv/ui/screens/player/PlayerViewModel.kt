@@ -643,6 +643,14 @@ class PlayerViewModel @Inject constructor(
         }
 
         fun findMatch(target: String): Subtitle? {
+            // Prefer embedded subtitles over addon subtitles when both match
+            val embeddedMatch = subtitles.firstOrNull { sub ->
+                sub.isEmbedded && subtitleTokens(sub).contains(target)
+            } ?: subtitles.firstOrNull { sub ->
+                sub.isEmbedded && (sub.label.lowercase().contains(target) || sub.lang.lowercase().contains(target))
+            }
+            if (embeddedMatch != null) return embeddedMatch
+
             return subtitles.firstOrNull { sub ->
                 subtitleTokens(sub).contains(target)
             } ?: subtitles.firstOrNull { sub ->
@@ -650,7 +658,7 @@ class PlayerViewModel @Inject constructor(
             }
         }
 
-        // Prioritize: exact normalized match, language token match, fallback language, then English fallback.
+        // Prioritize: embedded match > exact normalized match > fallback language > English fallback.
         val match = findMatch(normalizedPref)
             ?: normalizedFallback?.let { findMatch(it) }
             ?: if (normalizedPref != "en") findMatch("en") else null
@@ -1192,7 +1200,8 @@ class PlayerViewModel @Inject constructor(
             !subtitle.isEmbedded && subtitle.url.isNotBlank() && subtitle.id !in trackBackedIds
         }
 
-        val merged = (unresolvedExternal + playerTextTracks)
+        // Embedded subtitles first, then external/addon subtitles
+        val merged = (playerTextTracks + unresolvedExternal)
             .distinctBy { subtitle ->
                 val normalizedId = subtitle.id.trim()
                 if (normalizedId.isNotBlank()) normalizedId
@@ -1489,7 +1498,11 @@ class PlayerViewModel @Inject constructor(
             }
 
             // Save to Supabase watch history (debounced + on pause/stop)
-            if (!isPlaying || currentTime - lastWatchHistorySaveTime >= WATCH_HISTORY_UPDATE_INTERVAL_MS || progressPercent >= Constants.WATCHED_THRESHOLD) {
+            // Skip saving progress at watched threshold — the mark-watched block below handles
+            // the next-episode CW entry, and saving the finished episode's full position here
+            // would contaminate the next episode's resume time via show-level history fallback.
+            val isAtWatchedThreshold = progressPercent >= Constants.WATCHED_THRESHOLD
+            if ((!isPlaying || currentTime - lastWatchHistorySaveTime >= WATCH_HISTORY_UPDATE_INTERVAL_MS) && !isAtWatchedThreshold) {
                 lastWatchHistorySaveTime = currentTime
                 val durationSeconds = (duration / 1000L).coerceAtLeast(1L)
                 val positionSeconds = (position / 1000L).coerceAtLeast(0L)
@@ -1560,21 +1573,33 @@ class PlayerViewModel @Inject constructor(
                 }
                 try {
                     val safeSeason = currentSeason
-                val safeEpisode = currentEpisode
-                if (currentMediaType == MediaType.TV && safeSeason != null && safeEpisode != null) {
+                    val safeEpisode = currentEpisode
+                    if (currentMediaType == MediaType.TV && safeSeason != null && safeEpisode != null) {
                         traktRepository.deletePlaybackForEpisode(currentMediaId, safeSeason, safeEpisode)
                     } else if (currentMediaType == MediaType.MOVIE) {
                         traktRepository.deletePlaybackForContent(currentMediaId, currentMediaType)
+                    }
+                    // Clean up Supabase history for the finished episode so its stale
+                    // position doesn't resurface as a Continue Watching candidate.
+                    if (currentMediaType == MediaType.TV && safeSeason != null && safeEpisode != null) {
+                        watchHistoryRepository.removeFromHistory(currentMediaId, safeSeason, safeEpisode)
+                    } else if (currentMediaType == MediaType.MOVIE) {
+                        watchHistoryRepository.removeFromHistory(currentMediaId, null, null)
                     }
                 } catch (e: Exception) {
                     // Delete playback failed
                 }
 
+                // Remove the finished episode from CW cache so it doesn't resurface
+                // before the next refresh cycle picks up the server-side changes.
+                runCatching {
+                    traktRepository.removeFromContinueWatchingCache(
+                        currentMediaId, currentSeason, currentEpisode
+                    )
+                }
+
                 // When a TV episode completes, immediately save the next episode to
                 // local Continue Watching so CW isn't empty between episodes.
-                // Without this, the next episode only appears in CW after 60s of
-                // playback (the hasMeaningfulPosition threshold), leaving a gap where
-                // CW shows nothing for non-Trakt profiles.
                 val cwSeason = currentSeason
                 val cwEpisode = currentEpisode
                 if (currentMediaType == MediaType.TV && cwSeason != null && cwEpisode != null) {

@@ -80,6 +80,7 @@ fun MediaCard(
     enableSystemFocus: Boolean = true,
     onFocused: () -> Unit = {},
     onClick: () -> Unit = {},
+    onLongClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     // If this is a placeholder card, show skeleton only
@@ -159,6 +160,7 @@ fun MediaCard(
             enableSystemFocus = enableSystemFocus,
             isFocusedOverride = isFocusedOverride,
             onClick = onClick,
+            onLongClick = onLongClick,
             onFocusChanged = {
                 isFocused = it
                 if (it) onFocused()
@@ -341,6 +343,7 @@ fun PosterCard(
     enableSystemFocus: Boolean = true,
     onFocused: () -> Unit = {},
     onClick: () -> Unit = {},
+    onLongClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
     useWhiteBorder: Boolean = true,
 ) {
@@ -377,6 +380,7 @@ fun PosterCard(
             enableSystemFocus = enableSystemFocus,
             isFocusedOverride = isFocusedOverride,
             onClick = onClick,
+            onLongClick = onLongClick,
             onFocusChanged = {
                 isFocused = it
                 if (it) onFocused()

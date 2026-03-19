@@ -758,7 +758,7 @@ class DetailsViewModel @Inject constructor(
                                 episode = nextEp,
                                 episodeTitle = null,
                                 progress = 3,
-                                positionSeconds = 1L,
+                                positionSeconds = 0L,
                                 durationSeconds = 1L,
                                 year = currentItem.year
                             )
@@ -772,8 +772,8 @@ class DetailsViewModel @Inject constructor(
                                 episode = nextEp,
                                 episodeTitle = null,
                                 progress = 0.01f,
-                                duration = 1L,
-                                position = 60L
+                                duration = 0L,
+                                position = 0L
                             )
                         } catch (_: Exception) {}
                     } else {
@@ -1171,7 +1171,7 @@ class DetailsViewModel @Inject constructor(
                                 episode = nextEp,
                                 episodeTitle = null,
                                 progress = 3,
-                                positionSeconds = 1L,
+                                positionSeconds = 0L,
                                 durationSeconds = 1L,
                                 year = item.year
                             )
@@ -1185,8 +1185,8 @@ class DetailsViewModel @Inject constructor(
                                 episode = nextEp,
                                 episodeTitle = null,
                                 progress = 0.01f,
-                                duration = 1L,
-                                position = 60L
+                                duration = 0L,
+                                position = 0L
                             )
                         } catch (_: Exception) {}
                     }
@@ -1277,7 +1277,7 @@ class DetailsViewModel @Inject constructor(
                             episodeTitle = null,
                             progress = 0.01f,
                             duration = 0L,
-                            position = 60L
+                            position = 0L
                         )
                     }
                 } else {

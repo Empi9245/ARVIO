@@ -6,10 +6,12 @@ import android.os.SystemClock
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.clip
 import com.arflix.tv.BuildConfig
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -79,6 +81,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -90,6 +93,7 @@ import com.arflix.tv.data.model.CatalogConfig
 import com.arflix.tv.data.model.CatalogSourceType
 import com.arflix.tv.ui.components.AppTopBar
 import com.arflix.tv.ui.components.AppTopBarContentTopInset
+import com.arflix.tv.util.LocalDeviceType
 import com.arflix.tv.ui.components.SidebarItem
 import com.arflix.tv.ui.components.topBarFocusedItem
 import com.arflix.tv.ui.components.topBarMaxIndex
@@ -110,6 +114,7 @@ import kotlin.math.abs
 fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel(),
     currentProfile: com.arflix.tv.data.model.Profile? = null,
+    autoStartCloudAuth: Boolean = false,
     onNavigateToHome: () -> Unit = {},
     onNavigateToSearch: () -> Unit = {},
     onNavigateToTv: () -> Unit = {},
@@ -118,6 +123,18 @@ fun SettingsScreen(
     onBack: () -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val isTouchDevice = LocalDeviceType.current.isTouchDevice()
+
+    // Auto-start cloud auth if requested (e.g. from profile selection page)
+    LaunchedEffect(autoStartCloudAuth) {
+        if (autoStartCloudAuth && !uiState.isLoggedIn) {
+            if (isTouchDevice) {
+                viewModel.openCloudEmailPasswordDialog()
+            } else {
+                viewModel.startCloudAuth()
+            }
+        }
+    }
 
     var isSidebarFocused by remember { mutableStateOf(false) }
     val hasProfile = currentProfile != null
@@ -256,6 +273,7 @@ fun SettingsScreen(
             .focusRequester(focusRequester)
             .focusable()
             .onPreviewKeyEvent { event ->
+                    if (isTouchDevice) return@onPreviewKeyEvent false
                     // BLOCKER FIX: Ignore main screen navigation if modals are open
                     if (showCustomAddonInput || showSubtitlePicker || showAudioLanguagePicker || showIptvInput || showCatalogInput || uiState.showCloudPairDialog || uiState.showCloudEmailPasswordDialog) return@onPreviewKeyEvent false
 
@@ -518,141 +536,236 @@ fun SettingsScreen(
                 } else false
             }
     ) {
-        AppTopBar(
-            selectedItem = SidebarItem.SETTINGS,
-            isFocused = activeZone == Zone.SIDEBAR,
-            focusedIndex = sidebarFocusIndex,
-            profile = currentProfile
-        )
+        if (isTouchDevice) {
+            MobileSettingsLayout(
+                sections = sections,
+                sectionIndex = sectionIndex,
+                onSectionSelected = { index ->
+                    sectionIndex = index
+                    contentFocusIndex = 0
+                },
+                content = {
+                    when (sections[sectionIndex]) {
+                        "general" -> GeneralSettings(
+                            defaultSubtitle = uiState.defaultSubtitle,
+                            defaultAudioLanguage = uiState.defaultAudioLanguage,
+                            cardLayoutMode = uiState.cardLayoutMode,
+                            frameRateMatchingMode = uiState.frameRateMatchingMode,
+                            autoPlayNext = uiState.autoPlayNext,
+                            autoPlaySingleSource = uiState.autoPlaySingleSource,
+                            autoPlayMinQuality = uiState.autoPlayMinQuality,
+                            focusedIndex = -1,
+                            onSubtitleClick = openSubtitlePicker,
+                            onAudioLanguageClick = openAudioLanguagePicker,
+                            onCardLayoutToggle = { viewModel.toggleCardLayoutMode() },
+                            onFrameRateMatchingClick = { viewModel.cycleFrameRateMatchingMode() },
+                            onAutoPlayToggle = { viewModel.setAutoPlayNext(it) },
+                            onAutoPlaySingleSourceToggle = { viewModel.setAutoPlaySingleSource(it) },
+                            onAutoPlayMinQualityClick = { viewModel.cycleAutoPlayMinQuality() }
+                        )
+                        "iptv" -> IptvSettings(
+                            m3uUrl = uiState.iptvM3uUrl,
+                            epgUrl = uiState.iptvEpgUrl,
+                            channelCount = uiState.iptvChannelCount,
+                            isLoading = uiState.isIptvLoading,
+                            error = uiState.iptvError,
+                            statusMessage = uiState.iptvStatusMessage,
+                            statusType = uiState.iptvStatusType,
+                            progressText = uiState.iptvProgressText,
+                            progressPercent = uiState.iptvProgressPercent,
+                            focusedIndex = -1,
+                            onConfigure = { showIptvInput = true },
+                            onRefresh = { viewModel.refreshIptv() },
+                            onDelete = { viewModel.clearIptvConfig() }
+                        )
+                        "catalogs" -> CatalogsSettings(
+                            catalogs = uiState.catalogs,
+                            focusedIndex = -1,
+                            focusedActionIndex = catalogActionIndex,
+                            onAddCatalog = { showCatalogInput = true }
+                        )
+                        "addons" -> AddonsSettings(
+                            addons = uiState.addons,
+                            focusedIndex = -1,
+                            focusedActionIndex = addonActionIndex,
+                            onToggleAddon = { viewModel.toggleAddon(it) },
+                            onDeleteAddon = { viewModel.removeAddon(it) },
+                            onAddCustomAddon = { showCustomAddonInput = true }
+                        )
+                        "accounts" -> AccountsSettings(
+                            isCloudAuthenticated = uiState.isLoggedIn,
+                            cloudEmail = uiState.accountEmail,
+                            cloudHint = null,
+                            isTraktAuthenticated = uiState.isTraktAuthenticated,
+                            traktCode = uiState.traktCode?.userCode,
+                            traktUrl = uiState.traktCode?.verificationUrl,
+                            isTraktPolling = uiState.isTraktPolling,
+                            isSelfUpdateSupported = uiState.isSelfUpdateSupported,
+                            isCheckingForUpdate = uiState.isCheckingForUpdate,
+                            isAppUpdateAvailable = uiState.isAppUpdateAvailable,
+                            availableAppUpdate = uiState.availableAppUpdate,
+                            downloadedApkPath = uiState.downloadedApkPath,
+                            focusedIndex = -1,
+                            onConnectCloud = { viewModel.openCloudEmailPasswordDialog() },
+                            onDisconnectCloud = { viewModel.logout() },
+                            onConnectTrakt = { viewModel.startTraktAuth() },
+                            onCancelTrakt = { viewModel.cancelTraktAuth() },
+                            onDisconnectTrakt = { viewModel.disconnectTrakt() },
+                            onSwitchProfile = onSwitchProfile,
+                            onCheckUpdates = { viewModel.checkForAppUpdates(force = true, showNoUpdateFeedback = true) },
+                            onInstallUpdate = { viewModel.installAppUpdateOrRequestPermission() }
+                        )
+                    }
+                }
+            )
+        } else {
+            AppTopBar(
+                selectedItem = SidebarItem.SETTINGS,
+                isFocused = activeZone == Zone.SIDEBAR,
+                focusedIndex = sidebarFocusIndex,
+                profile = currentProfile
+            )
 
-        Row(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(top = AppTopBarContentTopInset)
-        ) {
-            // Settings internal sidebar
-            Column(
+            Row(
                 modifier = Modifier
-                    .width(280.dp)
                     .fillMaxSize()
-                    .background(BackgroundDark)
-                    .padding(vertical = 32.dp, horizontal = 24.dp)
+                    .padding(top = AppTopBarContentTopInset)
             ) {
-                Text(
-                    text = "Settings",
-                    style = ArflixTypography.heroTitle.copy(fontSize = androidx.compose.ui.unit.TextUnit.Unspecified),
-                    color = TextPrimary,
+                // Settings internal sidebar
+                Column(
                     modifier = Modifier
-                        .padding(start = 16.dp)
-                        .padding(bottom = 24.dp)
-                )
-                
-                sections.forEachIndexed { index, section ->
-                    SettingsSectionItem(
-                        icon = when (section) {
-                            "general" -> Icons.Default.Settings
-                            "iptv" -> Icons.Default.LiveTv
-                            "catalogs" -> Icons.Default.Widgets
-                            "addons" -> Icons.Default.Widgets
-                            "accounts" -> Icons.Default.Person
-                            else -> Icons.Default.Settings
-                        },
-                        title = section.replaceFirstChar { it.uppercase() },
-                        isSelected = sectionIndex == index,
-                        isFocused = activeZone == Zone.SECTION && sectionIndex == index
+                        .width(280.dp)
+                        .fillMaxSize()
+                        .background(BackgroundDark)
+                        .padding(vertical = 32.dp, horizontal = 24.dp)
+                ) {
+                    Text(
+                        text = "Settings",
+                        style = ArflixTypography.heroTitle.copy(fontSize = androidx.compose.ui.unit.TextUnit.Unspecified),
+                        color = TextPrimary,
+                        modifier = Modifier
+                            .padding(start = 16.dp)
+                            .padding(bottom = 24.dp)
                     )
                     
-                    Spacer(modifier = Modifier.height(8.dp))
+                    sections.forEachIndexed { index, section ->
+                        SettingsSectionItem(
+                            icon = when (section) {
+                                "general" -> Icons.Default.Settings
+                                "iptv" -> Icons.Default.LiveTv
+                                "catalogs" -> Icons.Default.Widgets
+                                "addons" -> Icons.Default.Widgets
+                                "accounts" -> Icons.Default.Person
+                                else -> Icons.Default.Settings
+                            },
+                            title = section.replaceFirstChar { it.uppercase() },
+                            isSelected = sectionIndex == index,
+                            isFocused = activeZone == Zone.SECTION && sectionIndex == index,
+                            onClick = {
+                                sectionIndex = index
+                                contentFocusIndex = 0
+                                activeZone = Zone.SECTION
+                            }
+                        )
+                        
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                    
+                    Spacer(modifier = Modifier.weight(1f))
+                    
+                    Text(
+                        text = "ARVIO V${BuildConfig.VERSION_NAME}",
+                        style = ArflixTypography.caption,
+                        color = TextSecondary.copy(alpha = 0.5f),
+                        modifier = Modifier.padding(start = 16.dp)
+                    )
                 }
-                
-                Spacer(modifier = Modifier.weight(1f))
-                
-                Text(
-                    text = "ARVIO V${BuildConfig.VERSION_NAME}",
-                    style = ArflixTypography.caption,
-                    color = TextSecondary.copy(alpha = 0.5f),
-                    modifier = Modifier.padding(start = 16.dp)
-                )
-            }
 
-            // Content area
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxSize()
-                    .verticalScroll(scrollState)
-                    .padding(48.dp)
-            ) {
-                when (sections[sectionIndex]) {
-                    "general" -> GeneralSettings(
-                        defaultSubtitle = uiState.defaultSubtitle,
-                        defaultAudioLanguage = uiState.defaultAudioLanguage,
-                        cardLayoutMode = uiState.cardLayoutMode,
-                        frameRateMatchingMode = uiState.frameRateMatchingMode,
-                        autoPlayNext = uiState.autoPlayNext,
-                        autoPlaySingleSource = uiState.autoPlaySingleSource,
-                        autoPlayMinQuality = uiState.autoPlayMinQuality,
-                        focusedIndex = if (activeZone == Zone.CONTENT) contentFocusIndex else -1,
-                        onSubtitleClick = openSubtitlePicker,
-                        onAudioLanguageClick = openAudioLanguagePicker,
-                        onCardLayoutToggle = { viewModel.toggleCardLayoutMode() },
-                        onFrameRateMatchingClick = { viewModel.cycleFrameRateMatchingMode() },
-                        onAutoPlayToggle = { viewModel.setAutoPlayNext(it) },
-                        onAutoPlaySingleSourceToggle = { viewModel.setAutoPlaySingleSource(it) },
-                        onAutoPlayMinQualityClick = { viewModel.cycleAutoPlayMinQuality() }
-                    )
-                    "iptv" -> IptvSettings(
-                        m3uUrl = uiState.iptvM3uUrl,
-                        epgUrl = uiState.iptvEpgUrl,
-                        channelCount = uiState.iptvChannelCount,
-                        isLoading = uiState.isIptvLoading,
-                        error = uiState.iptvError,
-                        statusMessage = uiState.iptvStatusMessage,
-                        statusType = uiState.iptvStatusType,
-                        progressText = uiState.iptvProgressText,
-                        progressPercent = uiState.iptvProgressPercent,
-                        focusedIndex = if (activeZone == Zone.CONTENT) contentFocusIndex else -1,
-                        onConfigure = { showIptvInput = true },
-                        onRefresh = { viewModel.refreshIptv() },
-                        onDelete = { viewModel.clearIptvConfig() }
-                    )
-                    "catalogs" -> CatalogsSettings(
-                        catalogs = uiState.catalogs,
-                        focusedIndex = if (activeZone == Zone.CONTENT) contentFocusIndex else -1,
-                        focusedActionIndex = catalogActionIndex,
-                        onAddCatalog = { showCatalogInput = true }
-                    )
-                    "addons" -> AddonsSettings(
-                        addons = uiState.addons,
-                        focusedIndex = if (activeZone == Zone.CONTENT) contentFocusIndex else -1,
-                        focusedActionIndex = addonActionIndex,
-                        onToggleAddon = { viewModel.toggleAddon(it) },
-                        onDeleteAddon = { viewModel.removeAddon(it) },
-                        onAddCustomAddon = { showCustomAddonInput = true }
-                    )
-                    "accounts" -> AccountsSettings(
-                        isCloudAuthenticated = uiState.isLoggedIn,
-                        cloudEmail = uiState.accountEmail,
-                        cloudHint = null,
-                        isTraktAuthenticated = uiState.isTraktAuthenticated,
-                        traktCode = uiState.traktCode?.userCode,
-                        traktUrl = uiState.traktCode?.verificationUrl,
-                        isTraktPolling = uiState.isTraktPolling,
-                        isSelfUpdateSupported = uiState.isSelfUpdateSupported,
-                        isCheckingForUpdate = uiState.isCheckingForUpdate,
-                        isAppUpdateAvailable = uiState.isAppUpdateAvailable,
-                        availableAppUpdate = uiState.availableAppUpdate,
-                        downloadedApkPath = uiState.downloadedApkPath,
-                        focusedIndex = if (activeZone == Zone.CONTENT) contentFocusIndex else -1,
-                        onConnectCloud = { viewModel.startCloudAuth() },
-                        onDisconnectCloud = { viewModel.logout() },
-                        onConnectTrakt = { viewModel.startTraktAuth() },
-                        onCancelTrakt = { viewModel.cancelTraktAuth() },
-                        onDisconnectTrakt = { viewModel.disconnectTrakt() },
-                        onSwitchProfile = onSwitchProfile,
-                        onCheckUpdates = { viewModel.checkForAppUpdates(force = true, showNoUpdateFeedback = true) },
-                        onInstallUpdate = { viewModel.installAppUpdateOrRequestPermission() }
-                    )
+                // Content area
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxSize()
+                        .verticalScroll(scrollState)
+                        .padding(48.dp)
+                ) {
+                    when (sections[sectionIndex]) {
+                        "general" -> GeneralSettings(
+                            defaultSubtitle = uiState.defaultSubtitle,
+                            defaultAudioLanguage = uiState.defaultAudioLanguage,
+                            cardLayoutMode = uiState.cardLayoutMode,
+                            frameRateMatchingMode = uiState.frameRateMatchingMode,
+                            autoPlayNext = uiState.autoPlayNext,
+                            autoPlaySingleSource = uiState.autoPlaySingleSource,
+                            autoPlayMinQuality = uiState.autoPlayMinQuality,
+                            focusedIndex = if (activeZone == Zone.CONTENT) contentFocusIndex else -1,
+                            onSubtitleClick = openSubtitlePicker,
+                            onAudioLanguageClick = openAudioLanguagePicker,
+                            onCardLayoutToggle = { viewModel.toggleCardLayoutMode() },
+                            onFrameRateMatchingClick = { viewModel.cycleFrameRateMatchingMode() },
+                            onAutoPlayToggle = { viewModel.setAutoPlayNext(it) },
+                            onAutoPlaySingleSourceToggle = { viewModel.setAutoPlaySingleSource(it) },
+                            onAutoPlayMinQualityClick = { viewModel.cycleAutoPlayMinQuality() }
+                        )
+                        "iptv" -> IptvSettings(
+                            m3uUrl = uiState.iptvM3uUrl,
+                            epgUrl = uiState.iptvEpgUrl,
+                            channelCount = uiState.iptvChannelCount,
+                            isLoading = uiState.isIptvLoading,
+                            error = uiState.iptvError,
+                            statusMessage = uiState.iptvStatusMessage,
+                            statusType = uiState.iptvStatusType,
+                            progressText = uiState.iptvProgressText,
+                            progressPercent = uiState.iptvProgressPercent,
+                            focusedIndex = if (activeZone == Zone.CONTENT) contentFocusIndex else -1,
+                            onConfigure = { showIptvInput = true },
+                            onRefresh = { viewModel.refreshIptv() },
+                            onDelete = { viewModel.clearIptvConfig() }
+                        )
+                        "catalogs" -> CatalogsSettings(
+                            catalogs = uiState.catalogs,
+                            focusedIndex = if (activeZone == Zone.CONTENT) contentFocusIndex else -1,
+                            focusedActionIndex = catalogActionIndex,
+                            onAddCatalog = { showCatalogInput = true }
+                        )
+                        "addons" -> AddonsSettings(
+                            addons = uiState.addons,
+                            focusedIndex = if (activeZone == Zone.CONTENT) contentFocusIndex else -1,
+                            focusedActionIndex = addonActionIndex,
+                            onToggleAddon = { viewModel.toggleAddon(it) },
+                            onDeleteAddon = { viewModel.removeAddon(it) },
+                            onAddCustomAddon = { showCustomAddonInput = true }
+                        )
+                        "accounts" -> AccountsSettings(
+                            isCloudAuthenticated = uiState.isLoggedIn,
+                            cloudEmail = uiState.accountEmail,
+                            cloudHint = null,
+                            isTraktAuthenticated = uiState.isTraktAuthenticated,
+                            traktCode = uiState.traktCode?.userCode,
+                            traktUrl = uiState.traktCode?.verificationUrl,
+                            isTraktPolling = uiState.isTraktPolling,
+                            isSelfUpdateSupported = uiState.isSelfUpdateSupported,
+                            isCheckingForUpdate = uiState.isCheckingForUpdate,
+                            isAppUpdateAvailable = uiState.isAppUpdateAvailable,
+                            availableAppUpdate = uiState.availableAppUpdate,
+                            downloadedApkPath = uiState.downloadedApkPath,
+                            focusedIndex = if (activeZone == Zone.CONTENT) contentFocusIndex else -1,
+                            onConnectCloud = {
+                                if (isTouchDevice) {
+                                    viewModel.openCloudEmailPasswordDialog()
+                                } else {
+                                    viewModel.startCloudAuth()
+                                }
+                            },
+                            onDisconnectCloud = { viewModel.logout() },
+                            onConnectTrakt = { viewModel.startTraktAuth() },
+                            onCancelTrakt = { viewModel.cancelTraktAuth() },
+                            onDisconnectTrakt = { viewModel.disconnectTrakt() },
+                            onSwitchProfile = onSwitchProfile,
+                            onCheckUpdates = { viewModel.checkForAppUpdates(force = true, showNoUpdateFeedback = true) },
+                            onInstallUpdate = { viewModel.installAppUpdateOrRequestPermission() }
+                        )
+                    }
                 }
             }
         }
@@ -887,9 +1000,10 @@ private fun CloudEmailPasswordModal(
     ) {
         Column(
             modifier = Modifier
-                .width(600.dp)
+                .fillMaxWidth(if (LocalDeviceType.current.isTouchDevice()) 0.92f else 1f)
+                .widthIn(max = 600.dp)
                 .background(BackgroundElevated, RoundedCornerShape(16.dp))
-                .padding(32.dp)
+                .padding(if (LocalDeviceType.current.isTouchDevice()) 20.dp else 32.dp)
                 .onPreviewKeyEvent { event ->
                     if (event.type == KeyEventType.KeyDown) {
                         when (event.key) {
@@ -1027,10 +1141,11 @@ private fun CloudEmailPasswordModal(
                 Box(
                     modifier = Modifier
                         .weight(1f)
+                        .clip(RoundedCornerShape(8.dp))
                         .background(
-                            color = if (isCancelFocused) Color.White.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.1f),
-                            shape = RoundedCornerShape(8.dp)
+                            color = if (isCancelFocused) Color.White.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.1f)
                         )
+                        .clickable { onDismiss() }
                         .border(
                             width = if (isCancelFocused) 2.dp else 0.dp,
                             color = if (isCancelFocused) Pink else Color.Transparent,
@@ -1050,10 +1165,11 @@ private fun CloudEmailPasswordModal(
                 Box(
                     modifier = Modifier
                         .weight(1f)
+                        .clip(RoundedCornerShape(8.dp))
                         .background(
-                            color = if (isSignInFocused) SuccessGreen else Pink.copy(alpha = 0.6f),
-                            shape = RoundedCornerShape(8.dp)
+                            color = if (isSignInFocused) SuccessGreen else Pink.copy(alpha = 0.6f)
                         )
+                        .clickable { onSignIn() }
                         .border(
                             width = if (isSignInFocused) 2.dp else 0.dp,
                             color = if (isSignInFocused) SuccessGreen.copy(alpha = 0.5f) else Color.Transparent,
@@ -1073,10 +1189,11 @@ private fun CloudEmailPasswordModal(
                 Box(
                     modifier = Modifier
                         .weight(1f)
+                        .clip(RoundedCornerShape(8.dp))
                         .background(
-                            color = if (isCreateFocused) SuccessGreen else Color.White.copy(alpha = 0.08f),
-                            shape = RoundedCornerShape(8.dp)
+                            color = if (isCreateFocused) SuccessGreen else Color.White.copy(alpha = 0.08f)
                         )
+                        .clickable { onCreateAccount() }
                         .border(
                             width = if (isCreateFocused) 2.dp else 0.dp,
                             color = if (isCreateFocused) SuccessGreen.copy(alpha = 0.5f) else Color.Transparent,
@@ -1095,7 +1212,7 @@ private fun CloudEmailPasswordModal(
 
             Spacer(modifier = Modifier.height(12.dp))
             Text(
-                text = "Tip: Use TV keyboard. D-pad to navigate.",
+                text = if (LocalDeviceType.current.isTouchDevice()) "Enter your email and password to sign in." else "Tip: Use TV keyboard. D-pad to navigate.",
                 style = ArflixTypography.caption,
                 color = TextSecondary.copy(alpha = 0.5f)
             )
@@ -1130,17 +1247,20 @@ private fun CloudPairModal(
             usePlatformDefaultWidth = false
         )
     ) {
+        val isMobile = LocalDeviceType.current.isTouchDevice()
         BoxWithConstraints(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            val modalWidth = (maxWidth * 0.62f).coerceIn(520.dp, 760.dp)
+            val modalWidth = if (isMobile) maxWidth else (maxWidth * 0.62f).coerceIn(520.dp, 760.dp)
             val qrContainerSize = (modalWidth * 0.42f).coerceIn(190.dp, 260.dp)
             val qrBitmapSizePx = ((qrContainerSize.value * 3.2f).toInt()).coerceIn(512, 900)
 
             Column(
                 modifier = Modifier
-                    .widthIn(max = modalWidth)
-                    .fillMaxWidth(0.62f)
+                    .then(
+                        if (isMobile) Modifier.fillMaxWidth(0.92f).widthIn(max = 600.dp)
+                        else Modifier.widthIn(max = modalWidth).fillMaxWidth(0.62f)
+                    )
                     .background(BackgroundElevated, RoundedCornerShape(16.dp))
-                    .padding(horizontal = 24.dp, vertical = 20.dp)
+                    .padding(horizontal = if (isMobile) 20.dp else 24.dp, vertical = if (isMobile) 24.dp else 20.dp)
                     .onPreviewKeyEvent { event ->
                         if (event.type == KeyEventType.KeyDown) {
                             when (event.key) {
@@ -1176,15 +1296,27 @@ private fun CloudPairModal(
                     modifier = Modifier.padding(bottom = 10.dp)
                 )
 
-                Text(
-                    text = "Scan this QR code to sign in and link this TV.",
-                    style = ArflixTypography.body,
-                    color = TextSecondary,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(bottom = 12.dp)
-                )
+                if (isMobile) {
+                    // On mobile, skip QR (can't scan own screen) and prompt email/password
+                    Text(
+                        text = "Sign in with your email and password to link this device.",
+                        style = ArflixTypography.body,
+                        color = TextSecondary,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(bottom = 12.dp)
+                    )
+                } else {
+                    Text(
+                        text = "Scan this QR code to sign in and link this TV.",
+                        style = ArflixTypography.body,
+                        color = TextSecondary,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(bottom = 12.dp)
+                    )
+                }
 
-                if (effectiveVerificationUrl.isNotBlank()) {
+                // QR code section - only shown on TV (phones can't scan their own screen)
+                if (!isMobile && effectiveVerificationUrl.isNotBlank()) {
                     Box(
                         modifier = Modifier
                             .size(qrContainerSize)
@@ -1239,74 +1371,205 @@ private fun CloudPairModal(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Center
-                ) {
-                    val isCancelFocused = focusedIndex == 0
-                    Box(
-                        modifier = Modifier
-                            .background(
-                                color = if (isCancelFocused) Color.White.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.1f),
-                                shape = RoundedCornerShape(10.dp)
-                            )
-                            .border(
-                                width = if (isCancelFocused) 2.dp else 0.dp,
-                                color = if (isCancelFocused) Pink else Color.Transparent,
-                                shape = RoundedCornerShape(10.dp)
-                            )
-                            .padding(vertical = 12.dp, horizontal = 14.dp),
-                        contentAlignment = Alignment.Center
+                if (isMobile) {
+                    // On mobile, show "Use Email/Password" prominently as the primary action
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.LinkOff,
-                                contentDescription = null,
-                                tint = if (isCancelFocused) TextPrimary else TextSecondary,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(
+                                    color = SuccessGreen,
+                                    shape = RoundedCornerShape(10.dp)
+                                )
+                                .clickable { onUseEmailPassword() }
+                                .padding(vertical = 14.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Link,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Use Email & Password",
+                                    style = ArflixTypography.button,
+                                    color = Color.White
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(
+                                    color = Color.White.copy(alpha = 0.1f),
+                                    shape = RoundedCornerShape(10.dp)
+                                )
+                                .clickable { onDismiss() }
+                                .padding(vertical = 12.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
                             Text(
                                 text = "Cancel",
                                 style = ArflixTypography.button,
-                                color = if (isCancelFocused) TextPrimary else TextSecondary
+                                color = TextSecondary
                             )
                         }
                     }
-                    Spacer(modifier = Modifier.width(12.dp))
-                    val isFallbackFocused = focusedIndex == 1
-                    Box(
-                        modifier = Modifier
-                            .background(
-                                color = if (isFallbackFocused) SuccessGreen else Pink.copy(alpha = 0.6f),
-                                shape = RoundedCornerShape(10.dp)
-                            )
-                            .border(
-                                width = if (isFallbackFocused) 2.dp else 0.dp,
-                                color = if (isFallbackFocused) SuccessGreen.copy(alpha = 0.5f) else Color.Transparent,
-                                shape = RoundedCornerShape(10.dp)
-                            )
-                            .padding(vertical = 12.dp, horizontal = 14.dp),
-                        contentAlignment = Alignment.Center
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.Link,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "Use Email/Password",
-                                style = ArflixTypography.button,
-                                color = Color.White
-                            )
+                        val isCancelFocused = focusedIndex == 0
+                        Box(
+                            modifier = Modifier
+                                .background(
+                                    color = if (isCancelFocused) Color.White.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.1f),
+                                    shape = RoundedCornerShape(10.dp)
+                                )
+                                .border(
+                                    width = if (isCancelFocused) 2.dp else 0.dp,
+                                    color = if (isCancelFocused) Pink else Color.Transparent,
+                                    shape = RoundedCornerShape(10.dp)
+                                )
+                                .clickable { onDismiss() }
+                                .padding(vertical = 12.dp, horizontal = 14.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.LinkOff,
+                                    contentDescription = null,
+                                    tint = if (isCancelFocused) TextPrimary else TextSecondary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Cancel",
+                                    style = ArflixTypography.button,
+                                    color = if (isCancelFocused) TextPrimary else TextSecondary
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        val isFallbackFocused = focusedIndex == 1
+                        Box(
+                            modifier = Modifier
+                                .background(
+                                    color = if (isFallbackFocused) SuccessGreen else Pink.copy(alpha = 0.6f),
+                                    shape = RoundedCornerShape(10.dp)
+                                )
+                                .border(
+                                    width = if (isFallbackFocused) 2.dp else 0.dp,
+                                    color = if (isFallbackFocused) SuccessGreen.copy(alpha = 0.5f) else Color.Transparent,
+                                    shape = RoundedCornerShape(10.dp)
+                                )
+                                .clickable { onUseEmailPassword() }
+                                .padding(vertical = 12.dp, horizontal = 14.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Link,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Use Email/Password",
+                                    style = ArflixTypography.button,
+                                    color = Color.White
+                                )
+                            }
                         }
                     }
                 }
             }
         }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun MobileSettingsLayout(
+    sections: List<String>,
+    sectionIndex: Int,
+    onSectionSelected: (Int) -> Unit,
+    content: @Composable () -> Unit
+) {
+    val mobileScrollState = rememberScrollState()
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(BackgroundDark)
+    ) {
+        // Title
+        Text(
+            text = "Settings",
+            style = ArflixTypography.heroTitle.copy(fontSize = androidx.compose.ui.unit.TextUnit.Unspecified),
+            color = TextPrimary,
+            modifier = Modifier.padding(start = 20.dp, top = 16.dp, bottom = 12.dp)
+        )
+
+        // Horizontal section chips
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            sections.forEachIndexed { index, section ->
+                val isSelected = sectionIndex == index
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(
+                            if (isSelected) Pink else Color.White.copy(alpha = 0.08f)
+                        )
+                        .clickable { onSectionSelected(index) }
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                ) {
+                    Text(
+                        text = section.replaceFirstChar { it.uppercase() },
+                        style = ArflixTypography.button,
+                        color = if (isSelected) Color.Black else TextSecondary
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Content area — vertically scrollable
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .verticalScroll(mobileScrollState)
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+        ) {
+            content()
+        }
+
+        // Version text at bottom
+        Text(
+            text = "ARVIO V${BuildConfig.VERSION_NAME}",
+            style = ArflixTypography.caption,
+            color = TextSecondary.copy(alpha = 0.5f),
+            modifier = Modifier.padding(start = 20.dp, bottom = 12.dp, top = 4.dp)
+        )
     }
 }
 
@@ -1348,9 +1611,12 @@ private fun AppUpdateModal(
     ) {
         Column(
             modifier = Modifier
-                .width(760.dp)
+                .then(
+                    if (LocalDeviceType.current.isTouchDevice()) Modifier.fillMaxWidth(0.92f).widthIn(max = 600.dp)
+                    else Modifier.width(760.dp)
+                )
                 .background(BackgroundElevated, RoundedCornerShape(18.dp))
-                .padding(28.dp)
+                .padding(if (LocalDeviceType.current.isTouchDevice()) 20.dp else 28.dp)
                 .focusRequester(focusRequester)
                 .focusable()
                 .onPreviewKeyEvent { event ->
@@ -1486,9 +1752,12 @@ private fun UnknownSourcesModal(
     ) {
         Column(
             modifier = Modifier
-                .width(620.dp)
+                .then(
+                    if (LocalDeviceType.current.isTouchDevice()) Modifier.fillMaxWidth(0.92f).widthIn(max = 600.dp)
+                    else Modifier.width(620.dp)
+                )
                 .background(BackgroundElevated, RoundedCornerShape(18.dp))
-                .padding(28.dp)
+                .padding(if (LocalDeviceType.current.isTouchDevice()) 20.dp else 28.dp)
                 .focusRequester(focusRequester)
                 .focusable()
                 .onPreviewKeyEvent { event ->
@@ -1542,12 +1811,14 @@ private fun UpdateActionButton(
 
     Box(
         modifier = Modifier
+            .clip(RoundedCornerShape(10.dp))
             .background(background, RoundedCornerShape(10.dp))
             .border(
                 width = if (isFocused) 2.dp else 0.dp,
                 color = if (isFocused) Color.White.copy(alpha = 0.92f) else Color.White.copy(alpha = 0.12f),
                 shape = RoundedCornerShape(10.dp)
             )
+            .clickable(enabled = enabled) { onClick() }
             .padding(horizontal = 18.dp, vertical = 12.dp),
         contentAlignment = Alignment.Center
     ) {
@@ -1565,7 +1836,8 @@ private fun SettingsSectionItem(
     icon: ImageVector,
     title: String,
     isSelected: Boolean,
-    isFocused: Boolean
+    isFocused: Boolean,
+    onClick: () -> Unit = {}
 ) {
     val bgColor = when {
         isFocused -> Color.White.copy(alpha = 0.1f)
@@ -1581,6 +1853,7 @@ private fun SettingsSectionItem(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .clickable { onClick() }
             .background(bgColor, RoundedCornerShape(12.dp))
             .padding(16.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -1836,6 +2109,7 @@ private fun SettingsRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .clickable { onClick() }
             .background(
                 if (isFocused) Color.White.copy(alpha = 0.1f) else BackgroundElevated,
                 RoundedCornerShape(12.dp)
@@ -1849,7 +2123,7 @@ private fun SettingsRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
             Icon(
                 imageVector = icon,
                 contentDescription = null,
@@ -1861,12 +2135,16 @@ private fun SettingsRow(
                 Text(
                     text = title,
                     style = ArflixTypography.cardTitle,
-                    color = TextPrimary
+                    color = TextPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
                 Text(
                     text = subtitle,
                     style = ArflixTypography.caption,
-                    color = TextSecondary
+                    color = TextSecondary,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }
@@ -1874,7 +2152,9 @@ private fun SettingsRow(
         Text(
             text = value.uppercase(),
             style = ArflixTypography.label,
-            color = Pink
+            color = Pink,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
     }
 }
@@ -1905,16 +2185,20 @@ private fun SettingsToggleRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        Column {
+        Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = title,
                 style = ArflixTypography.cardTitle,
-                color = TextPrimary
+                color = TextPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
             Text(
                 text = subtitle,
                 style = ArflixTypography.caption,
-                color = TextSecondary
+                color = TextSecondary,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
             )
         }
         
@@ -2002,13 +2286,17 @@ private fun CatalogsSettings(
                     Text(
                         text = title,
                         style = ArflixTypography.body,
-                        color = if (isRowFocused) TextPrimary else TextSecondary
+                        color = if (isRowFocused) TextPrimary else TextSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = subtitle,
                         style = ArflixTypography.caption,
-                        color = TextSecondary.copy(alpha = 0.7f)
+                        color = TextSecondary.copy(alpha = 0.7f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
 
@@ -2174,6 +2462,7 @@ private fun AddonRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .clickable { onToggle() }
             .background(
                 if (isFocused) Color.White.copy(alpha = 0.1f) else BackgroundElevated,
                 RoundedCornerShape(12.dp)
@@ -2211,13 +2500,16 @@ private fun AddonRow(
                 Text(
                     text = addon.name,
                     style = ArflixTypography.cardTitle,
-                    color = TextPrimary
+                    color = TextPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
                 Text(
                     text = addon.description,
                     style = ArflixTypography.caption,
                     color = TextSecondary,
-                    maxLines = 1
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }
@@ -2416,12 +2708,16 @@ private fun AccountActionRow(
             Text(
                 text = title,
                 style = ArflixTypography.cardTitle,
-                color = TextPrimary
+                color = TextPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
             Text(
                 text = description,
                 style = ArflixTypography.caption,
-                color = TextSecondary
+                color = TextSecondary,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
             )
         }
 
@@ -2462,6 +2758,7 @@ private fun SettingsActionRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .clickable { onClick() }
             .background(
                 if (isFocused) Color.White.copy(alpha = 0.1f) else BackgroundElevated,
                 RoundedCornerShape(12.dp)
@@ -2479,12 +2776,16 @@ private fun SettingsActionRow(
             Text(
                 text = title,
                 style = ArflixTypography.cardTitle,
-                color = TextPrimary
+                color = TextPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
             Text(
                 text = description,
                 style = ArflixTypography.caption,
-                color = TextSecondary
+                color = TextSecondary,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
             )
         }
 
@@ -2554,12 +2855,16 @@ private fun AccountRow(
                 Text(
                     text = name,
                     style = ArflixTypography.cardTitle,
-                    color = TextPrimary
+                    color = TextPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
                 Text(
                     text = description,
                     style = ArflixTypography.caption,
-                    color = TextSecondary
+                    color = TextSecondary,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
             
@@ -3013,10 +3318,13 @@ private fun InputModal(
         ) {
             Column(
                 modifier = Modifier
-                    .width(560.dp)
+                    .then(
+                        if (LocalDeviceType.current.isTouchDevice()) Modifier.fillMaxWidth(0.92f).widthIn(max = 600.dp)
+                        else Modifier.width(560.dp)
+                    )
                     .background(BackgroundElevated, RoundedCornerShape(14.dp))
                     .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(14.dp))
-                    .padding(horizontal = 20.dp, vertical = 18.dp)
+                    .padding(horizontal = if (LocalDeviceType.current.isTouchDevice()) 16.dp else 20.dp, vertical = 18.dp)
                     .focusRequester(modalFocusRequester)
                     .focusable()
                     .onPreviewKeyEvent { event ->
@@ -3220,6 +3528,7 @@ private fun InputModal(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
                         .background(
                             color = if (isPasteFocused) Color.White else Color.Black.copy(alpha = 0.82f),
                             shape = RoundedCornerShape(10.dp)
@@ -3229,6 +3538,13 @@ private fun InputModal(
                             color = if (isPasteFocused) Color.White else Color.White.copy(alpha = 0.14f),
                             shape = RoundedCornerShape(10.dp)
                         )
+                        .clickable {
+                            val clipboardText = clipboardManager.getText()?.text
+                            val target = fields.firstOrNull()
+                            if (clipboardText != null && target != null) {
+                                target.onValueChange(clipboardText)
+                            }
+                        }
                         .padding(vertical = 11.dp, horizontal = 14.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.Center
@@ -3257,6 +3573,7 @@ private fun InputModal(
                     Box(
                         modifier = Modifier
                             .weight(1f)
+                            .clip(RoundedCornerShape(10.dp))
                             .background(
                                 color = if (isCancelFocused) Color.White else Color.Black.copy(alpha = 0.82f),
                                 shape = RoundedCornerShape(10.dp)
@@ -3266,6 +3583,10 @@ private fun InputModal(
                                 color = if (isCancelFocused) Color.White else Color.White.copy(alpha = 0.14f),
                                 shape = RoundedCornerShape(10.dp)
                             )
+                            .clickable {
+                                hideKeyboardAll()
+                                onDismiss()
+                            }
                             .padding(vertical = 12.dp),
                         contentAlignment = Alignment.Center
                     ) {
@@ -3280,6 +3601,7 @@ private fun InputModal(
                     Box(
                         modifier = Modifier
                             .weight(1f)
+                            .clip(RoundedCornerShape(10.dp))
                             .background(
                                 color = if (isConfirmFocused) Color.White else Color.Black.copy(alpha = 0.82f),
                                 shape = RoundedCornerShape(10.dp)
@@ -3289,6 +3611,10 @@ private fun InputModal(
                                 color = if (isConfirmFocused) Color.White else Color.White.copy(alpha = 0.14f),
                                 shape = RoundedCornerShape(10.dp)
                             )
+                            .clickable {
+                                hideKeyboardAll()
+                                onConfirm()
+                            }
                             .padding(vertical = 12.dp),
                         contentAlignment = Alignment.Center
                     ) {
@@ -3302,7 +3628,7 @@ private fun InputModal(
 
                 Spacer(modifier = Modifier.height(10.dp))
                 Text(
-                    text = "OK: edit/select • Back: close keyboard first",
+                    text = if (LocalDeviceType.current.isTouchDevice()) "Tap a field to edit, tap Confirm when done" else "OK: edit/select \u2022 Back: close keyboard first",
                     style = ArflixTypography.caption,
                     color = TextSecondary.copy(alpha = 0.56f)
                 )
@@ -3370,9 +3696,12 @@ private fun SubtitlePickerModal(
     ) {
         Column(
             modifier = Modifier
-                .width(520.dp)
+                .then(
+                    if (LocalDeviceType.current.isTouchDevice()) Modifier.fillMaxWidth(0.92f).widthIn(max = 520.dp)
+                    else Modifier.width(520.dp)
+                )
                 .background(BackgroundElevated, RoundedCornerShape(16.dp))
-                .padding(28.dp)
+                .padding(if (LocalDeviceType.current.isTouchDevice()) 20.dp else 28.dp)
         ) {
             Text(
                 text = title,
@@ -3392,6 +3721,7 @@ private fun SubtitlePickerModal(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
                             .background(
                                 if (isFocused) Color.White.copy(alpha = 0.12f) else Color.Transparent,
                                 RoundedCornerShape(10.dp)
@@ -3401,6 +3731,7 @@ private fun SubtitlePickerModal(
                                 color = if (isFocused) Pink else Color.White.copy(alpha = 0.1f),
                                 shape = RoundedCornerShape(10.dp)
                             )
+                            .clickable { onSelect(option) }
                             .padding(horizontal = 16.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {

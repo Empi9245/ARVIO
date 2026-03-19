@@ -2882,8 +2882,23 @@ class IptvRepository @Inject constructor(
             }
             val stream = BufferedInputStream(progressStream)
             if (!response.isSuccessful && !looksLikeM3u(stream)) {
-                val preview = response.peekBody(220).string().replace('\n', ' ').trim()
-                val detail = if (preview.isBlank()) "No response body." else preview
+                val rawPreview = response.peekBody(512).string().replace('\n', ' ').trim()
+                // Strip HTML tags and CSS to produce a clean error message
+                val cleanPreview = rawPreview
+                    .replace(Regex("<style[^>]*>[\\s\\S]*?</style>", RegexOption.IGNORE_CASE), "")
+                    .replace(Regex("<script[^>]*>[\\s\\S]*?</script>", RegexOption.IGNORE_CASE), "")
+                    .replace(Regex("<[^>]+>"), " ")
+                    .replace(Regex("\\{[^}]*\\}"), "")
+                    .replace(Regex("\\s+"), " ")
+                    .trim()
+                    .take(150)
+                val detail = when {
+                    response.code == 403 -> "Access denied by the server. The IPTV provider may be blocking this request."
+                    response.code == 404 -> "Playlist URL not found. Check the M3U URL in settings."
+                    response.code in 500..599 -> "Server error (${response.code}). The IPTV provider may be temporarily down."
+                    cleanPreview.isBlank() -> "HTTP ${response.code}"
+                    else -> cleanPreview
+                }
                 throw IllegalStateException("M3U request failed (HTTP ${response.code}). $detail")
             }
             onProgress(IptvLoadProgress("Parsing channels...", 78))

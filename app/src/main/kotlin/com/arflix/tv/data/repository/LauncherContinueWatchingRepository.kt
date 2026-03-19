@@ -49,7 +49,7 @@ class LauncherContinueWatchingRepository @Inject constructor(
     }
 
     suspend fun refreshForCurrentProfile() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || !supportsLauncherPublishing()) return
 
         val activeProfileId = runCatching { profileManager.getProfileIdSync() }.getOrDefault("")
         if (activeProfileId.isBlank()) {
@@ -64,7 +64,7 @@ class LauncherContinueWatchingRepository @Inject constructor(
     }
 
     suspend fun clearPublishedPrograms() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || !supportsLauncherPublishing()) return
         withContext(Dispatchers.IO) {
             val channelId = findExistingChannelId()
             if (channelId != null) {
@@ -72,6 +72,19 @@ class LauncherContinueWatchingRepository @Inject constructor(
             }
             deleteWatchNextPrograms()
         }
+    }
+
+    private fun supportsLauncherPublishing(): Boolean {
+        val pm = context.packageManager
+        val hasTvFeature = pm.hasSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK) ||
+            pm.hasSystemFeature(android.content.pm.PackageManager.FEATURE_TELEVISION)
+        if (!hasTvFeature) return false
+
+        // Extra hardening: some phones/ROMs can expose odd feature combinations.
+        // Only publish launcher channels if the TV provider authority actually exists.
+        return runCatching {
+            context.packageManager.resolveContentProvider("android.media.tv", 0) != null
+        }.getOrDefault(false)
     }
 
     private suspend fun loadPublisherItems(): List<ContinueWatchingItem> {

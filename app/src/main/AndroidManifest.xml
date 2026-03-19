@@ -8,10 +8,10 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
-    <!-- TV Features -->
+    <!-- TV Features (not required so the same APK installs on phones/tablets) -->
     <uses-feature
         android:name="android.software.leanback"
-        android:required="true" />
+        android:required="false" />
     <uses-feature
         android:name="android.hardware.touchscreen"
         android:required="false" />
@@ -38,13 +38,25 @@
             android:exported="true"
             android:hardwareAccelerated="true"
             android:launchMode="singleTask"
-            android:screenOrientation="landscape"
             android:theme="@style/Theme.ArflixTV.Splash">
 
             <!-- TV Launcher -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+            </intent-filter>
+
+            <!-- Mobile/Tablet Launcher -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- Allow ARVIO to be set as default home/launcher -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
 

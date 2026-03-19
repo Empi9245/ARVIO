@@ -100,6 +100,7 @@ fun AppNavigation(
     preloadedHeroLogoUrl: String? = null,
     preloadedLogoCache: Map<String, String> = emptyMap(),
     currentProfile: Profile? = null,
+    isCloudConnected: Boolean = false,
     onSwitchProfile: () -> Unit = {},
     onExitApp: () -> Unit = {}
 ) {
@@ -242,9 +243,19 @@ fun AppNavigation(
         }
 
         // Settings screen
-        composable(Screen.Settings.route) {
+        composable(
+            route = "settings?autoCloudAuth={autoCloudAuth}",
+            arguments = listOf(
+                navArgument("autoCloudAuth") {
+                    type = NavType.BoolType
+                    defaultValue = false
+                }
+            )
+        ) { backStackEntry ->
+            val autoCloudAuth = backStackEntry.arguments?.getBoolean("autoCloudAuth") ?: false
             SettingsScreen(
                 currentProfile = currentProfile,
+                autoStartCloudAuth = autoCloudAuth,
                 onNavigateToHome = { navigateHome() },
                 onNavigateToSearch = { navigateTopLevel(Screen.Search.route) },
                 onNavigateToTv = { navigateTopLevel(Screen.Tv.createRoute()) },
@@ -267,7 +278,11 @@ fun AppNavigation(
                         popUpTo(Screen.ProfileSelection.route) { inclusive = true }
                     }
                 },
-                onShowAddProfile = { /* Handled internally by ProfileSelectionScreen */ }
+                onShowAddProfile = { /* Handled internally by ProfileSelectionScreen */ },
+                onConnectCloud = {
+                    navController.navigate("settings?autoCloudAuth=true")
+                },
+                isCloudConnected = isCloudConnected
             )
         }
 

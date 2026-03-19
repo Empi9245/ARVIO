@@ -7,6 +7,57 @@ All notable changes to this project are documented in this file.
 ### Added
 - (Nothing yet)
 
+## [1.9.2] - 2026-03-19
+
+### Added
+- Full mobile/tablet support: same APK now works on phones, tablets, and TV with adaptive UI.
+- Mobile bottom navigation bar replacing TV topbar on touch devices.
+- Mobile Home: swipeable hero carousel with clearlogo, IMDb badge, auto-scroll, page indicators.
+- Mobile Details: vertical scroll layout with backdrop gradient, labeled action buttons, touch-scrollable sections.
+- Mobile Settings: single-column layout with horizontal tab chips.
+- Mobile Search: soft keyboard with OutlinedTextField, touch-scrollable result rows.
+- Mobile Player: touch controls overlay (tap to toggle, drag to seek, tap play/pause).
+- Mobile Sources page: full-width single-column stream selector with tappable cards.
+- Mobile Subtitle/Audio menu: bottom-sheet style with tappable track items.
+- Mobile Context menus: bottom-sheet style with slide-up animation and touch items.
+- Mobile Live TV: optimized vertical layout with smaller fonts and touch-friendly channel rows.
+- Mobile Cast/Person modal: vertical scrollable layout with centered photo and biography.
+- Mobile Profile page: scrollable LazyRow for 4+ profiles, smaller avatars on phone.
+- Long-press context menu on mobile Home cards (via combinedClickable).
+- Cloud connect button on profile selection page (opens QR on TV, email/password on mobile).
+- Default home launcher intent filter so ARVIO can be set as default launcher.
+- Background logo prefetch for all Home categories on mobile (not just first 2 rows).
+- Frame rate matching: real display mode switching via Display.Mode API with stabilization polling.
+
+### Improved
+- Playback startup speed through progressive source loading, background prefetch, and smart autoplay window.
+- Player buffering tuned for large debrid files (80MB byte cap, cache bypass for heavy streams).
+- Subtitle ordering: embedded subtitles appear first and are auto-selected over addon subtitles.
+- In-app updater: marks installed tag as ignored to prevent re-prompt loop, clears on actual version upgrade.
+- IPTV error messages: stripped HTML/CSS from provider error responses, human-readable messages for common HTTP errors.
+- Dialogs responsive on mobile: CloudPair, AppUpdate, UnknownSources, InputModal, SubtitlePicker all adapt width.
+- Live TV fullscreen EPG overlay: smaller fonts and tighter layout on mobile.
+- Top gradient behind topbar for readability over backdrops.
+- Collapsible category rail in Live TV when browsing channels.
+- Bottom bar visual upgrade: top border, larger icons, pill highlight, indicator dot.
+
+### Fixed
+- Major play-button crash from SimpleCache folder lock conflict (singleton fix).
+- Mobile-only crash after profile selection from TV launcher channel provider on non-TV devices.
+- Continue Watching wrong resume time: removed ALL stale position leak paths (Supabase history cleanup, CW cache purge, zero-value placeholders).
+- Edit Profile delete button rendering as thin white stripe (missing weight/fillMaxWidth).
+- Player error buttons not clickable when source/subtitle menu was open.
+- Player error on fast-forward/rewind with mid-playback recovery (light seek first, then re-prepare).
+- Player select/enter key now always toggles play/pause.
+- Subtitle/source menu focus broken by touch clickable modifier on player container.
+- Live TV sound continuing when switching to another app (lifecycle-aware pause/resume).
+- Live TV fullscreen black screen (postDelayed player attachment with requestLayout/invalidate).
+- Trakt list catalogs disappearing from Home (merge filtering and DataStore race fixes).
+- IPTV config cloud sync timing for non-primary profiles.
+- Text overflow/vertical wrapping across player, settings, details, bottom bar (maxLines + ellipsis).
+- Profile page TV focus restored (Surface for TV, Box+clickable for mobile).
+- Profile dialog focus: Create/Save button gets initial focus on TV.
+
 ## [1.9.1] - 2026-03-14
 
 ### Improved

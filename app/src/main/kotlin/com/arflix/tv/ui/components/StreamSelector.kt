@@ -9,6 +9,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,6 +23,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -70,6 +75,7 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
 import com.arflix.tv.data.model.StreamSource
 import com.arflix.tv.ui.theme.ArflixTypography
+import com.arflix.tv.util.LocalDeviceType
 import com.arflix.tv.ui.theme.Pink
 import com.arflix.tv.ui.theme.TextPrimary
 import com.arflix.tv.ui.theme.TextSecondary
@@ -105,6 +111,7 @@ fun StreamSelector(
     var focusZone by remember { mutableStateOf("streams") } // "tabs" or "streams"
     val listState = rememberTvLazyListState()
     val focusRequester = remember { FocusRequester() }
+    val isMobile = LocalDeviceType.current.isTouchDevice()
 
     // Request focus when visible
     LaunchedEffect(isVisible) {
@@ -283,6 +290,7 @@ fun StreamSelector(
                     } else false
                 }
         ) {
+            if (!isMobile) {
             Row(modifier = Modifier.fillMaxSize()) {
                 // Left Panel - Compact Info Card
                 Box(
@@ -499,6 +507,305 @@ fun StreamSelector(
                         }
                     }
                 }
+            }
+            } else {
+                // Mobile single-column layout
+                val mobileListState = rememberLazyListState()
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 16.dp)
+                ) {
+                    // Header row: title, count, close button
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 12.dp, bottom = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = title.ifEmpty { "Select Source" },
+                                style = ArflixTypography.body.copy(
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Bold
+                                ),
+                                color = TextPrimary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = "${streams.size} sources available",
+                                style = ArflixTypography.caption.copy(fontSize = 12.sp),
+                                color = TextSecondary
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(Color.White.copy(alpha = 0.1f))
+                                .clickable { onClose() },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Close",
+                                tint = TextPrimary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+
+                    // Horizontal scrollable tab row for addon filters
+                    if (tabLabels.size > 1) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState())
+                                .padding(vertical = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            tabLabels.forEachIndexed { index, label ->
+                                val isSelected = index == selectedTabIndex
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(16.dp))
+                                        .background(
+                                            if (isSelected) Pink.copy(alpha = 0.3f)
+                                            else Color.White.copy(alpha = 0.08f)
+                                        )
+                                        .then(
+                                            if (isSelected) Modifier.border(1.dp, Pink.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
+                                            else Modifier.border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(16.dp))
+                                        )
+                                        .clickable {
+                                            selectedTabIndex = index
+                                            focusedIndex = 0
+                                        }
+                                        .padding(horizontal = 14.dp, vertical = 6.dp)
+                                ) {
+                                    Text(
+                                        text = label,
+                                        style = ArflixTypography.caption.copy(
+                                            fontSize = 12.sp,
+                                            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
+                                        ),
+                                        color = if (isSelected) Pink else TextSecondary,
+                                        maxLines = 1
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Stream list or loading/empty states
+                    if (isLoading) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .weight(1f),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                LoadingIndicator(color = Pink, size = 40.dp)
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Text(
+                                    text = "Finding sources...",
+                                    style = ArflixTypography.body.copy(fontSize = 14.sp),
+                                    color = TextSecondary
+                                )
+                            }
+                        }
+                    } else if (streams.isEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .weight(1f),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier
+                                    .background(GlassWhite, RoundedCornerShape(16.dp))
+                                    .border(1.dp, GlassBorder, RoundedCornerShape(16.dp))
+                                    .padding(32.dp)
+                            ) {
+                                val iconColor = if (!hasStreamingAddons) Color(0xFF3B82F6) else TextSecondary.copy(alpha = 0.5f)
+                                Box(
+                                    modifier = Modifier
+                                        .size(48.dp)
+                                        .background(iconColor.copy(alpha = 0.1f), CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = if (!hasStreamingAddons) Icons.Default.Settings else Icons.Default.Cloud,
+                                        contentDescription = null,
+                                        tint = iconColor,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Text(
+                                    text = if (!hasStreamingAddons) "No Streaming Addons" else "No sources found",
+                                    style = ArflixTypography.body.copy(
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Medium
+                                    ),
+                                    color = TextSecondary
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = if (!hasStreamingAddons)
+                                        "Go to Settings \u2192 Addons to add\na streaming addon"
+                                    else
+                                        "Try adding more addons",
+                                    style = ArflixTypography.caption.copy(fontSize = 12.sp),
+                                    color = TextSecondary.copy(alpha = 0.6f),
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                )
+                            }
+                        }
+                    } else {
+                        LazyColumn(
+                            state = mobileListState,
+                            contentPadding = PaddingValues(vertical = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .weight(1f)
+                        ) {
+                            items(flatStreams) { stream ->
+                                MobileStreamCard(
+                                    stream = stream,
+                                    isSelected = stream == selectedStream,
+                                    onClick = { onSelect(stream) }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun MobileStreamCard(
+    stream: StreamSource,
+    isSelected: Boolean,
+    onClick: () -> Unit
+) {
+    val is4K = stream.quality.contains("4K", ignoreCase = true) || stream.quality.contains("2160p")
+    val is1080 = stream.quality.contains("1080p")
+    val is720 = stream.quality.contains("720p")
+
+    val qualityText = when {
+        is4K -> "4K"
+        is1080 -> "1080p"
+        is720 -> "720p"
+        else -> stream.quality.split(" ").firstOrNull()?.take(6) ?: "SD"
+    }
+
+    val qualityColor = when {
+        is4K -> AccentGold
+        is1080 -> AccentBlue
+        is720 -> Color(0xFF06B6D4)
+        else -> TextSecondary
+    }
+
+    val addonShortName = stream.addonName.split(" - ").firstOrNull()?.trim() ?: stream.addonName
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(
+                if (isSelected) Pink.copy(alpha = 0.15f) else GlassWhite
+            )
+            .border(
+                width = 1.dp,
+                color = if (isSelected) Pink.copy(alpha = 0.4f) else GlassBorder,
+                shape = RoundedCornerShape(10.dp)
+            )
+            .clickable { onClick() }
+            .padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // Quality badge pill
+        Box(
+            modifier = Modifier
+                .background(qualityColor.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
+                .padding(horizontal = 6.dp, vertical = 3.dp)
+        ) {
+            Text(
+                text = qualityText,
+                style = ArflixTypography.caption.copy(
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Black
+                ),
+                color = qualityColor
+            )
+        }
+
+        Spacer(modifier = Modifier.width(10.dp))
+
+        // Source name and details
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = stream.source,
+                style = ArflixTypography.body.copy(
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium
+                ),
+                color = TextPrimary,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(top = 2.dp)
+            ) {
+                if (stream.size.isNotEmpty()) {
+                    Text(
+                        text = stream.size,
+                        style = ArflixTypography.caption.copy(
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Normal
+                        ),
+                        color = TextSecondary.copy(alpha = 0.7f)
+                    )
+                }
+                Text(
+                    text = addonShortName,
+                    style = ArflixTypography.caption.copy(
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Normal
+                    ),
+                    color = TextSecondary.copy(alpha = 0.5f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+
+        // Selected indicator
+        if (isSelected) {
+            Box(
+                modifier = Modifier
+                    .size(20.dp)
+                    .background(Pink, CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Check,
+                    contentDescription = "Selected",
+                    tint = Color.White,
+                    modifier = Modifier.size(14.dp)
+                )
             }
         }
     }

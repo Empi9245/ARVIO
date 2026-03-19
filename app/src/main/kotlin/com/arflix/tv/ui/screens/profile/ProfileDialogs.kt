@@ -6,6 +6,11 @@ import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,6 +28,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -31,7 +37,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -52,6 +61,7 @@ import com.arflix.tv.data.model.Profile
 import com.arflix.tv.data.model.ProfileColors
 import com.arflix.tv.ui.components.AvatarIcon
 import com.arflix.tv.ui.components.AvatarRegistry
+import com.arflix.tv.util.LocalDeviceType
 
 // ============================================================
 // Add Profile Dialog
@@ -137,7 +147,16 @@ private fun ProfileDialogContent(
     onDelete: (() -> Unit)?
 ) {
     val context = LocalContext.current
+    val isTouchDevice = LocalDeviceType.current.isTouchDevice()
     var editTextRef by remember { mutableStateOf<EditText?>(null) }
+    val confirmButtonFocusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(isTouchDevice) {
+        if (!isTouchDevice) {
+            // Always give the dialog a visible focused control on TV.
+            runCatching { confirmButtonFocusRequester.requestFocus() }
+        }
+    }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -207,33 +226,22 @@ private fun ProfileDialogContent(
                     Spacer(modifier = Modifier.height(16.dp))
 
                     // Name input
-                    Surface(
-                        onClick = {
-                            editTextRef?.let { et ->
-                                et.requestFocus()
-                                et.postDelayed({
-                                    val imm = context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as? InputMethodManager
-                                    @Suppress("DEPRECATION")
-                                    imm?.showSoftInput(et, InputMethodManager.SHOW_FORCED)
-                                }, 100)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color(0xFF222222))
+                            .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(8.dp))
+                            .clickable {
+                                editTextRef?.let { et ->
+                                    et.requestFocus()
+                                    et.postDelayed({
+                                        val imm = context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+                                        @Suppress("DEPRECATION")
+                                        imm?.showSoftInput(et, InputMethodManager.SHOW_FORCED)
+                                    }, 100)
+                                }
                             }
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(8.dp)),
-                        colors = ClickableSurfaceDefaults.colors(
-                            containerColor = Color(0xFF222222),
-                            focusedContainerColor = Color(0xFF222222)
-                        ),
-                        border = ClickableSurfaceDefaults.border(
-                            border = androidx.tv.material3.Border(
-                                border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.2f)),
-                                shape = RoundedCornerShape(8.dp)
-                            ),
-                            focusedBorder = androidx.tv.material3.Border(
-                                border = androidx.compose.foundation.BorderStroke(2.dp, Color.White),
-                                shape = RoundedCornerShape(8.dp)
-                            )
-                        )
                     ) {
                         AndroidView(
                             factory = { ctx ->
@@ -287,14 +295,17 @@ private fun ProfileDialogContent(
                             isPrimary = true,
                             enabled = name.isNotBlank(),
                             onClick = onConfirm,
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .focusRequester(confirmButtonFocusRequester)
                         )
                         Row(
+                            modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            DialogButton(text = "Cancel", isPrimary = false, onClick = onDismiss)
+                            DialogButton(text = "Cancel", isPrimary = false, onClick = onDismiss, modifier = Modifier.weight(1f))
                             if (onDelete != null) {
-                                DialogButton(text = "Delete", isPrimary = false, isDestructive = true, onClick = onDelete)
+                                DialogButton(text = "Delete", isPrimary = false, isDestructive = true, onClick = onDelete, modifier = Modifier.weight(1f))
                             }
                         }
                     }
@@ -359,7 +370,13 @@ private fun AvatarGridItem(
     onClick: () -> Unit,
     isNone: Boolean = false
 ) {
+    val isTouchDevice = LocalDeviceType.current.isTouchDevice()
     var isFocused by remember { mutableIntStateOf(0) }
+    val scale by animateFloatAsState(
+        targetValue = if (isFocused > 0) 1.12f else 1f,
+        animationSpec = tween(150),
+        label = "avatarScale"
+    )
 
     val (c1, c2) = if (isNone) {
         Color(0xFF2A2A2A) to Color(0xFF333333)
@@ -367,34 +384,7 @@ private fun AvatarGridItem(
         AvatarRegistry.gradientColors(avatarId)
     }
 
-    Surface(
-        onClick = onClick,
-        modifier = Modifier
-            .size(54.dp)
-            .onFocusChanged { isFocused = if (it.isFocused) 1 else 0 },
-        shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(10.dp)),
-        colors = ClickableSurfaceDefaults.colors(
-            containerColor = Color.Transparent,
-            focusedContainerColor = Color.Transparent
-        ),
-        border = ClickableSurfaceDefaults.border(
-            border = if (isSelected) {
-                androidx.tv.material3.Border(
-                    border = androidx.compose.foundation.BorderStroke(2.dp, Color.White),
-                    shape = RoundedCornerShape(10.dp)
-                )
-            } else {
-                androidx.tv.material3.Border(
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.08f)),
-                    shape = RoundedCornerShape(10.dp)
-                )
-            },
-            focusedBorder = androidx.tv.material3.Border(
-                border = androidx.compose.foundation.BorderStroke(2.dp, Color.White),
-                shape = RoundedCornerShape(10.dp)
-            )
-        )
-    ) {
+    val content: @Composable () -> Unit = {
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -433,6 +423,55 @@ private fun AvatarGridItem(
             }
         }
     }
+
+    if (isTouchDevice) {
+        Box(
+            modifier = Modifier
+                .size(54.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .border(
+                    width = if (isSelected || isFocused > 0) 2.dp else 1.dp,
+                    color = if (isSelected || isFocused > 0) Color.White else Color.White.copy(alpha = 0.08f),
+                    shape = RoundedCornerShape(10.dp)
+                )
+                .clickable { onClick() }
+                .onFocusChanged { isFocused = if (it.isFocused) 1 else 0 }
+        ) {
+            content()
+        }
+    } else {
+        Surface(
+            onClick = onClick,
+            modifier = Modifier
+                .size(54.dp)
+                .scale(scale)
+                .onFocusChanged { isFocused = if (it.isFocused) 1 else 0 },
+            shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(10.dp)),
+            colors = ClickableSurfaceDefaults.colors(
+                containerColor = Color.Transparent,
+                focusedContainerColor = Color.Transparent
+            ),
+            border = ClickableSurfaceDefaults.border(
+                border = if (isSelected) {
+                    androidx.tv.material3.Border(
+                        border = androidx.compose.foundation.BorderStroke(2.dp, Color.White),
+                        shape = RoundedCornerShape(10.dp)
+                    )
+                } else {
+                    androidx.tv.material3.Border(
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.08f)),
+                        shape = RoundedCornerShape(10.dp)
+                    )
+                },
+                focusedBorder = androidx.tv.material3.Border(
+                    border = androidx.compose.foundation.BorderStroke(2.dp, Color.White),
+                    shape = RoundedCornerShape(10.dp)
+                )
+            )
+        ) {
+            content()
+        }
+    }
 }
 
 // ============================================================
@@ -449,6 +488,7 @@ private fun DialogButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val isTouchDevice = LocalDeviceType.current.isTouchDevice()
     var isFocused by remember { mutableIntStateOf(0) }
 
     val containerColor = when {
@@ -462,35 +502,7 @@ private fun DialogButton(
         else -> Color.White.copy(alpha = 0.1f)
     }
 
-    Surface(
-        onClick = { if (enabled) onClick() },
-        modifier = modifier
-            .onFocusChanged { isFocused = if (it.isFocused) 1 else 0 },
-        shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(6.dp)),
-        colors = ClickableSurfaceDefaults.colors(
-            containerColor = containerColor,
-            focusedContainerColor = focusedContainerColor
-        ),
-        border = if (!isPrimary && !isDestructive) {
-            ClickableSurfaceDefaults.border(
-                border = androidx.tv.material3.Border(
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.3f)),
-                    shape = RoundedCornerShape(6.dp)
-                ),
-                focusedBorder = androidx.tv.material3.Border(
-                    border = androidx.compose.foundation.BorderStroke(2.dp, Color.White),
-                    shape = RoundedCornerShape(6.dp)
-                )
-            )
-        } else {
-            ClickableSurfaceDefaults.border(
-                focusedBorder = androidx.tv.material3.Border(
-                    border = androidx.compose.foundation.BorderStroke(2.dp, Color.White),
-                    shape = RoundedCornerShape(6.dp)
-                )
-            )
-        }
-    ) {
+    val buttonContent: @Composable () -> Unit = {
         Box(
             modifier = Modifier.fillMaxWidth(),
             contentAlignment = Alignment.Center
@@ -502,6 +514,62 @@ private fun DialogButton(
                 color = if (enabled) Color.White else Color.White.copy(alpha = 0.4f),
                 modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp)
             )
+        }
+    }
+
+    if (isTouchDevice) {
+        Box(
+            modifier = modifier
+                .clip(RoundedCornerShape(6.dp))
+                .background(if (isFocused > 0) focusedContainerColor else containerColor)
+                .then(
+                    if (!isPrimary && !isDestructive) {
+                        Modifier.border(
+                            width = if (isFocused > 0) 2.dp else 1.dp,
+                            color = if (isFocused > 0) Color.White else Color.White.copy(alpha = 0.3f),
+                            shape = RoundedCornerShape(6.dp)
+                        )
+                    } else if (isFocused > 0) {
+                        Modifier.border(2.dp, Color.White, RoundedCornerShape(6.dp))
+                    } else {
+                        Modifier
+                    }
+                )
+                .clickable { if (enabled) onClick() }
+                .onFocusChanged { isFocused = if (it.isFocused) 1 else 0 }
+        ) {
+            buttonContent()
+        }
+    } else {
+        Surface(
+            onClick = { if (enabled) onClick() },
+            modifier = modifier.onFocusChanged { isFocused = if (it.isFocused) 1 else 0 },
+            shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(6.dp)),
+            colors = ClickableSurfaceDefaults.colors(
+                containerColor = containerColor,
+                focusedContainerColor = focusedContainerColor
+            ),
+            border = if (!isPrimary && !isDestructive) {
+                ClickableSurfaceDefaults.border(
+                    border = androidx.tv.material3.Border(
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.3f)),
+                        shape = RoundedCornerShape(6.dp)
+                    ),
+                    focusedBorder = androidx.tv.material3.Border(
+                        border = androidx.compose.foundation.BorderStroke(2.dp, Color.White),
+                        shape = RoundedCornerShape(6.dp)
+                    )
+                )
+            } else {
+                ClickableSurfaceDefaults.border(
+                    focusedBorder = androidx.tv.material3.Border(
+                        border = androidx.compose.foundation.BorderStroke(2.dp, Color.White),
+                        shape = RoundedCornerShape(6.dp)
+                    )
+                )
+            }
+        ) {
+            buttonContent()
         }
     }
 }

@@ -1,6 +1,7 @@
 package com.arflix.tv.ui.screens.watchlist
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -48,6 +49,7 @@ import androidx.tv.material3.Text
 import com.arflix.tv.data.model.MediaType
 import com.arflix.tv.ui.components.AppTopBar
 import com.arflix.tv.ui.components.AppTopBarContentTopInset
+import com.arflix.tv.util.LocalDeviceType
 import com.arflix.tv.ui.components.LoadingIndicator
 import com.arflix.tv.ui.components.MediaCard
 import com.arflix.tv.ui.components.SidebarItem
@@ -83,12 +85,13 @@ fun WatchlistScreen(
     val uiState by viewModel.uiState.collectAsState()
     val usePosterCards = false
     val configuration = LocalConfiguration.current
-    val gridColumns = when {
+    val isMobile = LocalDeviceType.current.isTouchDevice()
+    val gridColumns = if (isMobile) 2 else when {
         configuration.screenWidthDp >= 2200 -> 5
         configuration.screenWidthDp >= 1600 -> 4
         else -> 3
     }
-    val cardWidth = when (gridColumns) {
+    val cardWidth = if (isMobile) 160.dp else when (gridColumns) {
         5 -> 240.dp
         4 -> 250.dp
         else -> 230.dp
@@ -216,12 +219,14 @@ fun WatchlistScreen(
                 } else false
             }
     ) {
-        AppTopBar(
-            selectedItem = SidebarItem.WATCHLIST,
-            isFocused = isSidebarFocused,
-            focusedIndex = sidebarFocusIndex,
-            profile = currentProfile
-        )
+        if (!LocalDeviceType.current.isTouchDevice()) {
+            AppTopBar(
+                selectedItem = SidebarItem.WATCHLIST,
+                isFocused = isSidebarFocused,
+                focusedIndex = sidebarFocusIndex,
+                profile = currentProfile
+            )
+        }
 
         Column(
             modifier = Modifier

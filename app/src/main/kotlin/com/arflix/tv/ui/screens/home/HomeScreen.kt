@@ -16,6 +16,9 @@ import androidx.compose.animation.ExitTransition
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -38,6 +41,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Circle
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -108,6 +113,7 @@ import com.arflix.tv.ui.components.MediaCard as ArvioMediaCard
 import com.arflix.tv.ui.components.CardLayoutMode
 import com.arflix.tv.ui.components.AppTopBar
 import com.arflix.tv.ui.components.AppTopBarContentTopInset
+import com.arflix.tv.util.LocalDeviceType
 import com.arflix.tv.ui.components.MediaContextMenu
 import com.arflix.tv.ui.components.rememberCardLayoutMode
 import com.arflix.tv.ui.components.Toast
@@ -148,6 +154,9 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.abs
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 
 // Genre ID to name mapping (TMDB standard)
 private val movieGenres = mapOf(
@@ -221,6 +230,8 @@ fun HomeScreen(
     onSwitchProfile: () -> Unit = {},
     onExitApp: () -> Unit = {}
 ) {
+    val isMobile = LocalDeviceType.current.isTouchDevice()
+
     // Use preloaded data from StartupViewModel if available
     LaunchedEffect(preloadedCategories, preloadedHeroItem, preloadedHeroLogoUrl, preloadedLogoCache) {
         if (preloadedCategories.isNotEmpty()) {
@@ -319,7 +330,7 @@ fun HomeScreen(
             )
         )
     }
-    val contentStartPadding = 36.dp
+    val contentStartPadding = if (isMobile) 16.dp else 36.dp
 
     // Use rememberSaveable to persist focus position across navigation (back from details page)
     val focusState = rememberSaveable(saver = HomeFocusState.Saver) { HomeFocusState() }
@@ -482,10 +493,11 @@ fun HomeScreen(
             .background(BackgroundDark)
       ) {
         val currentBackdrop = displayHeroItem?.backdrop ?: displayHeroItem?.image
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-        ) {
+        // On mobile, the hero backdrop is rendered inline inside MobileHomeRowsLayer — skip the fixed backdrop.
+        // On TV, fill the entire screen with the backdrop.
+        if (!isMobile) {
+        val backdropModifier = Modifier.fillMaxSize()
+        Box(modifier = backdropModifier) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -536,16 +548,17 @@ fun HomeScreen(
             }
 
             // === SCRIM SYSTEM ===
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .drawBehind {
-                        drawRect(brush = heroLeftScrim)
-                        drawRect(brush = heroTopScrim)
-                        drawRect(brush = heroBottomScrim)
-                    }
-            )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .drawBehind {
+                            drawRect(brush = heroLeftScrim)
+                            drawRect(brush = heroTopScrim)
+                            drawRect(brush = heroBottomScrim)
+                        }
+                )
         }
+        } // end if (!isMobile) backdrop
         
         HomeInputLayer(
             categories = displayCategories,
@@ -556,6 +569,27 @@ fun HomeScreen(
             fastScrollThresholdMs = fastScrollThresholdMs,
             usePosterCards = usePosterCards,
             isContextMenuOpen = showContextMenu,
+            isMobile = isMobile,
+            heroItem = displayHeroItem,
+            heroOverviewOverride = displayHeroOverview,
+            onPlay = {
+                displayHeroItem?.let { item ->
+                    if (viewModel.isIptvItem(item)) {
+                        onNavigateToTv(viewModel.getIptvChannelId(item), viewModel.getIptvStreamUrl(item.id))
+                    } else {
+                        onNavigateToDetails(item.mediaType, item.id, item.nextEpisode?.seasonNumber, item.nextEpisode?.episodeNumber)
+                    }
+                }
+            },
+            onDetails = {
+                displayHeroItem?.let { item ->
+                    if (viewModel.isIptvItem(item)) {
+                        onNavigateToTv(viewModel.getIptvChannelId(item), viewModel.getIptvStreamUrl(item.id))
+                    } else {
+                        onNavigateToDetails(item.mediaType, item.id, null, null)
+                    }
+                }
+            },
             currentProfile = currentProfile,
             onNavigateToDetails = onNavigateToDetails,
             onNavigateToSearch = onNavigateToSearch,
@@ -576,7 +610,13 @@ fun HomeScreen(
             heroItem = displayHeroItem,
             heroLogoUrl = displayHeroLogo,
             heroOverviewOverride = displayHeroOverview,
-            contentStartPadding = contentStartPadding
+            contentStartPadding = contentStartPadding,
+            isMobile = isMobile,
+            onNavigateToDetails = onNavigateToDetails,
+            onNavigateToTv = { channelId, streamUrl -> onNavigateToTv(channelId, streamUrl) },
+            isIptvItem = { item -> viewModel.isIptvItem(item) },
+            getIptvChannelId = { item -> viewModel.getIptvChannelId(item) },
+            getIptvStreamUrl = { itemId -> viewModel.getIptvStreamUrl(itemId) }
         )
 
         // Error state - show message when loading failed and no content
@@ -1015,31 +1055,523 @@ private fun HomeHeroLayer(
     heroItem: MediaItem?,
     heroLogoUrl: String?,
     heroOverviewOverride: String?,
-    contentStartPadding: androidx.compose.ui.unit.Dp
+    contentStartPadding: androidx.compose.ui.unit.Dp,
+    isMobile: Boolean = false,
+    onNavigateToDetails: (MediaType, Int, Int?, Int?) -> Unit = { _, _, _, _ -> },
+    onNavigateToTv: (channelId: String?, streamUrl: String?) -> Unit = { _, _ -> },
+    isIptvItem: (MediaItem) -> Boolean = { false },
+    getIptvChannelId: (MediaItem) -> String? = { null },
+    getIptvStreamUrl: (Int) -> String? = { null }
 ) {
-    val configuration = LocalConfiguration.current
-    val contentRowHeight = (configuration.screenHeightDp * 0.34f).dp.coerceIn(240.dp, 320.dp)
-    val contentRowBottomPadding = 12.dp
-    val contentRowTopPadding = contentRowHeight + contentRowBottomPadding
-    val buttonsBottomPadding = contentRowTopPadding - 10.dp
-    val heroBottomPadding = buttonsBottomPadding + if (configuration.screenHeightDp < 720) 32.dp else 40.dp
+    if (isMobile) {
+        // Mobile hero is rendered inline inside MobileHomeRowsLayer's LazyColumn — no fixed overlay needed.
+    } else {
+        // TV hero: full-screen overlay with clearlogo
+        val configuration = LocalConfiguration.current
+        val contentRowHeight = (configuration.screenHeightDp * 0.34f).dp.coerceIn(240.dp, 320.dp)
+        val contentRowBottomPadding = 12.dp
+        val contentRowTopPadding = contentRowHeight + contentRowBottomPadding
+        val buttonsBottomPadding = contentRowTopPadding - 10.dp
+        val heroBottomPadding = buttonsBottomPadding + if (configuration.screenHeightDp < 720) 32.dp else 40.dp
+
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(top = AppTopBarContentTopInset)
+                .zIndex(3f)
+        ) {
+            heroItem?.let { item ->
+                HeroSection(
+                    item = item,
+                    logoUrl = heroLogoUrl,
+                    overviewOverride = heroOverviewOverride,
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(start = contentStartPadding, end = 400.dp)
+                        .offset(y = -heroBottomPadding)
+                    )
+            }
+        }
+    }
+}
+
+/** Compact mobile hero overlay with gradient, title, metadata, description, and action buttons. */
+@Composable
+private fun MobileHeroOverlay(
+    item: MediaItem,
+    overviewOverride: String?,
+    contentStartPadding: androidx.compose.ui.unit.Dp,
+    onPlay: () -> Unit,
+    onDetails: () -> Unit
+) {
+    val mobileHeroGradient = remember {
+        Brush.verticalGradient(
+            listOf(
+                Color.Transparent,
+                Color.Transparent,
+                Color.Black.copy(alpha = 0.7f),
+                Color.Black.copy(alpha = 0.95f)
+            )
+        )
+    }
+
+    val textShadow = Shadow(
+        color = Color.Black.copy(alpha = 0.9f),
+        offset = Offset(0f, 2f),
+        blurRadius = 8f
+    )
+
+    val genreText = remember(item.id, item.genreIds) {
+        val genreMap = if (item.mediaType == MediaType.TV) tvGenres else movieGenres
+        item.genreIds.mapNotNull { genreMap[it] }.take(2).joinToString(" | ")
+    }
+    val year = item.releaseDate?.take(4)?.takeIf { it.isNotEmpty() } ?: item.year
+    val rating = item.imdbRating.ifEmpty { item.tmdbRating }
+    val metaParts = listOfNotNull(
+        genreText.takeIf { it.isNotEmpty() },
+        year.takeIf { it.isNotEmpty() },
+        rating.takeIf { it.isNotEmpty() }?.let { "IMDb $it" }
+    )
+    val metaLine = metaParts.joinToString(" | ")
+
+    val displayOverview = (overviewOverride ?: item.overview)
+        .replace(Regex("<[^>]*>"), " ")
+        .replace(Regex("[\\u00A0\\u2007\\u202F]"), " ")
+        .replace(Regex("\\p{Z}+"), " ")
+        .replace(Regex("\\s+"), " ")
+        .trim()
+        .ifBlank { "No description available." }
 
     Box(
         modifier = Modifier
-            .fillMaxSize()
-            .padding(top = AppTopBarContentTopInset)
+            .fillMaxWidth()
+            .fillMaxHeight(0.42f)
             .zIndex(3f)
     ) {
-        heroItem?.let { item ->
-            HeroSection(
-                item = item,
-                logoUrl = heroLogoUrl,
-                overviewOverride = heroOverviewOverride,
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .padding(start = contentStartPadding, end = 400.dp)
-                    .offset(y = -heroBottomPadding)
+        // Bottom gradient over the backdrop
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.6f)
+                .align(Alignment.BottomCenter)
+                .background(mobileHeroGradient)
+        )
+
+        // Content at the bottom
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(start = contentStartPadding, end = contentStartPadding, bottom = 12.dp)
+        ) {
+            // Title
+            Text(
+                text = item.title,
+                style = ArflixTypography.heroTitle.copy(
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold,
+                    shadow = textShadow
+                ),
+                color = Color.White,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            if (metaLine.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = metaLine,
+                    style = ArflixTypography.caption.copy(
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        shadow = textShadow
+                    ),
+                    color = Color.White.copy(alpha = 0.8f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = displayOverview,
+                style = ArflixTypography.body.copy(
+                    fontSize = 11.sp,
+                    lineHeight = 16.sp,
+                    shadow = textShadow
+                ),
+                color = Color.White.copy(alpha = 0.75f),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Action buttons
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                // Play button
+                Box(
+                    modifier = Modifier
+                        .background(AccentRed, RoundedCornerShape(8.dp))
+                        .clickable(onClick = onPlay)
+                        .padding(horizontal = 20.dp, vertical = 8.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.PlayArrow,
+                            contentDescription = "Play",
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Text(
+                            text = "Play",
+                            style = ArflixTypography.caption.copy(
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold
+                            ),
+                            color = Color.White
+                        )
+                    }
+                }
+
+                // Details button
+                Box(
+                    modifier = Modifier
+                        .background(Color.White.copy(alpha = 0.15f), RoundedCornerShape(8.dp))
+                        .clickable(onClick = onDetails)
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Info,
+                            contentDescription = "Details",
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Text(
+                            text = "Details",
+                            style = ArflixTypography.caption.copy(
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold
+                            ),
+                            color = Color.White
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Swipeable hero carousel for mobile: HorizontalPager with backdrop, gradient, title/meta/description, page dots, and auto-scroll. */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun MobileHeroCarousel(
+    categories: List<Category>,
+    cardLogoUrls: Map<String, String>,
+    onNavigateToDetails: (MediaType, Int, Int?, Int?) -> Unit
+) {
+    val context = LocalContext.current
+    val configuration = LocalConfiguration.current
+    val density = LocalDensity.current
+    // Hero area height: 40% of screen
+    val heroHeight = (configuration.screenHeightDp * 0.40f).dp
+
+    // Build hero items: Continue Watching first, then first catalog, up to 5 items
+    val heroItems = remember(categories) {
+        val cwItems = categories
+            .firstOrNull { it.id == "continue_watching" }
+            ?.items
+            ?.filter { it.id > 0 && !it.isPlaceholder }
+            .orEmpty()
+        val catalogItems = categories
+            .firstOrNull { it.id != "continue_watching" }
+            ?.items
+            ?.filter { it.id > 0 && !it.isPlaceholder }
+            .orEmpty()
+        (cwItems + catalogItems).distinctBy { "${it.mediaType}_${it.id}" }.take(5)
+    }
+
+    if (heroItems.isEmpty()) return
+
+    val pagerState = rememberPagerState(pageCount = { heroItems.size })
+
+    // Auto-scroll every 5 seconds
+    LaunchedEffect(pagerState, heroItems.size) {
+        if (heroItems.size <= 1) return@LaunchedEffect
+        while (true) {
+            delay(5000L)
+            val nextPage = (pagerState.currentPage + 1) % heroItems.size
+            pagerState.animateScrollToPage(nextPage)
+        }
+    }
+
+    // Strong gradient covering bottom 70% for smooth fade to black
+    val mobileHeroGradient = remember {
+        Brush.verticalGradient(
+            colorStops = arrayOf(
+                0.0f to Color.Transparent,
+                0.30f to Color.Transparent,
+                0.50f to Color.Black.copy(alpha = 0.4f),
+                0.75f to Color.Black.copy(alpha = 0.85f),
+                1.0f to Color.Black
+            )
+        )
+    }
+
+    // Extra thin gradient at the very bottom edge for seamless transition to card rows
+    val bottomEdgeFade = remember {
+        Brush.verticalGradient(
+            colorStops = arrayOf(
+                0.0f to Color.Transparent,
+                0.7f to Color.Transparent,
+                1.0f to Color.Black
+            )
+        )
+    }
+
+    val textShadow = remember {
+        Shadow(
+            color = Color.Black.copy(alpha = 0.9f),
+            offset = Offset(0f, 2f),
+            blurRadius = 8f
+        )
+    }
+
+    Column {
+        // Pager
+        Box {
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(heroHeight)
+            ) { page ->
+                val item = heroItems[page]
+                val backdropUrl = item.backdrop ?: item.image
+
+                val backdropSizePx = remember(configuration, density, heroHeight) {
+                    val widthPx = with(density) { configuration.screenWidthDp.dp.roundToPx() }
+                    val heightPx = with(density) { heroHeight.roundToPx() }
+                    widthPx.coerceAtMost(3840).coerceAtLeast(1) to heightPx.coerceAtMost(2160).coerceAtLeast(1)
+                }
+
+                val heroLogoUrl = cardLogoUrls["${item.mediaType}_${item.id}"]
+
+                val genreText = remember(item.id, item.genreIds) {
+                    val genreMap = if (item.mediaType == MediaType.TV) tvGenres else movieGenres
+                    item.genreIds.mapNotNull { genreMap[it] }.take(2).joinToString(" | ")
+                }
+                val year = item.releaseDate?.take(4)?.takeIf { it.isNotEmpty() } ?: item.year
+                val rating = item.imdbRating.ifEmpty { item.tmdbRating }
+                val ratingValue = parseRatingValue(rating)
+
+                val displayOverview = remember(item.id, item.overview) {
+                    item.overview
+                        .replace(Regex("<[^>]*>"), " ")
+                        .replace(Regex("[\\u00A0\\u2007\\u202F]"), " ")
+                        .replace(Regex("\\p{Z}+"), " ")
+                        .replace(Regex("\\s+"), " ")
+                        .trim()
+                        .ifBlank { "No description available." }
+                }
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clickable {
+                            onNavigateToDetails(item.mediaType, item.id, null, null)
+                        }
+                ) {
+                    // Backdrop image - Crop to fill without letterboxing
+                    if (backdropUrl != null) {
+                        val (bw, bh) = backdropSizePx
+                        val request = remember(backdropUrl, bw, bh) {
+                            ImageRequest.Builder(context)
+                                .data(backdropUrl)
+                                .size(bw, bh)
+                                .precision(Precision.INEXACT)
+                                .allowHardware(true)
+                                .crossfade(false)
+                                .build()
+                        }
+                        AsyncImage(
+                            model = request,
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+
+                    // Strong bottom gradient covering bottom 70%
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .fillMaxHeight(0.70f)
+                            .align(Alignment.BottomCenter)
+                            .background(mobileHeroGradient)
+                    )
+
+                    // Text content at bottom-left
+                    Column(
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .padding(start = 16.dp, end = 16.dp, bottom = 16.dp)
+                    ) {
+                        // Clearlogo image or fallback title text
+                        if (heroLogoUrl != null) {
+                            AsyncImage(
+                                model = ImageRequest.Builder(context)
+                                    .data(heroLogoUrl)
+                                    .precision(Precision.INEXACT)
+                                    .allowHardware(true)
+                                    .crossfade(false)
+                                    .build(),
+                                contentDescription = item.title,
+                                contentScale = ContentScale.Fit,
+                                alignment = Alignment.CenterStart,
+                                modifier = Modifier
+                                    .height(44.dp)
+                                    .width(200.dp)
+                            )
+                        } else {
+                            Text(
+                                text = item.title,
+                                style = ArflixTypography.heroTitle.copy(
+                                    fontSize = 24.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    shadow = textShadow
+                                ),
+                                color = Color.White,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        // Metadata row with IMDb badge
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (genreText.isNotEmpty()) {
+                                Text(
+                                    text = genreText,
+                                    style = ArflixTypography.caption.copy(
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        shadow = textShadow
+                                    ),
+                                    color = Color.White.copy(alpha = 0.8f),
+                                    maxLines = 1
+                                )
+                            }
+                            if (year.isNotEmpty()) {
+                                if (genreText.isNotEmpty()) {
+                                    Text(
+                                        text = "|",
+                                        style = ArflixTypography.caption.copy(fontSize = 11.sp, shadow = textShadow),
+                                        color = Color.White.copy(alpha = 0.5f)
+                                    )
+                                }
+                                Text(
+                                    text = year,
+                                    style = ArflixTypography.caption.copy(
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        shadow = textShadow
+                                    ),
+                                    color = Color.White.copy(alpha = 0.8f),
+                                    maxLines = 1
+                                )
+                            }
+                            // IMDb rating badge (yellow rounded box)
+                            if (ratingValue > 0f) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(3.dp),
+                                    modifier = Modifier
+                                        .background(Color(0xFFF5C518), RoundedCornerShape(4.dp))
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = "IMDb",
+                                        style = ArflixTypography.caption.copy(
+                                            fontSize = 8.sp,
+                                            fontWeight = FontWeight.Black
+                                        ),
+                                        color = Color.Black
+                                    )
+                                    Text(
+                                        text = rating,
+                                        style = ArflixTypography.caption.copy(
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold
+                                        ),
+                                        color = Color.Black
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(5.dp))
+
+                        // Description with lighter alpha and text shadow
+                        Text(
+                            text = displayOverview,
+                            style = ArflixTypography.body.copy(
+                                fontSize = 11.sp,
+                                lineHeight = 15.sp,
+                                shadow = textShadow
+                            ),
+                            color = Color.White.copy(alpha = 0.7f),
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+
+                        // Bottom padding above page indicators
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        // Page indicator dots inside the carousel page area
+                        if (heroItems.size > 1) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                heroItems.forEachIndexed { index, _ ->
+                                    val isSelected = pagerState.currentPage == index
+                                    Box(
+                                        modifier = Modifier
+                                            .padding(horizontal = 3.dp)
+                                            .size(if (isSelected) 8.dp else 6.dp)
+                                            .clip(CircleShape)
+                                            .background(
+                                                if (isSelected) Color.White
+                                                else Color.White.copy(alpha = 0.30f)
+                                            )
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Smooth fade-to-black at the very bottom edge (overlays the pager)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(8.dp)
+                    .align(Alignment.BottomCenter)
+                    .background(bottomEdgeFade)
+            )
         }
     }
 }
@@ -1054,6 +1586,11 @@ private fun HomeInputLayer(
     fastScrollThresholdMs: Long,
     usePosterCards: Boolean,
     isContextMenuOpen: Boolean,
+    isMobile: Boolean = false,
+    heroItem: MediaItem? = null,
+    heroOverviewOverride: String? = null,
+    onPlay: () -> Unit = {},
+    onDetails: () -> Unit = {},
     currentProfile: com.arflix.tv.data.model.Profile?,
     onNavigateToDetails: (MediaType, Int, Int?, Int?) -> Unit,
     onNavigateToSearch: () -> Unit,
@@ -1115,82 +1652,78 @@ private fun HomeInputLayer(
         }
     }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .focusRequester(focusRequester)
-            .onFocusChanged { rootHasFocus = it.hasFocus }
-            .focusable()
-            .onPreviewKeyEvent { event ->
-                if (isContextMenuOpen) {
-                    return@onPreviewKeyEvent false
-                }
-                when (event.type) {
-                    KeyEventType.KeyDown -> when (event.key) {
-                        Key.Enter, Key.DirectionCenter -> {
-                            if (SystemClock.elapsedRealtime() < suppressSelectUntilMs) {
-                                return@onPreviewKeyEvent true
+    val keyEventModifier = if (isMobile) {
+        Modifier // No D-pad key handling on mobile
+    } else {
+        Modifier.onPreviewKeyEvent { event ->
+            if (isContextMenuOpen) {
+                return@onPreviewKeyEvent false
+            }
+            when (event.type) {
+                KeyEventType.KeyDown -> when (event.key) {
+                    Key.Enter, Key.DirectionCenter -> {
+                        if (SystemClock.elapsedRealtime() < suppressSelectUntilMs) {
+                            return@onPreviewKeyEvent true
+                        }
+                        selectPressedInHome = true
+                        if (selectDownAtMs == 0L) {
+                            selectDownAtMs = SystemClock.elapsedRealtime()
+                        }
+                        true
+                    }
+                    Key.DirectionLeft -> {
+                        if (!focusState.isSidebarFocused) {
+                            if (focusState.currentItemIndex == 0) {
+                                true
+                            } else {
+                                focusState.currentItemIndex--
+                                focusState.lastNavEventTime = SystemClock.elapsedRealtime()
+                                true
                             }
-                            // Only accept KeyUp action when its KeyDown also happened on this screen.
-                            selectPressedInHome = true
-                            if (selectDownAtMs == 0L) {
-                                selectDownAtMs = SystemClock.elapsedRealtime()
+                        } else {
+                            if (focusState.sidebarFocusIndex > 0) {
+                                focusState.sidebarFocusIndex--
+                                focusState.lastNavEventTime = SystemClock.elapsedRealtime()
                             }
                             true
                         }
-                        Key.DirectionLeft -> {
-                            if (!focusState.isSidebarFocused) {
-                                if (focusState.currentItemIndex == 0) {
-                                    true
-                                } else {
-                                    focusState.currentItemIndex--
-                                    focusState.lastNavEventTime = SystemClock.elapsedRealtime()
-                                    true
-                                }
-                            } else {
-                                if (focusState.sidebarFocusIndex > 0) {
-                                    focusState.sidebarFocusIndex--
-                                    focusState.lastNavEventTime = SystemClock.elapsedRealtime()
-                                }
-                                true
-                            }
-                        }
-                        Key.DirectionRight -> {
-                            if (focusState.isSidebarFocused) {
-                                if (focusState.sidebarFocusIndex < maxSidebarIndex) {
-                                    focusState.sidebarFocusIndex++
-                                    focusState.lastNavEventTime = SystemClock.elapsedRealtime()
-                                }
-                                true
-                            } else {
-                                val maxItems = categories.getOrNull(focusState.currentRowIndex)?.items?.size ?: 0
-                                if (focusState.currentItemIndex < maxItems - 1) {
-                                    focusState.currentItemIndex++
-                                    focusState.lastNavEventTime = SystemClock.elapsedRealtime()
-                                }
-                                true
-                            }
-                        }
-                        Key.DirectionUp -> {
-                            if (focusState.isSidebarFocused) {
-                                true
-                            } else if (focusState.currentRowIndex > 0) {
-                                focusState.currentRowIndex--
-                                focusState.currentItemIndex = 0
+                    }
+                    Key.DirectionRight -> {
+                        if (focusState.isSidebarFocused) {
+                            if (focusState.sidebarFocusIndex < maxSidebarIndex) {
+                                focusState.sidebarFocusIndex++
                                 focusState.lastNavEventTime = SystemClock.elapsedRealtime()
-                                true
-                            } else {
-                                focusState.isSidebarFocused = true
-                                true
                             }
+                            true
+                        } else {
+                            val maxItems = categories.getOrNull(focusState.currentRowIndex)?.items?.size ?: 0
+                            if (focusState.currentItemIndex < maxItems - 1) {
+                                focusState.currentItemIndex++
+                                focusState.lastNavEventTime = SystemClock.elapsedRealtime()
+                            }
+                            true
                         }
-                        Key.DirectionDown -> {
-                            if (focusState.isSidebarFocused) {
-                                focusState.isSidebarFocused = false
-                                true
-                            } else if (!focusState.isSidebarFocused && focusState.currentRowIndex < categories.size - 1) {
-                                focusState.currentRowIndex++
-                                focusState.currentItemIndex = 0
+                    }
+                    Key.DirectionUp -> {
+                        if (focusState.isSidebarFocused) {
+                            true
+                        } else if (focusState.currentRowIndex > 0) {
+                            focusState.currentRowIndex--
+                            focusState.currentItemIndex = 0
+                            focusState.lastNavEventTime = SystemClock.elapsedRealtime()
+                            true
+                        } else {
+                            focusState.isSidebarFocused = true
+                            true
+                        }
+                    }
+                    Key.DirectionDown -> {
+                        if (focusState.isSidebarFocused) {
+                            focusState.isSidebarFocused = false
+                            true
+                        } else if (!focusState.isSidebarFocused && focusState.currentRowIndex < categories.size - 1) {
+                            focusState.currentRowIndex++
+                            focusState.currentItemIndex = 0
                                 focusState.lastNavEventTime = SystemClock.elapsedRealtime()
                                 true
                             } else {
@@ -1287,13 +1820,24 @@ private fun HomeInputLayer(
                     else -> false
                 }
             }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .focusRequester(focusRequester)
+            .onFocusChanged { rootHasFocus = it.hasFocus }
+            .focusable()
+            .then(keyEventModifier)
     ) {
-        AppTopBar(
-            selectedItem = SidebarItem.HOME,
-            isFocused = focusState.isSidebarFocused,
-            focusedIndex = focusState.sidebarFocusIndex,
-            profile = currentProfile
-        )
+        if (!isMobile) {
+            AppTopBar(
+                selectedItem = SidebarItem.HOME,
+                isFocused = focusState.isSidebarFocused,
+                focusedIndex = focusState.sidebarFocusIndex,
+                profile = currentProfile
+            )
+        }
 
         HomeRowsLayer(
             categories = categories,
@@ -1302,6 +1846,12 @@ private fun HomeInputLayer(
             contentStartPadding = contentStartPadding,
             fastScrollThresholdMs = fastScrollThresholdMs,
             usePosterCards = usePosterCards,
+            isMobile = isMobile,
+            heroItem = heroItem,
+            heroOverviewOverride = heroOverviewOverride,
+            onPlay = onPlay,
+            onDetails = onDetails,
+            onNavigateToDetails = onNavigateToDetails,
             onItemClick = { item ->
                 if (!isActionableHomeItem(item)) {
                     return@HomeRowsLayer
@@ -1312,13 +1862,181 @@ private fun HomeInputLayer(
                 } else {
                     onNavigateToDetails(item.mediaType, item.id, item.nextEpisode?.seasonNumber, item.nextEpisode?.episodeNumber)
                 }
-            }
+            },
+            onItemLongClick = if (isMobile) { item, isContinue -> onOpenContextMenu(item, isContinue) } else null
         )
     }
 }
 
 @Composable
 private fun HomeRowsLayer(
+    categories: List<Category>,
+    cardLogoUrls: Map<String, String>,
+    focusState: HomeFocusState,
+    contentStartPadding: androidx.compose.ui.unit.Dp,
+    fastScrollThresholdMs: Long,
+    usePosterCards: Boolean,
+    isMobile: Boolean = false,
+    heroItem: MediaItem? = null,
+    heroOverviewOverride: String? = null,
+    onPlay: () -> Unit = {},
+    onDetails: () -> Unit = {},
+    onNavigateToDetails: (MediaType, Int, Int?, Int?) -> Unit = { _, _, _, _ -> },
+    onItemClick: (MediaItem) -> Unit,
+    onItemLongClick: ((MediaItem, Boolean) -> Unit)? = null
+) {
+    if (isMobile) {
+        MobileHomeRowsLayer(
+            categories = categories,
+            cardLogoUrls = cardLogoUrls,
+            contentStartPadding = contentStartPadding,
+            usePosterCards = usePosterCards,
+            onNavigateToDetails = onNavigateToDetails,
+            onItemClick = onItemClick,
+            onItemLongClick = onItemLongClick
+        )
+    } else {
+        TvHomeRowsLayer(
+            categories = categories,
+            cardLogoUrls = cardLogoUrls,
+            focusState = focusState,
+            contentStartPadding = contentStartPadding,
+            fastScrollThresholdMs = fastScrollThresholdMs,
+            usePosterCards = usePosterCards,
+            onItemClick = onItemClick
+        )
+    }
+}
+
+/** Mobile-optimized rows: free-scrolling LazyColumn with smaller cards, no viewport constraint. */
+@Composable
+private fun MobileHomeRowsLayer(
+    categories: List<Category>,
+    cardLogoUrls: Map<String, String>,
+    contentStartPadding: androidx.compose.ui.unit.Dp,
+    usePosterCards: Boolean,
+    onNavigateToDetails: (MediaType, Int, Int?, Int?) -> Unit = { _, _, _, _ -> },
+    onItemClick: (MediaItem) -> Unit,
+    onItemLongClick: ((MediaItem, Boolean) -> Unit)? = null
+) {
+    val mobileItemWidth = if (usePosterCards) 120.dp else 200.dp
+    val mobileItemSpacing = 10.dp
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(bottom = 80.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        // Swipeable hero carousel as the first scrollable item
+        item(key = "mobile_hero", contentType = "mobile_hero") {
+            MobileHeroCarousel(
+                categories = categories,
+                cardLogoUrls = cardLogoUrls,
+                onNavigateToDetails = onNavigateToDetails
+            )
+        }
+
+        itemsIndexed(
+            items = categories,
+            key = { _, category -> category.id },
+            contentType = { _, _ -> "mobile_home_category_row" }
+        ) { _, category ->
+            val isContinueWatching = category.id == "continue_watching"
+            val isRanked = category.title.contains("Top 10", ignoreCase = true)
+
+            Column(modifier = Modifier.padding(bottom = 8.dp)) {
+                // Section title
+                Text(
+                    text = category.title,
+                    style = ArflixTypography.sectionTitle.copy(
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold
+                    ),
+                    color = Color.White,
+                    modifier = Modifier.padding(
+                        start = contentStartPadding,
+                        bottom = 8.dp
+                    )
+                )
+
+                // Horizontal card row with touch scrolling
+                LazyRow(
+                    contentPadding = PaddingValues(
+                        start = contentStartPadding,
+                        end = 16.dp,
+                        top = 4.dp,
+                        bottom = 4.dp
+                    ),
+                    horizontalArrangement = Arrangement.spacedBy(mobileItemSpacing)
+                ) {
+                    itemsIndexed(
+                        category.items,
+                        key = { _, item ->
+                            val episodeSuffix = if (item.nextEpisode != null) "_S${item.nextEpisode.seasonNumber}E${item.nextEpisode.episodeNumber}" else ""
+                            "${item.mediaType.name}-${item.id}${episodeSuffix}"
+                        },
+                        contentType = { _, item -> "${item.mediaType.name}_mobile_card" }
+                    ) { index, item ->
+                        if (isRanked) {
+                            Box(
+                                modifier = Modifier
+                                    .width(160.dp)
+                                    .height(110.dp),
+                                contentAlignment = Alignment.BottomStart
+                            ) {
+                                Text(
+                                    text = "${index + 1}",
+                                    style = TextStyle(
+                                        fontSize = 72.sp,
+                                        fontWeight = FontWeight.Black,
+                                        color = RankNumberColor,
+                                        letterSpacing = (-4).sp
+                                    ),
+                                    modifier = Modifier
+                                        .offset(x = (-6).dp, y = 14.dp)
+                                        .graphicsLayer { alpha = 0.9f }
+                                )
+                                Box(modifier = Modifier.padding(start = 44.dp)) {
+                                    val cardLogoUrl = cardLogoUrls["${item.mediaType}_${item.id}"]
+                                    ArvioMediaCard(
+                                        item = item,
+                                        width = 110.dp,
+                                        isLandscape = !usePosterCards,
+                                        logoImageUrl = cardLogoUrl,
+                                        showProgress = false,
+                                        isFocusedOverride = false,
+                                        enableSystemFocus = false,
+                                        onFocused = {},
+                                        onClick = { onItemClick(item) },
+                                        onLongClick = onItemLongClick?.let { callback -> { callback(item, isContinueWatching) } },
+                                    )
+                                }
+                            }
+                        } else {
+                            val cardLogoUrl = cardLogoUrls["${item.mediaType}_${item.id}"]
+                            ArvioMediaCard(
+                                item = item,
+                                width = mobileItemWidth,
+                                isLandscape = !usePosterCards,
+                                logoImageUrl = cardLogoUrl,
+                                showProgress = isContinueWatching,
+                                isFocusedOverride = false,
+                                enableSystemFocus = false,
+                                onFocused = {},
+                                onClick = { onItemClick(item) },
+                                onLongClick = onItemLongClick?.let { callback -> { callback(item, isContinueWatching) } },
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** TV-optimized rows: D-pad controlled, viewport-constrained to bottom half of screen. */
+@Composable
+private fun TvHomeRowsLayer(
     categories: List<Category>,
     cardLogoUrls: Map<String, String>,
     focusState: HomeFocusState,

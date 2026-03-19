@@ -201,6 +201,19 @@ class SettingsViewModel @Inject constructor(
         _uiState.value = _uiState.value.copy(
             isSelfUpdateSupported = appUpdateRepository.supportsSelfUpdate()
         )
+        // If the app was updated to a new version, clear any previously ignored tag
+        // so future updates are shown again.
+        viewModelScope.launch {
+            val ignoredTag = updatePreferences.ignoredTag.first()
+            if (ignoredTag != null) {
+                val installedVersion = appUpdateRepository.getInstalledVersionName()
+                val ignoredNormalized = com.arflix.tv.updater.VersionUtils.normalize(ignoredTag)
+                val installedNormalized = com.arflix.tv.updater.VersionUtils.normalize(installedVersion)
+                if (ignoredNormalized == installedNormalized || !com.arflix.tv.updater.VersionUtils.isRemoteNewer(ignoredTag, installedVersion)) {
+                    updatePreferences.setIgnoredTag(null)
+                }
+            }
+        }
     }
 
     private fun loadSettings() {
@@ -1122,15 +1135,28 @@ class SettingsViewModel @Inject constructor(
 
     fun openCloudEmailPasswordDialog() {
         if (_uiState.value.isLoggedIn) return
-        // If we already have an active pairing session, keep it and just show the fallback modal.
-        if (!cloudDeviceCode.isNullOrBlank() && !cloudUserCode.isNullOrBlank()) {
-            _uiState.value = _uiState.value.copy(
-                showCloudPairDialog = false,
-                showCloudEmailPasswordDialog = true
-            )
-            return
+        // Show email/password dialog directly (used on mobile where QR scanning isn't practical).
+        // If we already have an active pairing session, keep it running in the background.
+        _uiState.value = _uiState.value.copy(
+            showCloudPairDialog = false,
+            showCloudEmailPasswordDialog = true
+        )
+        // Start the device auth session in the background if not already active,
+        // so polling still works if the user later switches to QR on a different device.
+        if (cloudDeviceCode.isNullOrBlank() || cloudUserCode.isNullOrBlank()) {
+            viewModelScope.launch {
+                runCatching {
+                    tvDeviceAuthRepository.startSession().onSuccess { session ->
+                        cloudDeviceCode = session.deviceCode
+                        cloudUserCode = session.userCode
+                        cloudVerificationUrl = session.verificationUrl
+                        cloudPollIntervalMs = (session.intervalSeconds.coerceIn(1, 10) * 1000L)
+                        cloudExpiresAtMs = System.currentTimeMillis() + (session.expiresInSeconds.coerceAtLeast(30) * 1000L)
+                        startCloudPolling()
+                    }
+                }
+            }
         }
-        startCloudAuth()
     }
 
     fun closeCloudEmailPasswordDialog() {
@@ -1388,7 +1414,10 @@ class SettingsViewModel @Inject constructor(
 
             result
                 .onSuccess { update ->
-                    val remoteNewer = VersionUtils.isRemoteNewer(update.tag, BuildConfig.VERSION_NAME)
+                    // Use the actually installed version from PackageManager, not BuildConfig,
+                    // because on Android TV the old process can survive an APK install.
+                    val installedVersion = appUpdateRepository.getInstalledVersionName()
+                    val remoteNewer = VersionUtils.isRemoteNewer(update.tag, installedVersion)
                     val shouldShow = remoteNewer && (ignoredTag == null || ignoredTag != update.tag)
 
                     _uiState.value = _uiState.value.copy(
@@ -1504,6 +1533,20 @@ class SettingsViewModel @Inject constructor(
         }
 
         ApkInstaller.launchInstall(context, apkFile)
+        // Mark this release as "installed" so we don't re-show the update after the
+        // system installer returns the user to the old still-running process.
+        viewModelScope.launch {
+            _uiState.value.availableAppUpdate?.tag?.let { tag ->
+                updatePreferences.setIgnoredTag(tag)
+            }
+        }
+        _uiState.value = _uiState.value.copy(
+            downloadedApkPath = null,
+            showAppUpdateDialog = false,
+            isAppUpdateAvailable = false,
+            toastMessage = "Installing update...",
+            toastType = ToastType.INFO
+        )
     }
 
     fun openUnknownSourcesSettings() {

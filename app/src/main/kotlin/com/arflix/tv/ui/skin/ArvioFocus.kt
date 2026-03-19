@@ -4,7 +4,9 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -31,6 +33,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
+@OptIn(ExperimentalFoundationApi::class)
 fun Modifier.arvioFocusable(
     enabled: Boolean = true,
     enableSystemFocus: Boolean = true,
@@ -47,6 +50,7 @@ fun Modifier.arvioFocusable(
     gradientStartColor: Color = Color(0xFFFF00FF),  // Magenta (unused when solid)
     gradientEndColor: Color = Color(0xFF00D4FF),    // Cyan (unused when solid)
     onClick: (() -> Unit)? = null,
+    onLongClick: (() -> Unit)? = null,
     onFocusChanged: (Boolean) -> Unit = {},
 ): Modifier = composed {
     val interactionSource = remember { MutableInteractionSource() }
@@ -82,7 +86,16 @@ fun Modifier.arvioFocusable(
     val originX = if (visualFocused) focusedTransformOriginX.coerceIn(0f, 1f) else 0.5f
     val focusTransformOrigin = TransformOrigin(originX, 0.5f)
 
-    val clickable = if (onClick != null) {
+    val clickable = if (onClick != null && onLongClick != null) {
+        Modifier.combinedClickable(
+            enabled = enabled,
+            role = Role.Button,
+            interactionSource = interactionSource,
+            indication = null,
+            onClick = onClick,
+            onLongClick = onLongClick,
+        )
+    } else if (onClick != null) {
         Modifier.clickable(
             enabled = enabled,
             role = Role.Button,
@@ -176,6 +189,7 @@ fun ArvioFocusableSurface(
     enableSystemFocus: Boolean = true,
     isFocusedOverride: Boolean = false,
     onClick: (() -> Unit)? = null,
+    onLongClick: (() -> Unit)? = null,
     onFocusChanged: (Boolean) -> Unit = {},
     content: @Composable BoxScope.(isFocused: Boolean) -> Unit,
 ) {
@@ -200,6 +214,7 @@ fun ArvioFocusableSurface(
                 gradientStartColor = gradientStartColor,
                 gradientEndColor = gradientEndColor,
                 onClick = onClick,
+                onLongClick = onLongClick,
                 onFocusChanged = {
                     isFocused = it
                     onFocusChanged(it)

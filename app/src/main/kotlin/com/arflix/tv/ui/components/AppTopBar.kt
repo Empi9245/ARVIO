@@ -46,6 +46,8 @@ import kotlinx.coroutines.delay
 val AppTopBarHeight = 82.dp
 val AppTopBarTopPadding = 0.dp
 val AppTopBarContentTopInset = 98.dp
+/** On mobile/tablet where the topbar is hidden, use a small status-bar-like inset instead. */
+val MobileContentTopInset = 16.dp
 val AppTopBarHorizontalPadding = 28.dp
 
 fun topBarMaxIndex(hasProfile: Boolean): Int = if (hasProfile) SidebarItem.entries.size else SidebarItem.entries.size - 1
@@ -78,6 +80,15 @@ fun AppTopBar(
         modifier = modifier
             .fillMaxWidth()
             .height(AppTopBarContentTopInset)
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        Color.Black.copy(alpha = 0.72f),
+                        Color.Black.copy(alpha = 0.36f),
+                        Color.Transparent
+                    )
+                )
+            )
     ) {
         Row(
             modifier = Modifier

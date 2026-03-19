@@ -5,8 +5,11 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,6 +19,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -52,9 +56,11 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
 import com.arflix.tv.ui.theme.ArflixTypography
 import com.arflix.tv.ui.theme.BackgroundCard
+import com.arflix.tv.ui.theme.BackgroundElevated
 import com.arflix.tv.ui.theme.Pink
 import com.arflix.tv.ui.theme.TextPrimary
 import com.arflix.tv.ui.theme.TextSecondary
+import com.arflix.tv.util.LocalDeviceType
 
 /**
  * Context menu for media cards on home screen
@@ -75,6 +81,7 @@ fun MediaContextMenu(
     onRemoveFromContinueWatching: (() -> Unit)? = null,
     onDismiss: () -> Unit
 ) {
+    val isMobile = LocalDeviceType.current.isTouchDevice()
     var focusedIndex by remember { mutableIntStateOf(0) }
     val focusRequester = remember { FocusRequester() }
 
@@ -112,93 +119,214 @@ fun MediaContextMenu(
     LaunchedEffect(isVisible) {
         if (isVisible) {
             focusedIndex = 0
-            focusRequester.requestFocus()
+            if (!isMobile) {
+                focusRequester.requestFocus()
+            }
         }
     }
 
-    AnimatedVisibility(
-        visible = isVisible,
-        enter = fadeIn() + scaleIn(initialScale = 0.9f),
-        exit = fadeOut() + scaleOut(targetScale = 0.9f)
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .zIndex(50f)
-                .background(Color.Black.copy(alpha = 0.5f))
-                .focusRequester(focusRequester)
-                .focusable()
-                .onPreviewKeyEvent { event ->
-                    if (event.type == KeyEventType.KeyDown) {
-                        when (event.key) {
-                            Key.DirectionUp -> {
-                                if (focusedIndex > 0) focusedIndex--
-                                true
-                            }
-                            Key.DirectionDown -> {
-                                if (focusedIndex < menuItems.size - 1) focusedIndex++
-                                true
-                            }
-                            Key.Enter, Key.DirectionCenter -> {
-                                menuItems[focusedIndex].action()
-                                onDismiss()
-                                true
-                            }
-                            Key.Back, Key.Escape -> {
-                                onDismiss()
-                                true
-                            }
-                            else -> false
-                        }
-                    } else false
-                },
-            contentAlignment = Alignment.TopCenter
+    if (!isMobile) {
+        // --- TV layout: centered card with D-pad navigation ---
+        AnimatedVisibility(
+            visible = isVisible,
+            enter = fadeIn() + scaleIn(initialScale = 0.9f),
+            exit = fadeOut() + scaleOut(targetScale = 0.9f)
         ) {
-            Column(
+            Box(
                 modifier = Modifier
-                    .padding(top = 110.dp)
-                    .width(320.dp)
-                    .background(BackgroundCard, RoundedCornerShape(14.dp))
-                    .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(14.dp))
-                    .padding(16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                // Title
-                Text(
-                    text = title,
-                    style = ArflixTypography.sectionTitle,
-                    color = TextPrimary,
-                    maxLines = 2
-                )
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                // Menu items
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    menuItems.forEachIndexed { index, item ->
-                        ContextMenuItem(
-                            icon = item.icon,
-                            label = item.label,
-                            isFocused = index == focusedIndex,
-                            onClick = {
-                                item.action()
-                                onDismiss()
+                    .fillMaxSize()
+                    .zIndex(50f)
+                    .background(Color.Black.copy(alpha = 0.5f))
+                    .focusRequester(focusRequester)
+                    .focusable()
+                    .onPreviewKeyEvent { event ->
+                        if (event.type == KeyEventType.KeyDown) {
+                            when (event.key) {
+                                Key.DirectionUp -> {
+                                    if (focusedIndex > 0) focusedIndex--
+                                    true
+                                }
+                                Key.DirectionDown -> {
+                                    if (focusedIndex < menuItems.size - 1) focusedIndex++
+                                    true
+                                }
+                                Key.Enter, Key.DirectionCenter -> {
+                                    menuItems[focusedIndex].action()
+                                    onDismiss()
+                                    true
+                                }
+                                Key.Back, Key.Escape -> {
+                                    onDismiss()
+                                    true
+                                }
+                                else -> false
                             }
+                        } else false
+                    },
+                contentAlignment = Alignment.TopCenter
+            ) {
+                Column(
+                    modifier = Modifier
+                        .padding(top = 110.dp)
+                        .width(320.dp)
+                        .background(BackgroundCard, RoundedCornerShape(14.dp))
+                        .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(14.dp))
+                        .padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    // Title
+                    Text(
+                        text = title,
+                        style = ArflixTypography.sectionTitle,
+                        color = TextPrimary,
+                        maxLines = 2
+                    )
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Menu items
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        menuItems.forEachIndexed { index, item ->
+                            ContextMenuItem(
+                                icon = item.icon,
+                                label = item.label,
+                                isFocused = index == focusedIndex,
+                                onClick = {
+                                    item.action()
+                                    onDismiss()
+                                }
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Hint
+                    Text(
+                        text = "Press BACK to close",
+                        style = ArflixTypography.caption,
+                        color = TextSecondary.copy(alpha = 0.5f)
+                    )
+                }
+            }
+        }
+    } else {
+        // --- Mobile layout: bottom-sheet style menu ---
+        AnimatedVisibility(
+            visible = isVisible,
+            enter = fadeIn(),
+            exit = fadeOut()
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .zIndex(50f)
+                    .background(Color.Black.copy(alpha = 0.5f))
+                    .clickable(
+                        indication = null,
+                        interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                    ) { onDismiss() }
+                    .onPreviewKeyEvent { event ->
+                        if (event.type == KeyEventType.KeyDown && (event.key == Key.Back || event.key == Key.Escape)) {
+                            onDismiss()
+                            true
+                        } else false
+                    },
+                contentAlignment = Alignment.BottomCenter
+            ) {
+                AnimatedVisibility(
+                    visible = isVisible,
+                    enter = slideInVertically(initialOffsetY = { it }),
+                    exit = slideOutVertically(targetOffsetY = { it })
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(
+                                BackgroundElevated,
+                                RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
+                            )
+                            .clickable(
+                                indication = null,
+                                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                            ) { /* consume click so backdrop handler doesn't fire */ }
+                            .padding(top = 16.dp, bottom = 24.dp)
+                    ) {
+                        // Drag handle indicator
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.CenterHorizontally)
+                                .width(36.dp)
+                                .height(4.dp)
+                                .background(
+                                    Color.White.copy(alpha = 0.2f),
+                                    RoundedCornerShape(2.dp)
+                                )
                         )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        // Title
+                        Text(
+                            text = title,
+                            style = ArflixTypography.sectionTitle,
+                            color = TextPrimary,
+                            maxLines = 2,
+                            modifier = Modifier.padding(horizontal = 16.dp)
+                        )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        // Divider
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(1.dp)
+                                .background(Color.White.copy(alpha = 0.08f))
+                        )
+
+                        // Menu items
+                        menuItems.forEachIndexed { index, item ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 48.dp)
+                                    .clickable {
+                                        item.action()
+                                        onDismiss()
+                                    }
+                                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Icon(
+                                    imageVector = item.icon,
+                                    contentDescription = null,
+                                    tint = TextSecondary,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                                Text(
+                                    text = item.label,
+                                    style = ArflixTypography.body,
+                                    color = TextPrimary
+                                )
+                            }
+                            // Subtle divider between items (not after last)
+                            if (index < menuItems.size - 1) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp)
+                                        .height(1.dp)
+                                        .background(Color.White.copy(alpha = 0.05f))
+                                )
+                            }
+                        }
                     }
                 }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // Hint
-                Text(
-                    text = "Press BACK to close",
-                    style = ArflixTypography.caption,
-                    color = TextSecondary.copy(alpha = 0.5f)
-                )
             }
         }
     }

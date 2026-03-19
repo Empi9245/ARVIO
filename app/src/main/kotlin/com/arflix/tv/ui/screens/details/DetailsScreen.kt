@@ -11,7 +11,9 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,8 +28,12 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed as standardItemsIndexed
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bookmark
@@ -127,6 +133,7 @@ import com.arflix.tv.ui.theme.Pink
 import com.arflix.tv.ui.theme.Purple
 import com.arflix.tv.ui.theme.TextPrimary
 import com.arflix.tv.ui.theme.TextSecondary
+import com.arflix.tv.util.LocalDeviceType
 import com.arflix.tv.util.isInCinema
 import com.arflix.tv.util.parseRatingValue
 import java.text.SimpleDateFormat
@@ -160,6 +167,7 @@ fun DetailsScreen(
     val usePosterCards = rememberCardLayoutMode() == CardLayoutMode.POSTER
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val isMobile = LocalDeviceType.current.isTouchDevice()
 
     // Start on buttons for both TV and movies (buttons are now shown for both)
     var focusedSection by remember { mutableStateOf(FocusSection.BUTTONS) }
@@ -266,13 +274,8 @@ fun DetailsScreen(
         }
     }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(BackgroundDark)
-            .focusRequester(focusRequester)
-            .focusable()
-            .onPreviewKeyEvent { event ->
+    // D-pad key handler — only used on TV (skipped on mobile/touch devices)
+    val keyModifier = if (isMobile) Modifier else Modifier.onPreviewKeyEvent { event ->
                 if (event.type == KeyEventType.KeyDown) {
                     // Check if any modal is showing
                     if (showStreamSelector || showEpisodeContextMenu || showSeasonContextMenu || uiState.showPersonModal) {
@@ -558,6 +561,14 @@ fun DetailsScreen(
                     }
                 } else false
             }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(BackgroundDark)
+            .focusRequester(focusRequester)
+            .focusable()
+            .then(keyModifier)
     ) {
         // Main content - full screen with sidebar overlay (same as HomeScreen)
         if (uiState.isLoading || uiState.item == null) {
@@ -591,17 +602,103 @@ fun DetailsScreen(
                     seasonProgress = uiState.seasonProgress,
                     playLabel = uiState.playLabel,
                     contentHasFocus = !isSidebarFocused,
-                    usePosterCards = usePosterCards
+                    usePosterCards = usePosterCards,
+                    isMobile = isMobile,
+                    onButtonClick = { idx ->
+                        when (idx) {
+                            0 -> { // Play
+                                val season = if (mediaType == MediaType.TV) {
+                                    uiState.playSeason
+                                        ?: uiState.episodes.getOrNull(episodeIndex)?.seasonNumber
+                                        ?: 1
+                                } else null
+                                val episode = if (mediaType == MediaType.TV) {
+                                    uiState.playEpisode
+                                        ?: uiState.episodes.getOrNull(episodeIndex)?.episodeNumber
+                                        ?: 1
+                                } else null
+                                val startPositionMs = if (
+                                    mediaType == MediaType.TV &&
+                                    season == uiState.playSeason &&
+                                    episode == uiState.playEpisode
+                                ) {
+                                    uiState.playPositionMs
+                                } else if (mediaType == MediaType.MOVIE) {
+                                    uiState.playPositionMs
+                                } else null
+
+                                if (uiState.autoPlaySingleSource && !uiState.imdbId.isNullOrBlank()) {
+                                    pendingAutoPlayRequest = PendingAutoPlayRequest(
+                                        season = season,
+                                        episode = episode,
+                                        startPositionMs = startPositionMs
+                                    )
+                                    viewModel.loadStreams(uiState.imdbId, season, episode)
+                                } else {
+                                    onNavigateToPlayer(
+                                        mediaType, mediaId, season, episode,
+                                        uiState.imdbId, null, null, null, startPositionMs
+                                    )
+                                }
+                            }
+                            1 -> { // Sources
+                                showStreamSelector = true
+                                val ep = uiState.episodes.getOrNull(episodeIndex)
+                                viewModel.loadStreams(uiState.imdbId, ep?.seasonNumber, ep?.episodeNumber)
+                            }
+                            2 -> { // Trailer
+                                uiState.trailerKey?.let { key ->
+                                    try {
+                                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.youtube.com/watch?v=$key"))
+                                        context.startActivity(intent)
+                                    } catch (e: Exception) {
+                                        try {
+                                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("vnd.youtube:$key"))
+                                            context.startActivity(intent)
+                                        } catch (_: Exception) {}
+                                    }
+                                }
+                            }
+                            3 -> viewModel.toggleWatched(episodeIndex)
+                            4 -> viewModel.toggleWatchlist()
+                        }
+                    },
+                    onSeasonClick = { idx ->
+                        viewModel.loadSeason(idx + 1)
+                    },
+                    onEpisodeClick = { idx ->
+                        val ep = uiState.episodes.getOrNull(idx)
+                        if (ep != null) {
+                            onNavigateToPlayer(
+                                mediaType, mediaId,
+                                ep.seasonNumber, ep.episodeNumber, uiState.imdbId, null, null, null, null
+                            )
+                        }
+                    },
+                    onCastClick = { idx ->
+                        val member = uiState.cast.getOrNull(idx)
+                        if (member != null) {
+                            viewModel.loadPerson(member.id)
+                        }
+                    },
+                    onSimilarClick = { idx ->
+                        val sim = uiState.similar.getOrNull(idx)
+                        if (sim != null) {
+                            onNavigateToDetails(sim.mediaType, sim.id)
+                        }
+                    }
                 )
             }
         }
 
-        AppTopBar(
-            selectedItem = SidebarItem.HOME,
-            isFocused = isSidebarFocused,
-            focusedIndex = sidebarFocusIndex,
-            profile = currentProfile
-        )
+        if (!LocalDeviceType.current.isTouchDevice()) {
+            AppTopBar(
+                selectedItem = SidebarItem.HOME,
+                isFocused = isSidebarFocused,
+                focusedIndex = sidebarFocusIndex,
+                profile = currentProfile
+            )
+        }
         
         // Person Modal
         PersonModal(
@@ -793,7 +890,13 @@ private fun DetailsContent(
     seasonProgress: Map<Int, Pair<Int, Int>> = emptyMap(),
     playLabel: String? = null,
     contentHasFocus: Boolean = true,
-    usePosterCards: Boolean = false
+    usePosterCards: Boolean = false,
+    isMobile: Boolean = false,
+    onButtonClick: (Int) -> Unit = {},
+    onSeasonClick: (Int) -> Unit = {},
+    onEpisodeClick: (Int) -> Unit = {},
+    onCastClick: (Int) -> Unit = {},
+    onSimilarClick: (Int) -> Unit = {}
 ) {
     val focusSectionForUi = if (contentHasFocus) focusedSection else null
     // === PREMIUM LAYERED TEXT SHADOWS ===
@@ -802,6 +905,334 @@ private fun DetailsContent(
         offset = Offset(0f, 2f),
         blurRadius = 8f  // Soft spread shadow for better readability
     )
+
+    // ===================== MOBILE LAYOUT =====================
+    if (isMobile) {
+        val configuration = LocalConfiguration.current
+        val screenHeightDp = configuration.screenHeightDp.dp
+        val backdropHeight = screenHeightDp * 0.35f
+        val mobileScrollState = rememberScrollState()
+
+        val genreText = genres.take(2).joinToString(" / ").ifEmpty {
+            if (item.mediaType == MediaType.TV) "TV Series" else "Movie"
+        }
+        val displayDate = item.releaseDate?.takeIf { it.isNotEmpty() } ?: item.year
+        val hasDuration = item.duration.isNotEmpty() && item.duration != "0m"
+        val rating = item.imdbRating.ifEmpty { item.tmdbRating }
+        val ratingValue = parseRatingValue(rating)
+
+        val buttonWatched = if (item.mediaType == MediaType.TV) {
+            episodes.getOrNull(episodeIndex)?.isWatched ?: item.isWatched
+        } else {
+            item.isWatched
+        }
+
+        Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(mobileScrollState)
+            ) {
+                // --- Backdrop with gradient ---
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(backdropHeight)
+                ) {
+                    AsyncImage(
+                        model = item.backdrop ?: item.image,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                    // Strong bottom gradient
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(
+                                brush = Brush.verticalGradient(
+                                    colorStops = arrayOf(
+                                        0.0f to Color.Transparent,
+                                        0.4f to Color.Transparent,
+                                        0.7f to Color.Black.copy(alpha = 0.8f),
+                                        1.0f to Color.Black
+                                    )
+                                )
+                            )
+                    )
+                    // Title over backdrop bottom
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                    ) {
+                        if (logoUrl != null) {
+                            AsyncImage(
+                                model = logoUrl,
+                                contentDescription = item.title,
+                                contentScale = ContentScale.Fit,
+                                alignment = Alignment.CenterStart,
+                                modifier = Modifier
+                                    .height(48.dp)
+                                    .width(200.dp)
+                            )
+                        } else {
+                            Text(
+                                text = item.title,
+                                style = ArflixTypography.heroTitle.copy(
+                                    fontSize = 24.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    shadow = textShadow
+                                ),
+                                color = Color.White,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+
+                // --- Metadata & content on black background ---
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color.Black)
+                        .padding(horizontal = 16.dp)
+                ) {
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Metadata row
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = genreText,
+                            style = ArflixTypography.caption.copy(fontSize = 12.sp, fontWeight = FontWeight.SemiBold),
+                            color = Color.White.copy(alpha = 0.7f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        if (displayDate.isNotEmpty()) {
+                            Text(text = "|", style = ArflixTypography.caption.copy(fontSize = 12.sp), color = Color.White.copy(alpha = 0.4f), maxLines = 1)
+                            Text(
+                                text = displayDate,
+                                style = ArflixTypography.caption.copy(fontSize = 12.sp, fontWeight = FontWeight.SemiBold),
+                                color = Color.White.copy(alpha = 0.7f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        if (hasDuration) {
+                            Text(text = "|", style = ArflixTypography.caption.copy(fontSize = 12.sp), color = Color.White.copy(alpha = 0.4f), maxLines = 1)
+                            Text(
+                                text = item.duration,
+                                style = ArflixTypography.caption.copy(fontSize = 12.sp, fontWeight = FontWeight.SemiBold),
+                                color = Color.White.copy(alpha = 0.7f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        if (ratingValue > 0f) {
+                            Text(text = "|", style = ArflixTypography.caption.copy(fontSize = 12.sp), color = Color.White.copy(alpha = 0.4f))
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(3.dp),
+                                modifier = Modifier
+                                    .background(Color(0xFFF5C518), RoundedCornerShape(3.dp))
+                                    .padding(horizontal = 5.dp, vertical = 1.dp)
+                            ) {
+                                Text(
+                                    text = "IMDb",
+                                    style = ArflixTypography.caption.copy(fontSize = 8.sp, fontWeight = FontWeight.Black),
+                                    color = Color.Black
+                                )
+                                Text(
+                                    text = rating,
+                                    style = ArflixTypography.caption.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold),
+                                    color = Color.Black
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Description
+                    Text(
+                        text = item.overview,
+                        style = ArflixTypography.body.copy(
+                            fontSize = 13.sp,
+                            lineHeight = 20.sp,
+                            fontWeight = FontWeight.Normal
+                        ),
+                        color = Color.White.copy(alpha = 0.85f),
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Action buttons row
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        val playButtonLabel = if (!playLabel.isNullOrBlank()) playLabel else "Play"
+                        MobileActionButton(icon = Icons.Default.PlayArrow, text = playButtonLabel, isPrimary = true, onClick = { onButtonClick(0) })
+                        MobileActionButton(icon = Icons.Default.List, text = "Sources", onClick = { onButtonClick(1) })
+                        MobileActionButton(icon = Icons.Default.Movie, text = "Trailer", onClick = { onButtonClick(2) })
+                        MobileActionButton(
+                            icon = if (buttonWatched) Icons.Default.Check else Icons.Default.Visibility,
+                            text = if (buttonWatched) "Watched" else "Watched",
+                            isActive = buttonWatched,
+                            onClick = { onButtonClick(3) }
+                        )
+                        MobileActionButton(
+                            icon = if (isInWatchlist) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                            text = "Watchlist",
+                            isActive = isInWatchlist,
+                            onClick = { onButtonClick(4) }
+                        )
+                    }
+
+                    // --- TV Show: Season selector & Episodes ---
+                    if (item.mediaType == MediaType.TV && episodes.isNotEmpty()) {
+                        if (totalSeasons > 1) {
+                            Spacer(modifier = Modifier.height(20.dp))
+                            Text(
+                                text = "Seasons",
+                                style = ArvioSkin.typography.sectionTitle.copy(fontSize = 15.sp, fontWeight = FontWeight.Bold),
+                                color = Color.White.copy(alpha = 0.9f)
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                (1..totalSeasons).forEachIndexed { index, season ->
+                                    val progress = seasonProgress[season]
+                                    val currentSeasonProgress = if (season == currentSeason && episodes.isNotEmpty()) {
+                                        Pair(episodes.count { it.isWatched }, episodes.size)
+                                    } else null
+                                    SeasonButton(
+                                        season = season,
+                                        isSelected = season == currentSeason,
+                                        isFocused = false,
+                                        watchedCount = currentSeasonProgress?.first ?: progress?.first ?: 0,
+                                        totalCount = currentSeasonProgress?.second ?: progress?.second ?: 0,
+                                        onClick = { onSeasonClick(index) }
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(20.dp))
+                        Text(
+                            text = "Episodes",
+                            style = ArvioSkin.typography.sectionTitle.copy(fontSize = 15.sp, fontWeight = FontWeight.Bold),
+                            color = Color.White.copy(alpha = 0.9f)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                }
+
+                // Episodes LazyRow (outside the inner Column to allow independent horizontal scroll)
+                if (item.mediaType == MediaType.TV && episodes.isNotEmpty()) {
+                    LazyRow(
+                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        standardItemsIndexed(
+                            episodes,
+                            key = { index, ep -> "mob_ep_${ep.seasonNumber}_${ep.episodeNumber}_$index" }
+                        ) { index, episode ->
+                            EpisodeCard(
+                                episode = episode,
+                                isFocused = false,
+                                onClick = { onEpisodeClick(index) }
+                            )
+                        }
+                    }
+                }
+
+                // Cast section
+                if (cast.isNotEmpty()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp)
+                    ) {
+                        Spacer(modifier = Modifier.height(24.dp))
+                        Text(
+                            text = "Cast",
+                            style = ArvioSkin.typography.sectionTitle.copy(fontSize = 15.sp, fontWeight = FontWeight.Bold),
+                            color = Color.White.copy(alpha = 0.9f)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                    LazyRow(
+                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        standardItemsIndexed(
+                            cast,
+                            key = { index, c -> "mob_cast_${c.id}_$index" }
+                        ) { index, castMember ->
+                            CircularCastCard(
+                                castMember = castMember,
+                                isFocused = false,
+                                onClick = { onCastClick(index) }
+                            )
+                        }
+                    }
+                }
+
+                // Similar / More Like This section
+                if (similar.isNotEmpty()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp)
+                    ) {
+                        Spacer(modifier = Modifier.height(24.dp))
+                        Text(
+                            text = "More Like This",
+                            style = ArvioSkin.typography.sectionTitle.copy(fontSize = 15.sp, fontWeight = FontWeight.Bold),
+                            color = Color.White.copy(alpha = 0.9f)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                    LazyRow(
+                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        standardItemsIndexed(
+                            similar,
+                            key = { index, m -> "mob_sim_${m.mediaType.name}_${m.id}_$index" }
+                        ) { index, mediaItem ->
+                            SimilarMediaCard(
+                                item = mediaItem,
+                                logoImageUrl = similarLogoUrls["${mediaItem.mediaType}_${mediaItem.id}"],
+                                usePosterCards = usePosterCards,
+                                isFocused = false,
+                                onClick = { onSimilarClick(index) }
+                            )
+                        }
+                    }
+                }
+
+                // Bottom spacing
+                Spacer(modifier = Modifier.height(32.dp))
+            }
+        }
+        return
+    }
+    // ===================== END MOBILE LAYOUT =====================
 
     Box(modifier = Modifier.fillMaxSize()) {
         // Full-screen hero background
@@ -922,7 +1353,8 @@ private fun DetailsContent(
                                     shadow = textShadow
                                 ),
                                 color = TextPrimary,
-                                maxLines = 2
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     }
@@ -1089,38 +1521,48 @@ private fun DetailsContent(
                 } else {
                     "Play"
                 }
-                PremiumActionButton(
-                    icon = Icons.Default.PlayArrow,
-                    text = playButtonLabel,
-                    isPrimary = true,
-                    isFocused = focusSectionForUi == FocusSection.BUTTONS && buttonIndex == 0
-                )
-                PremiumActionButton(
-                    icon = Icons.Default.List,
-                    text = "Sources",
-                    isFocused = focusSectionForUi == FocusSection.BUTTONS && buttonIndex == 1,
-                    isIconOnly = true
-                )
-                PremiumActionButton(
-                    icon = Icons.Default.Movie,
-                    text = "Trailer",
-                    isFocused = focusSectionForUi == FocusSection.BUTTONS && buttonIndex == 2,
-                    isIconOnly = true
-                )
-                PremiumActionButton(
-                    icon = if (buttonWatched) Icons.Default.Check else Icons.Default.Visibility,
-                    text = if (buttonWatched) "Watched" else "Mark Watched",
-                    isFocused = focusSectionForUi == FocusSection.BUTTONS && buttonIndex == 3,
-                    isActive = buttonWatched,
-                    isIconOnly = true
-                )
-                PremiumActionButton(
-                    icon = if (isInWatchlist) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
-                    text = "Watchlist",
-                    isFocused = focusSectionForUi == FocusSection.BUTTONS && buttonIndex == 4,
-                    isIconOnly = true,
-                    isActive = isInWatchlist
-                )
+                Box(modifier = Modifier.clickable { onButtonClick(0) }) {
+                    PremiumActionButton(
+                        icon = Icons.Default.PlayArrow,
+                        text = playButtonLabel,
+                        isPrimary = true,
+                        isFocused = focusSectionForUi == FocusSection.BUTTONS && buttonIndex == 0
+                    )
+                }
+                Box(modifier = Modifier.clickable { onButtonClick(1) }) {
+                    PremiumActionButton(
+                        icon = Icons.Default.List,
+                        text = "Sources",
+                        isFocused = focusSectionForUi == FocusSection.BUTTONS && buttonIndex == 1,
+                        isIconOnly = true
+                    )
+                }
+                Box(modifier = Modifier.clickable { onButtonClick(2) }) {
+                    PremiumActionButton(
+                        icon = Icons.Default.Movie,
+                        text = "Trailer",
+                        isFocused = focusSectionForUi == FocusSection.BUTTONS && buttonIndex == 2,
+                        isIconOnly = true
+                    )
+                }
+                Box(modifier = Modifier.clickable { onButtonClick(3) }) {
+                    PremiumActionButton(
+                        icon = if (buttonWatched) Icons.Default.Check else Icons.Default.Visibility,
+                        text = if (buttonWatched) "Watched" else "Mark Watched",
+                        isFocused = focusSectionForUi == FocusSection.BUTTONS && buttonIndex == 3,
+                        isActive = buttonWatched,
+                        isIconOnly = true
+                    )
+                }
+                Box(modifier = Modifier.clickable { onButtonClick(4) }) {
+                    PremiumActionButton(
+                        icon = if (isInWatchlist) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                        text = "Watchlist",
+                        isFocused = focusSectionForUi == FocusSection.BUTTONS && buttonIndex == 4,
+                        isIconOnly = true,
+                        isActive = isInWatchlist
+                    )
+                }
             }
         }
 
@@ -1233,7 +1675,8 @@ private fun DetailsContent(
                                     isSelected = season == currentSeason,
                                     isFocused = focusSectionForUi == FocusSection.SEASONS && index == seasonFocusIndex,
                                     watchedCount = currentSeasonProgress?.first ?: progress?.first ?: 0,
-                                    totalCount = currentSeasonProgress?.second ?: progress?.second ?: 0
+                                    totalCount = currentSeasonProgress?.second ?: progress?.second ?: 0,
+                                    onClick = { onSeasonClick(index) }
                                 )
                             }
                         }
@@ -1267,7 +1710,8 @@ private fun DetailsContent(
                             val isFocused = currentFocusedSection == FocusSection.EPISODES && index == currentEpisodeIndex
                             EpisodeCard(
                                 episode = episode,
-                                isFocused = isFocused
+                                isFocused = isFocused,
+                                onClick = { onEpisodeClick(index) }
                             )
                         }
                     }
@@ -1310,10 +1754,10 @@ private fun DetailsContent(
                                 cast,
                                 key = { index, c -> "${c.id}_${c.character}_$index" }
                             ) { index, castMember ->
-                                CircularCastCard(
+                            CircularCastCard(
                                     castMember = castMember,
                                     isFocused = focusSectionForUi == FocusSection.CAST && index == castIndex,
-                                    onClick = { /* Handled by key navigation */ }
+                                    onClick = { onCastClick(index) }
                                 )
                             }
                         }
@@ -1410,7 +1854,8 @@ private fun DetailsContent(
                                     item = mediaItem,
                                     logoImageUrl = similarLogoUrls["${mediaItem.mediaType}_${mediaItem.id}"],
                                     usePosterCards = usePosterCards,
-                                    isFocused = focusSectionForUi == FocusSection.SIMILAR && index == similarIndex
+                                    isFocused = focusSectionForUi == FocusSection.SIMILAR && index == similarIndex,
+                                    onClick = { onSimilarClick(index) }
                                 )
                             }
                         }
@@ -1514,6 +1959,54 @@ private fun HomeStyleRowAutoScroll(
         }
         lastScrollIndex = scrollTargetIndex
         lastScrollOffset = extraOffset
+    }
+}
+
+/**
+ * Mobile action button — labeled, tappable, Netflix-style
+ */
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun MobileActionButton(
+    icon: ImageVector,
+    text: String,
+    isPrimary: Boolean = false,
+    isActive: Boolean = false,
+    onClick: () -> Unit
+) {
+    val shape = RoundedCornerShape(10.dp)
+    val bgColor = when {
+        isPrimary -> Color.White
+        isActive -> Color.White.copy(alpha = 0.15f)
+        else -> Color.White.copy(alpha = 0.08f)
+    }
+    val contentColor = if (isPrimary) Color.Black else Color.White.copy(alpha = 0.9f)
+
+    Row(
+        modifier = Modifier
+            .clip(shape)
+            .background(bgColor, shape)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = contentColor,
+            modifier = Modifier.size(18.dp)
+        )
+        Text(
+            text = text,
+            style = ArvioSkin.typography.button.copy(
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold
+            ),
+            color = contentColor,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 
@@ -1671,7 +2164,8 @@ private fun PremiumActionButton(
 @Composable
 private fun EpisodeCard(
     episode: Episode,
-    isFocused: Boolean
+    isFocused: Boolean,
+    onClick: () -> Unit = {}
 ) {
     val configuration = LocalConfiguration.current
     val cardWidth = if (configuration.screenWidthDp < 1400) 300.dp else 320.dp
@@ -1737,7 +2231,7 @@ private fun EpisodeCard(
         pressedScale = 1f,
         enableSystemFocus = false,
         isFocusedOverride = isFocused,
-        onClick = null,
+        onClick = onClick,
     ) { _ ->
         Box(modifier = Modifier.fillMaxSize()) {
             AsyncImage(
@@ -1938,7 +2432,8 @@ private fun SeasonButton(
     isSelected: Boolean,
     isFocused: Boolean,
     watchedCount: Int = 0,
-    totalCount: Int = 0
+    totalCount: Int = 0,
+    onClick: () -> Unit = {}
 ) {
     val shape = RoundedCornerShape(8.dp)
     val backgroundColor = when {
@@ -1956,6 +2451,7 @@ private fun SeasonButton(
 
     Row(
         modifier = Modifier
+            .clickable { onClick() }
             .background(backgroundColor, shape)
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -2108,7 +2604,9 @@ private fun CircularCastCard(
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.width(90.dp)
+        modifier = Modifier
+            .width(90.dp)
+            .clickable { onClick() }
     ) {
         val scaleModifier = if (scale != 1f) {
             Modifier.graphicsLayer {
@@ -2486,7 +2984,8 @@ private fun SimilarMediaCard(
     item: MediaItem,
     logoImageUrl: String?,
     usePosterCards: Boolean,
-    isFocused: Boolean
+    isFocused: Boolean,
+    onClick: () -> Unit = {}
 ) {
     val mediaTypeLabel = if (item.mediaType == MediaType.TV) "TV Series" else "Movie"
     val yearSuffix = item.year.takeIf { it.isNotBlank() }?.let { " | $it" }.orEmpty()
@@ -2499,6 +2998,6 @@ private fun SimilarMediaCard(
         isFocusedOverride = isFocused,
         enableSystemFocus = false,
         onFocused = { },
-        onClick = { }
+        onClick = onClick
     )
 }

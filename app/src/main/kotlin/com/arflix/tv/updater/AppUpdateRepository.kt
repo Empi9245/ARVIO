@@ -38,6 +38,19 @@ class AppUpdateRepository @Inject constructor(
 
     fun supportsSelfUpdate(): Boolean = BuildConfig.SELF_UPDATE_ENABLED && !isPlayStoreInstall()
 
+    /**
+     * Returns the actually installed version name from PackageManager,
+     * which reflects the real installed APK even if the old process is still running.
+     */
+    fun getInstalledVersionName(): String {
+        return try {
+            val info = context.packageManager.getPackageInfo(context.packageName, 0)
+            info.versionName ?: BuildConfig.VERSION_NAME
+        } catch (_: Exception) {
+            BuildConfig.VERSION_NAME
+        }
+    }
+
     suspend fun getLatestUpdate(): Result<AppUpdate> {
         return withContext(Dispatchers.IO) {
             runCatching {

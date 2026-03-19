@@ -9,6 +9,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -58,6 +59,9 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -88,6 +92,7 @@ import com.arflix.tv.data.model.IptvNowNext
 import com.arflix.tv.data.model.IptvProgram
 import com.arflix.tv.ui.components.AppTopBar
 import com.arflix.tv.ui.components.AppTopBarContentTopInset
+import com.arflix.tv.util.LocalDeviceType
 import com.arflix.tv.ui.components.SidebarItem
 import com.arflix.tv.ui.components.topBarFocusedItem
 import com.arflix.tv.ui.components.topBarMaxIndex
@@ -125,6 +130,7 @@ fun TvScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
+    val isMobile = LocalDeviceType.current.isTouchDevice()
 
     var focusZone by rememberSaveable { mutableStateOf(if (uiState.isConfigured) TvFocusZone.GROUPS else TvFocusZone.SIDEBAR) }
     val hasProfile = currentProfile != null
@@ -272,6 +278,20 @@ fun TvScreen(
         }
     }
 
+    // Pause playback when the activity goes to background, resume when it comes back
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_PAUSE -> exoPlayer.pause()
+                Lifecycle.Event.ON_RESUME -> if (playingChannelId != null) exoPlayer.play()
+                else -> {}
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     // Helper: prepare ExoPlayer with a stream URL (shared by normal play + error retry)
     fun prepareStream(stream: String) {
         if (isPlayerReleased) return
@@ -324,20 +344,27 @@ fun TvScreen(
         if (isPlayerReleased) return@LaunchedEffect
         if (isFullScreen) {
             miniPlayerView?.player = null
-            fullPlayerView?.post {
+            val targetView = fullPlayerView ?: return@LaunchedEffect
+            // Use postDelayed to ensure the view has been laid out after composition
+            targetView.postDelayed({
                 if (!isPlayerReleased) {
-                    fullPlayerView?.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
-                    fullPlayerView?.player = exoPlayer
+                    targetView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                    targetView.player = exoPlayer
+                    targetView.requestLayout()
+                    targetView.invalidate()
                 }
-            }
+            }, 50)
         } else {
             fullPlayerView?.player = null
-            miniPlayerView?.post {
+            val targetView = miniPlayerView ?: return@LaunchedEffect
+            targetView.postDelayed({
                 if (!isPlayerReleased) {
-                    miniPlayerView?.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
-                    miniPlayerView?.player = exoPlayer
+                    targetView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                    targetView.player = exoPlayer
+                    targetView.requestLayout()
+                    targetView.invalidate()
                 }
-            }
+            }, 50)
         }
     }
 
@@ -578,12 +605,14 @@ fun TvScreen(
                 }
             }
     ) {
-        AppTopBar(
-            selectedItem = SidebarItem.TV,
-            isFocused = focusZone == TvFocusZone.SIDEBAR,
-            focusedIndex = sidebarFocusIndex,
-            profile = currentProfile
-        )
+        if (!LocalDeviceType.current.isTouchDevice()) {
+            AppTopBar(
+                selectedItem = SidebarItem.TV,
+                isFocused = focusZone == TvFocusZone.SIDEBAR,
+                focusedIndex = sidebarFocusIndex,
+                profile = currentProfile
+            )
+        }
 
         if (!uiState.isConfigured) {
             Box(
@@ -601,18 +630,37 @@ fun TvScreen(
                     .padding(top = contentTopPadding)
                     .padding(start = 16.dp, top = 8.dp, end = 20.dp, bottom = 14.dp)
             ) {
-                    CategoryRail(
-                        groups = groups,
-                        favoriteGroups = uiState.snapshot.favoriteGroups.toSet(),
-                        focusedGroupIndex = safeGroupIndex,
-                        isFocused = focusZone == TvFocusZone.GROUPS,
-                        listState = groupsListState,
-                        modifier = Modifier
-                            .width(214.dp)
-                            .fillMaxHeight()
-                    )
-
-                    Spacer(modifier = Modifier.width(10.dp))
+                    val showCategoryRail = focusZone != TvFocusZone.GUIDE || isFullScreen
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = showCategoryRail,
+                        enter = androidx.compose.animation.expandHorizontally(
+                            expandFrom = Alignment.Start,
+                            animationSpec = androidx.compose.animation.core.tween(200)
+                        ),
+                        exit = androidx.compose.animation.shrinkHorizontally(
+                            shrinkTowards = Alignment.Start,
+                            animationSpec = androidx.compose.animation.core.tween(200)
+                        )
+                    ) {
+                        Row {
+                            CategoryRail(
+                                groups = groups,
+                                favoriteGroups = uiState.snapshot.favoriteGroups.toSet(),
+                                focusedGroupIndex = safeGroupIndex,
+                                isFocused = focusZone == TvFocusZone.GROUPS,
+                                listState = groupsListState,
+                                onGroupClick = { index ->
+                                    groupIndex = index
+                                    focusZone = TvFocusZone.GROUPS
+                                    channelIndex = 0
+                                },
+                                modifier = Modifier
+                                    .width(if (isMobile) 160.dp else 214.dp)
+                                    .fillMaxHeight()
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                        }
+                    }
 
                     Column(
                         modifier = Modifier
@@ -642,6 +690,12 @@ fun TvScreen(
                             channel = playingChannel,
                             nowProgram = playingChannel?.id?.let { uiState.snapshot.nowNext[it]?.now },
                             nextProgram = playingChannel?.id?.let { uiState.snapshot.nowNext[it]?.next },
+                            onMiniPlayerClick = {
+                                if (playingChannel != null) {
+                                    selectedChannelId = playingChannel.id
+                                    isFullScreen = true
+                                }
+                            },
                             miniPlayer = {
                                 if (playingChannel != null && !isFullScreen) {
                                     AndroidView(
@@ -683,6 +737,18 @@ fun TvScreen(
                             playingChannelId = playingChannelId,
                             favoriteChannels = uiState.snapshot.favoriteChannels.toSet(),
                             listState = channelsListState,
+                            onChannelClick = { index ->
+                                val channel = channels.getOrNull(index) ?: return@GuidePanel
+                                channelIndex = index
+                                focusZone = TvFocusZone.GUIDE
+                                if (playingChannelId == channel.id) {
+                                    selectedChannelId = channel.id
+                                    isFullScreen = true
+                                } else {
+                                    selectedChannelId = channel.id
+                                    playingChannelId = channel.id
+                                }
+                            },
                             modifier = Modifier.weight(1f)
                         )
                     }
@@ -696,6 +762,13 @@ fun TvScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(Color.Black)
+                    .clickable {
+                        // Tap toggles EPG info overlay (mirrors D-pad Enter behavior)
+                        showFullscreenOverlay = !showFullscreenOverlay
+                        if (showFullscreenOverlay) {
+                            fullscreenOverlayTrigger = System.currentTimeMillis()
+                        }
+                    }
             ) {
                 if (playingChannel != null) {
                     val fsNowNext = uiState.snapshot.nowNext[playingChannel.id]
@@ -724,10 +797,9 @@ fun TvScreen(
                         modifier = Modifier.fillMaxSize(),
                         update = { playerView ->
                             fullPlayerView = playerView
-                            if (isFullScreen) {
-                                playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
-                                if (playerView.player !== exoPlayer) playerView.player = exoPlayer
-                            }
+                            // Do NOT assign player here; let the LaunchedEffect handle it via postDelayed
+                            // to ensure the view has been laid out first (avoids black screen).
+                            playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
                         }
                     )
 
@@ -740,7 +812,8 @@ fun TvScreen(
                         FullscreenEpgOverlay(
                             channel = playingChannel,
                             nowProgram = fsNow,
-                            nextProgram = fsNext
+                            nextProgram = fsNext,
+                            isMobile = isMobile
                         )
                     }
                 }
@@ -783,6 +856,7 @@ private fun CategoryRail(
     focusedGroupIndex: Int,
     isFocused: Boolean,
     listState: LazyListState,
+    onGroupClick: (Int) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -805,7 +879,8 @@ private fun CategoryRail(
                 GroupRailItem(
                     name = group,
                     isFocused = isFocused && index == focusedGroupIndex,
-                    isFavorite = favoriteGroups.contains(group)
+                    isFavorite = favoriteGroups.contains(group),
+                    onClick = { onGroupClick(index) }
                 )
             }
         }
@@ -814,7 +889,7 @@ private fun CategoryRail(
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun GroupRailItem(name: String, isFocused: Boolean, isFavorite: Boolean) {
+private fun GroupRailItem(name: String, isFocused: Boolean, isFavorite: Boolean, onClick: () -> Unit = {}) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -829,6 +904,7 @@ private fun GroupRailItem(name: String, isFocused: Boolean, isFavorite: Boolean)
                     shape = RoundedCornerShape(8.dp)
                 ) else Modifier
             )
+            .clickable(onClick = onClick)
             .padding(horizontal = 9.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -858,7 +934,8 @@ private fun GroupRailItem(name: String, isFocused: Boolean, isFavorite: Boolean)
 private fun FullscreenEpgOverlay(
     channel: IptvChannel,
     nowProgram: IptvProgram?,
-    nextProgram: IptvProgram?
+    nextProgram: IptvProgram?,
+    isMobile: Boolean = false
 ) {
     val topScrimBrush = remember {
         androidx.compose.ui.graphics.Brush.verticalGradient(
@@ -885,7 +962,12 @@ private fun FullscreenEpgOverlay(
                 .fillMaxWidth()
                 .align(Alignment.TopCenter)
                 .background(topScrimBrush)
-                .padding(start = 32.dp, end = 32.dp, top = 24.dp, bottom = 40.dp)
+                .padding(
+                    start = if (isMobile) 16.dp else 32.dp,
+                    end = if (isMobile) 16.dp else 32.dp,
+                    top = if (isMobile) 16.dp else 24.dp,
+                    bottom = if (isMobile) 24.dp else 40.dp
+                )
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -897,23 +979,23 @@ private fun FullscreenEpgOverlay(
                         contentDescription = channel.name,
                         contentScale = ContentScale.Fit,
                         modifier = Modifier
-                            .size(48.dp)
-                            .clip(RoundedCornerShape(8.dp))
+                            .size(if (isMobile) 36.dp else 48.dp)
+                            .clip(RoundedCornerShape(if (isMobile) 6.dp else 8.dp))
                             .background(Color.White.copy(alpha = 0.1f))
                     )
-                    Spacer(modifier = Modifier.width(14.dp))
+                    Spacer(modifier = Modifier.width(if (isMobile) 10.dp else 14.dp))
                 }
                 Column {
                     Text(
                         text = channel.name,
-                        style = ArflixTypography.sectionTitle.copy(fontSize = 22.sp),
+                        style = ArflixTypography.sectionTitle.copy(fontSize = if (isMobile) 14.sp else 22.sp),
                         color = Color.White,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
                         text = channel.group,
-                        style = ArflixTypography.caption,
+                        style = ArflixTypography.caption.copy(fontSize = if (isMobile) 11.sp else 12.sp),
                         color = Color.White.copy(alpha = 0.5f),
                         maxLines = 1
                     )
@@ -922,7 +1004,7 @@ private fun FullscreenEpgOverlay(
             // Clock on the right
             Text(
                 text = programTimeFormatter.format(java.time.LocalTime.now()),
-                style = ArflixTypography.sectionTitle.copy(fontSize = 18.sp),
+                style = ArflixTypography.sectionTitle.copy(fontSize = if (isMobile) 13.sp else 18.sp),
                 color = Color.White.copy(alpha = 0.8f),
                 modifier = Modifier.align(Alignment.TopEnd)
             )
@@ -934,7 +1016,12 @@ private fun FullscreenEpgOverlay(
                 .fillMaxWidth()
                 .align(Alignment.BottomCenter)
                 .background(bottomScrimBrush)
-                .padding(start = 32.dp, end = 32.dp, top = 40.dp, bottom = 28.dp)
+                .padding(
+                    start = if (isMobile) 16.dp else 32.dp,
+                    end = if (isMobile) 16.dp else 32.dp,
+                    top = if (isMobile) 24.dp else 40.dp,
+                    bottom = if (isMobile) 18.dp else 28.dp
+                )
         ) {
             Column(modifier = Modifier.align(Alignment.BottomStart)) {
                 // NOW program
@@ -942,23 +1029,23 @@ private fun FullscreenEpgOverlay(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             text = "NOW",
-                            style = ArflixTypography.caption.copy(fontWeight = FontWeight.Bold, fontSize = 12.sp),
+                            style = ArflixTypography.caption.copy(fontWeight = FontWeight.Bold, fontSize = if (isMobile) 10.sp else 12.sp),
                             color = Color.Black,
                             modifier = Modifier
                                 .background(AccentGreen, RoundedCornerShape(4.dp))
-                                .padding(horizontal = 8.dp, vertical = 3.dp)
+                                .padding(horizontal = if (isMobile) 6.dp else 8.dp, vertical = if (isMobile) 2.dp else 3.dp)
                         )
-                        Spacer(modifier = Modifier.width(10.dp))
+                        Spacer(modifier = Modifier.width(if (isMobile) 8.dp else 10.dp))
                         Text(
                             text = "${formatProgramTime(nowProgram.startUtcMillis)} - ${formatProgramTime(nowProgram.endUtcMillis)}",
-                            style = ArflixTypography.caption.copy(fontSize = 14.sp),
+                            style = ArflixTypography.caption.copy(fontSize = if (isMobile) 11.sp else 14.sp),
                             color = Color.White.copy(alpha = 0.7f)
                         )
                     }
-                    Spacer(modifier = Modifier.height(4.dp))
+                    Spacer(modifier = Modifier.height(if (isMobile) 3.dp else 4.dp))
                     Text(
                         text = nowProgram.title,
-                        style = ArflixTypography.sectionTitle.copy(fontSize = 20.sp),
+                        style = ArflixTypography.sectionTitle.copy(fontSize = if (isMobile) 14.sp else 20.sp),
                         color = Color.White,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -967,10 +1054,10 @@ private fun FullscreenEpgOverlay(
                     val progDuration = (nowProgram.endUtcMillis - nowProgram.startUtcMillis).coerceAtLeast(1L)
                     val progElapsed = (System.currentTimeMillis() - nowProgram.startUtcMillis).coerceIn(0, progDuration)
                     val progFraction = (progElapsed.toFloat() / progDuration.toFloat()).coerceIn(0f, 1f)
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(if (isMobile) 6.dp else 8.dp))
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth(0.4f)
+                            .fillMaxWidth(if (isMobile) 0.6f else 0.4f)
                             .height(3.dp)
                             .clip(RoundedCornerShape(2.dp))
                             .background(Color.White.copy(alpha = 0.15f))
@@ -985,14 +1072,14 @@ private fun FullscreenEpgOverlay(
                     }
                     nowProgram.description?.let { desc ->
                         if (desc.isNotBlank()) {
-                            Spacer(modifier = Modifier.height(6.dp))
+                            Spacer(modifier = Modifier.height(if (isMobile) 4.dp else 6.dp))
                             Text(
                                 text = desc,
-                                style = ArflixTypography.caption.copy(fontSize = 13.sp),
+                                style = ArflixTypography.caption.copy(fontSize = if (isMobile) 11.sp else 13.sp),
                                 color = Color.White.copy(alpha = 0.55f),
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.fillMaxWidth(0.6f)
+                                modifier = Modifier.fillMaxWidth(if (isMobile) 0.85f else 0.6f)
                             )
                         }
                     }
@@ -1000,42 +1087,42 @@ private fun FullscreenEpgOverlay(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             text = "LIVE",
-                            style = ArflixTypography.caption.copy(fontWeight = FontWeight.Bold, fontSize = 12.sp),
+                            style = ArflixTypography.caption.copy(fontWeight = FontWeight.Bold, fontSize = if (isMobile) 10.sp else 12.sp),
                             color = Color.Black,
                             modifier = Modifier
                                 .background(AccentGreen, RoundedCornerShape(4.dp))
-                                .padding(horizontal = 8.dp, vertical = 3.dp)
+                                .padding(horizontal = if (isMobile) 6.dp else 8.dp, vertical = if (isMobile) 2.dp else 3.dp)
                         )
-                        Spacer(modifier = Modifier.width(10.dp))
+                        Spacer(modifier = Modifier.width(if (isMobile) 8.dp else 10.dp))
                         Text(
                             text = channel.name,
-                            style = ArflixTypography.sectionTitle.copy(fontSize = 20.sp),
+                            style = ArflixTypography.sectionTitle.copy(fontSize = if (isMobile) 14.sp else 20.sp),
                             color = Color.White
                         )
                     }
                 }
                 // NEXT program
                 if (nextProgram != null) {
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(if (isMobile) 8.dp else 12.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             text = "NEXT",
-                            style = ArflixTypography.caption.copy(fontWeight = FontWeight.Bold, fontSize = 11.sp),
+                            style = ArflixTypography.caption.copy(fontWeight = FontWeight.Bold, fontSize = if (isMobile) 9.sp else 11.sp),
                             color = Color.White.copy(alpha = 0.8f),
                             modifier = Modifier
                                 .background(Color.White.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
-                                .padding(horizontal = 8.dp, vertical = 3.dp)
+                                .padding(horizontal = if (isMobile) 6.dp else 8.dp, vertical = if (isMobile) 2.dp else 3.dp)
                         )
-                        Spacer(modifier = Modifier.width(10.dp))
+                        Spacer(modifier = Modifier.width(if (isMobile) 6.dp else 10.dp))
                         Text(
                             text = formatProgramTime(nextProgram.startUtcMillis),
-                            style = ArflixTypography.caption.copy(fontSize = 14.sp),
+                            style = ArflixTypography.caption.copy(fontSize = if (isMobile) 11.sp else 14.sp),
                             color = Color.White.copy(alpha = 0.5f)
                         )
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Spacer(modifier = Modifier.width(if (isMobile) 6.dp else 8.dp))
                         Text(
                             text = nextProgram.title,
-                            style = ArflixTypography.body.copy(fontSize = 16.sp),
+                            style = ArflixTypography.body.copy(fontSize = if (isMobile) 12.sp else 16.sp),
                             color = Color.White.copy(alpha = 0.65f),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
@@ -1053,14 +1140,17 @@ private fun HeroPreviewPanel(
     channel: IptvChannel?,
     nowProgram: IptvProgram?,
     nextProgram: IptvProgram? = null,
+    onMiniPlayerClick: () -> Unit = {},
     miniPlayer: @Composable () -> Unit
 ) {
+    val isMobile = LocalDeviceType.current.isTouchDevice()
+    val panelHeight = if (isMobile) 100.dp else 116.dp
     if (channel == null) {
         // No channel selected – show placeholder
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(116.dp)
+                .height(panelHeight)
                 .clip(RoundedCornerShape(14.dp))
                 .background(Color.White.copy(alpha = 0.04f))
         ) {
@@ -1088,7 +1178,7 @@ private fun HeroPreviewPanel(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(116.dp)
+            .height(panelHeight)
             .clip(RoundedCornerShape(14.dp))
             .background(Color.White.copy(alpha = 0.04f))
     ) {
@@ -1187,13 +1277,14 @@ private fun HeroPreviewPanel(
             }
         }
 
-        // Right: video player (no overlap with info)
+        // Right: video player (no overlap with info) — tap to go fullscreen
         Box(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxHeight()
                 .clip(RoundedCornerShape(topEnd = 12.dp, bottomEnd = 12.dp))
                 .background(Color.Black)
+                .clickable(onClick = onMiniPlayerClick)
         ) {
             miniPlayer()
         }
@@ -1211,6 +1302,7 @@ private fun GuidePanel(
     playingChannelId: String?,
     favoriteChannels: Set<String>,
     listState: LazyListState,
+    onChannelClick: (Int) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     // Refresh the current time every 30 seconds so the now-line and timeline stay accurate.
@@ -1225,6 +1317,8 @@ private fun GuidePanel(
     val windowEnd = now + (120 * 60_000L)   // 2 hours future
     val nowRatio = ((now - windowStart).toFloat() / (windowEnd - windowStart).toFloat()).coerceIn(0f, 1f)
 
+    val isMobile = LocalDeviceType.current.isTouchDevice()
+
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -1232,7 +1326,7 @@ private fun GuidePanel(
             .background(Color.White.copy(alpha = 0.04f))
             .padding(horizontal = 8.dp, vertical = 6.dp)
     ) {
-        GuideTimeHeader(windowStart = windowStart, now = now, windowEnd = windowEnd)
+        GuideTimeHeader(windowStart = windowStart, now = now, windowEnd = windowEnd, isMobile = isMobile)
         Spacer(modifier = Modifier.height(4.dp))
 
         if (channels.isEmpty()) {
@@ -1274,7 +1368,9 @@ private fun GuidePanel(
                         windowStart = windowStart,
                         windowEnd = windowEnd,
                         now = now,
-                        nowRatio = nowRatio
+                        nowRatio = nowRatio,
+                        isMobile = isMobile,
+                        onClick = { onChannelClick(index) }
                     )
                 }
             }
@@ -1286,9 +1382,9 @@ private val guideDateFormatter = DateTimeFormatter.ofPattern("EEE dd MMM")
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun GuideTimeHeader(windowStart: Long, now: Long, windowEnd: Long) {
+private fun GuideTimeHeader(windowStart: Long, now: Long, windowEnd: Long, isMobile: Boolean = false) {
     val dateText = guideDateFormatter.format(Instant.ofEpochMilli(now).atZone(ZoneId.systemDefault()))
-    val timeStyle = ArflixTypography.caption.copy(fontSize = 12.sp, letterSpacing = 0.3.sp)
+    val timeStyle = ArflixTypography.caption.copy(fontSize = if (isMobile) 10.sp else 12.sp, letterSpacing = 0.3.sp)
 
     // Generate half-hour markers within the window
     val halfHourMs = 30 * 60_000L
@@ -1307,7 +1403,7 @@ private fun GuideTimeHeader(windowStart: Long, now: Long, windowEnd: Long) {
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
-            modifier = Modifier.width(188.dp),
+            modifier = Modifier.width(if (isMobile) 150.dp else 188.dp),
             contentAlignment = Alignment.CenterStart
         ) {
             Text(
@@ -1353,7 +1449,9 @@ private fun GuideChannelRow(
     windowStart: Long,
     windowEnd: Long,
     now: Long,
-    nowRatio: Float
+    nowRatio: Float,
+    isMobile: Boolean = false,
+    onClick: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val rowBg = when {
@@ -1372,7 +1470,7 @@ private fun GuideChannelRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(50.dp)
+            .height(if (isMobile) 44.dp else 50.dp)
             .clip(RoundedCornerShape(10.dp))
             .background(rowBg)
             .then(
@@ -1382,11 +1480,12 @@ private fun GuideChannelRow(
                     shape = RoundedCornerShape(8.dp)
                 ) else Modifier
             )
+            .clickable(onClick = onClick)
     ) {
         // Compact channel info column
         Row(
             modifier = Modifier
-                .width(178.dp)
+                .width(if (isMobile) 140.dp else 178.dp)
                 .fillMaxHeight()
                 .padding(start = 9.dp, end = 7.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -1441,7 +1540,7 @@ private fun GuideChannelRow(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = channel.name,
-                        style = ArflixTypography.cardTitle.copy(fontSize = 11.sp),
+                        style = ArflixTypography.cardTitle.copy(fontSize = if (isMobile) 10.sp else 11.sp),
                         color = primaryText,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -1461,7 +1560,7 @@ private fun GuideChannelRow(
                 }
                 Text(
                     text = channel.group,
-                    style = ArflixTypography.caption.copy(fontSize = 8.sp),
+                    style = ArflixTypography.caption.copy(fontSize = if (isMobile) 8.sp else 8.sp),
                     color = secondaryText.copy(alpha = 0.7f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis

@@ -46,14 +46,23 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import com.arflix.tv.ui.components.AppBottomBar
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import android.content.pm.ActivityInfo
+import com.arflix.tv.util.DeviceType
+import com.arflix.tv.util.LocalDeviceType
+import com.arflix.tv.util.detectDeviceType
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.lifecycleScope
 import androidx.metrics.performance.JankStats
 import androidx.metrics.performance.PerformanceMetricsState
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
@@ -120,6 +129,14 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         pendingLauncherRequest = parseLauncherRequest(intent)
 
+        // Set orientation based on device type
+        val deviceType = detectDeviceType(this)
+        requestedOrientation = when (deviceType) {
+            DeviceType.TV -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+            DeviceType.TABLET -> ActivityInfo.SCREEN_ORIENTATION_SENSOR
+            DeviceType.PHONE -> ActivityInfo.SCREEN_ORIENTATION_SENSOR
+        }
+
         // Keep screen on during playback
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
@@ -131,22 +148,23 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            ArflixTvTheme {
-                val startupState by startupViewModel.state.collectAsState()
-                // Open UI immediately; startup preload continues in background.
-                ArflixApp(
-                    authRepository = authRepository.get(),
-                    profileRepository = profileRepository.get(),
-                    traktRepository = traktRepository.get(),
-                    launcherContinueWatchingRepository = launcherContinueWatchingRepository.get(),
-                    pendingLauncherRequest = pendingLauncherRequest,
-                    onConsumeLauncherRequest = { pendingLauncherRequest = null },
-                    preloadedCategories = startupState.categories,
-                    preloadedHeroItem = startupState.heroItem,
-                    preloadedHeroLogoUrl = startupState.heroLogoUrl,
-                    preloadedLogoCache = startupState.logoCache,
-                    onExitApp = { finish() }
-                )
+            CompositionLocalProvider(LocalDeviceType provides deviceType) {
+                ArflixTvTheme {
+                    val startupState by startupViewModel.state.collectAsState()
+                    ArflixApp(
+                        authRepository = authRepository.get(),
+                        profileRepository = profileRepository.get(),
+                        traktRepository = traktRepository.get(),
+                        launcherContinueWatchingRepository = launcherContinueWatchingRepository.get(),
+                        pendingLauncherRequest = pendingLauncherRequest,
+                        onConsumeLauncherRequest = { pendingLauncherRequest = null },
+                        preloadedCategories = startupState.categories,
+                        preloadedHeroItem = startupState.heroItem,
+                        preloadedHeroLogoUrl = startupState.heroLogoUrl,
+                        preloadedLogoCache = startupState.logoCache,
+                        onExitApp = { finish() }
+                    )
+                }
             }
         }
 
@@ -337,7 +355,20 @@ fun ArflixApp(
     // Always show profile selection on startup - user must manually choose a profile
     val startDestination = Screen.ProfileSelection.route
 
-    Box(
+    val deviceType = LocalDeviceType.current
+    val isMobile = deviceType.isTouchDevice()
+    val currentBackStackEntry by navController.currentBackStackEntryAsState()
+    val currentRoute = currentBackStackEntry?.destination?.route
+    // Hide bottom bar on player, profile selection, login, and TV screens
+    // TV route is hidden because Live TV fullscreen player stays on "tv" route
+    val showBottomBar = isMobile && activeProfile != null &&
+        currentRoute != null &&
+        !currentRoute.contains("player") &&
+        !currentRoute.contains("profile") &&
+        !currentRoute.contains("login") &&
+        !currentRoute.contains("tv")
+
+    Column(
         modifier = Modifier
             .fillMaxSize()
             .background(
@@ -350,22 +381,36 @@ fun ArflixApp(
                 )
             )
     ) {
-        AppNavigation(
-            navController = navController,
-            startDestination = startDestination,
-            preloadedCategories = preloadedCategories,
-            preloadedHeroItem = preloadedHeroItem,
-            preloadedHeroLogoUrl = preloadedHeroLogoUrl,
-            preloadedLogoCache = preloadedLogoCache,
-            currentProfile = activeProfile,
-            onSwitchProfile = {
-                // Clear active profile when switching
-                appCoroutineScope.launch {
-                    profileRepository.clearActiveProfile()
-                }
-            },
-            onExitApp = onExitApp
-        )
+        Box(modifier = Modifier.weight(1f)) {
+            AppNavigation(
+                navController = navController,
+                startDestination = startDestination,
+                preloadedCategories = preloadedCategories,
+                preloadedHeroItem = preloadedHeroItem,
+                preloadedHeroLogoUrl = preloadedHeroLogoUrl,
+                preloadedLogoCache = preloadedLogoCache,
+                currentProfile = activeProfile,
+                isCloudConnected = authState is AuthState.Authenticated,
+                onSwitchProfile = {
+                    appCoroutineScope.launch {
+                        profileRepository.clearActiveProfile()
+                    }
+                },
+                onExitApp = onExitApp
+            )
+        }
+        if (showBottomBar) {
+            AppBottomBar(
+                currentRoute = currentRoute,
+                onNavigate = { route ->
+                    navController.navigate(route) {
+                        popUpTo("home") { inclusive = false }
+                        launchSingleTop = true
+                    }
+                },
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
     }
 
     LaunchedEffect(activeProfile?.id, pendingLauncherRequest) {

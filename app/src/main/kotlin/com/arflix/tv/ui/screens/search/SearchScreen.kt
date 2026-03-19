@@ -3,6 +3,7 @@ package com.arflix.tv.ui.screens.search
 import android.os.SystemClock
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,6 +16,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -22,6 +25,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -71,6 +76,7 @@ import com.arflix.tv.ui.theme.BackgroundDark
 import com.arflix.tv.ui.theme.Pink
 import com.arflix.tv.ui.theme.TextPrimary
 import com.arflix.tv.ui.theme.TextSecondary
+import com.arflix.tv.util.LocalDeviceType
 
 /**
  * Search screen with centered search bar and separate Movies/TV Shows rows
@@ -92,7 +98,12 @@ fun SearchScreen(
     val usePosterCards = rememberCardLayoutMode() == CardLayoutMode.POSTER
     val configuration = LocalConfiguration.current
     val isCompactHeight = configuration.screenHeightDp <= 780
-    val searchBarWidth = (configuration.screenWidthDp.dp * 0.56f).coerceIn(500.dp, 760.dp)
+    val isTouchDevice = LocalDeviceType.current.isTouchDevice()
+    val searchBarWidth = if (isTouchDevice) {
+        (configuration.screenWidthDp.dp * 0.9f).coerceIn(280.dp, 760.dp)
+    } else {
+        (configuration.screenWidthDp.dp * 0.56f).coerceIn(500.dp, 760.dp)
+    }
 
     var focusZone by remember { mutableStateOf(FocusZone.SEARCH_INPUT) }
     val hasProfile = currentProfile != null
@@ -133,155 +144,164 @@ fun SearchScreen(
         }
     }
 
+    // D-pad key handler — only for TV; touch devices use natural scroll/tap
+    val dpadModifier = if (!isTouchDevice) {
+        Modifier.onPreviewKeyEvent { event ->
+            if (event.type == KeyEventType.KeyDown) {
+                when (event.key) {
+                    Key.Back, Key.Escape -> {
+                        when (focusZone) {
+                            FocusZone.SIDEBAR -> onBack()
+                            FocusZone.SEARCH_INPUT -> {
+                                focusZone = FocusZone.SIDEBAR
+                            }
+                            FocusZone.RESULTS -> {
+                                focusZone = FocusZone.SEARCH_INPUT
+                                searchFocusRequester.requestFocus()
+                            }
+                        }
+                        true
+                    }
+                    Key.DirectionLeft -> {
+                        when (focusZone) {
+                            FocusZone.SEARCH_INPUT -> {
+                                true
+                            }
+                            FocusZone.RESULTS -> {
+                                val currentIndex = if (currentRowIndex == 0) movieItemIndex else tvItemIndex
+                                if (currentIndex == 0) {
+                                    Unit
+                                } else {
+                                    if (currentRowIndex == 0) movieItemIndex-- else tvItemIndex--
+                                }
+                                true
+                            }
+                            FocusZone.SIDEBAR -> {
+                                if (sidebarFocusIndex > 0) {
+                                    sidebarFocusIndex = (sidebarFocusIndex - 1).coerceIn(0, maxSidebarIndex)
+                                }
+                                true
+                            }
+                            else -> false
+                        }
+                    }
+                    Key.DirectionRight -> {
+                        when (focusZone) {
+                            FocusZone.SIDEBAR -> {
+                                if (sidebarFocusIndex < maxSidebarIndex) {
+                                    sidebarFocusIndex = (sidebarFocusIndex + 1).coerceIn(0, maxSidebarIndex)
+                                }
+                                true
+                            }
+                            FocusZone.RESULTS -> {
+                                val maxIndex = if (currentRowIndex == 0) uiState.movieResults.size - 1 else uiState.tvResults.size - 1
+                                val currentIndex = if (currentRowIndex == 0) movieItemIndex else tvItemIndex
+                                if (currentIndex < maxIndex) {
+                                    if (currentRowIndex == 0) movieItemIndex++ else tvItemIndex++
+                                }
+                                true
+                            }
+                            else -> false
+                        }
+                    }
+                    Key.DirectionUp -> {
+                        when (focusZone) {
+                            FocusZone.SIDEBAR -> Unit
+                            FocusZone.SEARCH_INPUT -> {
+                                focusZone = FocusZone.SIDEBAR
+                            }
+                            FocusZone.RESULTS -> {
+                                if (currentRowIndex == 1 && uiState.movieResults.isNotEmpty()) {
+                                    currentRowIndex = 0
+                                } else {
+                                    focusZone = FocusZone.SEARCH_INPUT
+                                    searchFocusRequester.requestFocus()
+                                }
+                            }
+                            else -> {}
+                        }
+                        true
+                    }
+                    Key.DirectionDown -> {
+                        when (focusZone) {
+                            FocusZone.SIDEBAR -> {
+                                focusZone = FocusZone.SEARCH_INPUT
+                                searchFocusRequester.requestFocus()
+                            }
+                            FocusZone.SEARCH_INPUT -> {
+                                if (uiState.movieResults.isNotEmpty() || uiState.tvResults.isNotEmpty()) {
+                                    focusZone = FocusZone.RESULTS
+                                    currentRowIndex = if (uiState.movieResults.isNotEmpty()) 0 else 1
+                                }
+                            }
+                            FocusZone.RESULTS -> {
+                                if (currentRowIndex == 0 && uiState.tvResults.isNotEmpty()) {
+                                    currentRowIndex = 1
+                                }
+                            }
+                        }
+                        true
+                    }
+                    Key.Enter, Key.DirectionCenter -> {
+                        if (SystemClock.elapsedRealtime() < suppressSelectUntilMs) {
+                            return@onPreviewKeyEvent true
+                        }
+                        when (focusZone) {
+                            FocusZone.SIDEBAR -> {
+                                if (hasProfile && sidebarFocusIndex == 0) {
+                                    onSwitchProfile()
+                                } else {
+                                    when (topBarFocusedItem(sidebarFocusIndex, hasProfile)) {
+                                        SidebarItem.SEARCH -> { /* Already here */ }
+                                        SidebarItem.HOME -> onNavigateToHome()
+                                        SidebarItem.WATCHLIST -> onNavigateToWatchlist()
+                                        SidebarItem.TV -> onNavigateToTv()
+                                        SidebarItem.SETTINGS -> onNavigateToSettings()
+                                        null -> Unit
+                                    }
+                                }
+                                true
+                            }
+                            FocusZone.SEARCH_INPUT -> {
+                                // Let the TextField handle center/enter so users can
+                                // re-enter edit mode instead of forcing a re-search.
+                                false
+                            }
+                            FocusZone.RESULTS -> {
+                                val item = if (currentRowIndex == 0) {
+                                    uiState.movieResults.getOrNull(movieItemIndex)
+                                } else {
+                                    uiState.tvResults.getOrNull(tvItemIndex)
+                                }
+                                if (item != null) {
+                                    onNavigateToDetails(item.mediaType, item.id)
+                                }
+                                true
+                            }
+                        }
+                    }
+                    else -> false
+                }
+            } else false
+        }
+    } else {
+        Modifier
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(BackgroundDark)
-            .onPreviewKeyEvent { event ->
-                if (event.type == KeyEventType.KeyDown) {
-                    when (event.key) {
-                        Key.Back, Key.Escape -> {
-                            when (focusZone) {
-                                FocusZone.SIDEBAR -> onBack()
-                                FocusZone.SEARCH_INPUT -> {
-                                    focusZone = FocusZone.SIDEBAR
-                                }
-                                FocusZone.RESULTS -> {
-                                    focusZone = FocusZone.SEARCH_INPUT
-                                    searchFocusRequester.requestFocus()
-                                }
-                            }
-                            true
-                        }
-                        Key.DirectionLeft -> {
-                            when (focusZone) {
-                                FocusZone.SEARCH_INPUT -> {
-                                    true
-                                }
-                                FocusZone.RESULTS -> {
-                                    val currentIndex = if (currentRowIndex == 0) movieItemIndex else tvItemIndex
-                                    if (currentIndex == 0) {
-                                        Unit
-                                    } else {
-                                        if (currentRowIndex == 0) movieItemIndex-- else tvItemIndex--
-                                    }
-                                    true
-                                }
-                                FocusZone.SIDEBAR -> {
-                                    if (sidebarFocusIndex > 0) {
-                                        sidebarFocusIndex = (sidebarFocusIndex - 1).coerceIn(0, maxSidebarIndex)
-                                    }
-                                    true
-                                }
-                                else -> false
-                            }
-                        }
-                        Key.DirectionRight -> {
-                            when (focusZone) {
-                                FocusZone.SIDEBAR -> {
-                                    if (sidebarFocusIndex < maxSidebarIndex) {
-                                        sidebarFocusIndex = (sidebarFocusIndex + 1).coerceIn(0, maxSidebarIndex)
-                                    }
-                                    true
-                                }
-                                FocusZone.RESULTS -> {
-                                    val maxIndex = if (currentRowIndex == 0) uiState.movieResults.size - 1 else uiState.tvResults.size - 1
-                                    val currentIndex = if (currentRowIndex == 0) movieItemIndex else tvItemIndex
-                                    if (currentIndex < maxIndex) {
-                                        if (currentRowIndex == 0) movieItemIndex++ else tvItemIndex++
-                                    }
-                                    true
-                                }
-                                else -> false
-                            }
-                        }
-                        Key.DirectionUp -> {
-                            when (focusZone) {
-                                FocusZone.SIDEBAR -> Unit
-                                FocusZone.SEARCH_INPUT -> {
-                                    focusZone = FocusZone.SIDEBAR
-                                }
-                                FocusZone.RESULTS -> {
-                                    if (currentRowIndex == 1 && uiState.movieResults.isNotEmpty()) {
-                                        currentRowIndex = 0
-                                    } else {
-                                        focusZone = FocusZone.SEARCH_INPUT
-                                        searchFocusRequester.requestFocus()
-                                    }
-                                }
-                                else -> {}
-                            }
-                            true
-                        }
-                        Key.DirectionDown -> {
-                            when (focusZone) {
-                                FocusZone.SIDEBAR -> {
-                                    focusZone = FocusZone.SEARCH_INPUT
-                                    searchFocusRequester.requestFocus()
-                                }
-                                FocusZone.SEARCH_INPUT -> {
-                                    if (uiState.movieResults.isNotEmpty() || uiState.tvResults.isNotEmpty()) {
-                                        focusZone = FocusZone.RESULTS
-                                        currentRowIndex = if (uiState.movieResults.isNotEmpty()) 0 else 1
-                                    }
-                                }
-                                FocusZone.RESULTS -> {
-                                    if (currentRowIndex == 0 && uiState.tvResults.isNotEmpty()) {
-                                        currentRowIndex = 1
-                                    }
-                                }
-                            }
-                            true
-                        }
-                        Key.Enter, Key.DirectionCenter -> {
-                            if (SystemClock.elapsedRealtime() < suppressSelectUntilMs) {
-                                return@onPreviewKeyEvent true
-                            }
-                            when (focusZone) {
-                                FocusZone.SIDEBAR -> {
-                                    if (hasProfile && sidebarFocusIndex == 0) {
-                                        onSwitchProfile()
-                                    } else {
-                                        when (topBarFocusedItem(sidebarFocusIndex, hasProfile)) {
-                                            SidebarItem.SEARCH -> { /* Already here */ }
-                                            SidebarItem.HOME -> onNavigateToHome()
-                                            SidebarItem.WATCHLIST -> onNavigateToWatchlist()
-                                            SidebarItem.TV -> onNavigateToTv()
-                                            SidebarItem.SETTINGS -> onNavigateToSettings()
-                                            null -> Unit
-                                        }
-                                    }
-                                    true
-                                }
-                                FocusZone.SEARCH_INPUT -> {
-                                    // Let the TextField handle center/enter so users can
-                                    // re-enter edit mode instead of forcing a re-search.
-                                    false
-                                }
-                                FocusZone.RESULTS -> {
-                                    val item = if (currentRowIndex == 0) {
-                                        uiState.movieResults.getOrNull(movieItemIndex)
-                                    } else {
-                                        uiState.tvResults.getOrNull(tvItemIndex)
-                                    }
-                                    if (item != null) {
-                                        onNavigateToDetails(item.mediaType, item.id)
-                                    }
-                                    true
-                                }
-                            }
-                        }
-                        else -> false
-                    }
-                } else false
-            }
+            .then(dpadModifier)
     ) {
-        AppTopBar(
-            selectedItem = SidebarItem.SEARCH,
-            isFocused = focusZone == FocusZone.SIDEBAR,
-            focusedIndex = sidebarFocusIndex,
-            profile = currentProfile
-        )
+        if (!LocalDeviceType.current.isTouchDevice()) {
+            AppTopBar(
+                selectedItem = SidebarItem.SEARCH,
+                isFocused = focusZone == FocusZone.SIDEBAR,
+                focusedIndex = sidebarFocusIndex,
+                profile = currentProfile
+            )
+        }
 
         Column(
             modifier = Modifier
@@ -299,56 +319,103 @@ fun SearchScreen(
                         .padding(bottom = if (isCompactHeight) 4.dp else 8.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .width(searchBarWidth)
-                            .background(BackgroundCard, RoundedCornerShape(12.dp))
-                            .border(
-                                width = if (isSearchInputFocused) 2.dp else 1.dp,
-                                color = if (isSearchInputFocused) Color.White else Color.White.copy(alpha = 0.2f),
-                                shape = RoundedCornerShape(12.dp)
-                            )
-                            .padding(horizontal = 20.dp, vertical = 16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Search,
-                            contentDescription = null,
-                            tint = if (isSearchInputFocused) Pink else TextSecondary,
-                            modifier = Modifier.size(24.dp)
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        BasicTextField(
+                    if (isTouchDevice) {
+                        // Mobile: standard OutlinedTextField that opens soft keyboard on tap
+                        OutlinedTextField(
                             value = uiState.query,
                             onValueChange = { viewModel.updateQuery(it) },
+                            placeholder = {
+                                Text(
+                                    text = "Search movies and TV shows...",
+                                    style = ArflixTypography.body,
+                                    color = TextSecondary
+                                )
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.Search,
+                                    contentDescription = null,
+                                    tint = if (isSearchInputFocused) Pink else TextSecondary,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            },
                             textStyle = ArflixTypography.body.copy(color = TextPrimary),
-                            cursorBrush = SolidColor(Color.White),
                             singleLine = true,
                             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                             keyboardActions = KeyboardActions(onSearch = {
                                 viewModel.search()
                                 keyboardController?.hide()
                             }),
+                            colors = TextFieldDefaults.colors(
+                                focusedTextColor = TextPrimary,
+                                unfocusedTextColor = TextPrimary,
+                                cursorColor = Color.White,
+                                focusedContainerColor = BackgroundCard,
+                                unfocusedContainerColor = BackgroundCard,
+                                focusedIndicatorColor = Color.White,
+                                unfocusedIndicatorColor = Color.White.copy(alpha = 0.2f)
+                            ),
+                            shape = RoundedCornerShape(12.dp),
                             modifier = Modifier
-                                .weight(1f)
+                                .width(searchBarWidth)
                                 .focusRequester(searchFocusRequester)
                                 .onFocusChanged { state ->
                                     isSearchInputFocused = state.isFocused
-                                    if (state.isFocused) {
-                                        focusZone = FocusZone.SEARCH_INPUT
-                                    }
-                                },
-                            decorationBox = { innerTextField ->
-                                if (uiState.query.isEmpty()) {
-                                    Text(
-                                        text = "Search movies and TV shows...",
-                                        style = ArflixTypography.body,
-                                        color = TextSecondary
-                                    )
                                 }
-                                innerTextField()
-                            }
                         )
+                    } else {
+                        // TV: BasicTextField with D-pad focus zone navigation
+                        Row(
+                            modifier = Modifier
+                                .width(searchBarWidth)
+                                .background(BackgroundCard, RoundedCornerShape(12.dp))
+                                .border(
+                                    width = if (isSearchInputFocused) 2.dp else 1.dp,
+                                    color = if (isSearchInputFocused) Color.White else Color.White.copy(alpha = 0.2f),
+                                    shape = RoundedCornerShape(12.dp)
+                                )
+                                .padding(horizontal = 20.dp, vertical = 16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Search,
+                                contentDescription = null,
+                                tint = if (isSearchInputFocused) Pink else TextSecondary,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            BasicTextField(
+                                value = uiState.query,
+                                onValueChange = { viewModel.updateQuery(it) },
+                                textStyle = ArflixTypography.body.copy(color = TextPrimary),
+                                cursorBrush = SolidColor(Color.White),
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                                keyboardActions = KeyboardActions(onSearch = {
+                                    viewModel.search()
+                                    keyboardController?.hide()
+                                }),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .focusRequester(searchFocusRequester)
+                                    .onFocusChanged { state ->
+                                        isSearchInputFocused = state.isFocused
+                                        if (state.isFocused) {
+                                            focusZone = FocusZone.SEARCH_INPUT
+                                        }
+                                    },
+                                decorationBox = { innerTextField ->
+                                    if (uiState.query.isEmpty()) {
+                                        Text(
+                                            text = "Search movies and TV shows...",
+                                            style = ArflixTypography.body,
+                                            color = TextSecondary
+                                        )
+                                    }
+                                    innerTextField()
+                                }
+                            )
+                        }
                     }
                 }
 
@@ -382,6 +449,7 @@ fun SearchScreen(
                             rowState = movieRowState,
                             isCurrentRow = focusZone == FocusZone.RESULTS && currentRowIndex == 0,
                             focusedItemIndex = movieItemIndex,
+                            isTouchDevice = isTouchDevice,
                             onItemClick = { item -> onNavigateToDetails(item.mediaType, item.id) }
                         )
                         Spacer(modifier = Modifier.height(if (isCompactHeight) 0.dp else 2.dp))
@@ -397,6 +465,7 @@ fun SearchScreen(
                             rowState = tvRowState,
                             isCurrentRow = focusZone == FocusZone.RESULTS && currentRowIndex == 1,
                             focusedItemIndex = tvItemIndex,
+                            isTouchDevice = isTouchDevice,
                             onItemClick = { item -> onNavigateToDetails(item.mediaType, item.id) }
                         )
                     }
@@ -415,6 +484,7 @@ private fun SearchResultRow(
     rowState: androidx.tv.foundation.lazy.list.TvLazyListState,
     isCurrentRow: Boolean,
     focusedItemIndex: Int,
+    isTouchDevice: Boolean = false,
     onItemClick: (MediaItem) -> Unit
 ) {
     val configuration = LocalConfiguration.current
@@ -433,25 +503,28 @@ private fun SearchResultRow(
     val rowEndPadding = if (isCompactHeight) 120.dp else 160.dp
     var lastScrollIndex by remember { mutableIntStateOf(-1) }
 
-    LaunchedEffect(isCurrentRow) {
-        if (!isCurrentRow) {
-            lastScrollIndex = -1
+    // D-pad scroll management — only needed for TV
+    if (!isTouchDevice) {
+        LaunchedEffect(isCurrentRow) {
+            if (!isCurrentRow) {
+                lastScrollIndex = -1
+            }
         }
-    }
-    LaunchedEffect(isCurrentRow, focusedItemIndex, items.size) {
-        if (!isCurrentRow || items.isEmpty()) return@LaunchedEffect
-        val targetIndex = focusedItemIndex.coerceIn(0, items.lastIndex)
-        if (lastScrollIndex == targetIndex) return@LaunchedEffect
-        val currentFirst = rowState.firstVisibleItemIndex
-        val currentLast = rowState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: currentFirst
-        val outsideViewport = targetIndex < currentFirst || targetIndex > currentLast
-        val jumpDistance = kotlin.math.abs(targetIndex - currentFirst)
-        if (targetIndex == 0 || outsideViewport || jumpDistance > 1 || lastScrollIndex == -1) {
-            rowState.scrollToItem(index = targetIndex, scrollOffset = 0)
-        } else {
-            rowState.animateScrollToItem(index = targetIndex, scrollOffset = 0)
+        LaunchedEffect(isCurrentRow, focusedItemIndex, items.size) {
+            if (!isCurrentRow || items.isEmpty()) return@LaunchedEffect
+            val targetIndex = focusedItemIndex.coerceIn(0, items.lastIndex)
+            if (lastScrollIndex == targetIndex) return@LaunchedEffect
+            val currentFirst = rowState.firstVisibleItemIndex
+            val currentLast = rowState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: currentFirst
+            val outsideViewport = targetIndex < currentFirst || targetIndex > currentLast
+            val jumpDistance = kotlin.math.abs(targetIndex - currentFirst)
+            if (targetIndex == 0 || outsideViewport || jumpDistance > 1 || lastScrollIndex == -1) {
+                rowState.scrollToItem(index = targetIndex, scrollOffset = 0)
+            } else {
+                rowState.animateScrollToItem(index = targetIndex, scrollOffset = 0)
+            }
+            lastScrollIndex = targetIndex
         }
-        lastScrollIndex = targetIndex
     }
 
     Column(
@@ -465,49 +538,94 @@ private fun SearchResultRow(
             modifier = Modifier.padding(start = rowStartPadding, bottom = if (isCompactHeight) 4.dp else 5.dp)
         )
 
-        // Horizontal Card Row - extra padding to prevent focus scale clipping
+        // Horizontal Card Row
         Box(
             modifier = Modifier
                 .fillMaxWidth()
         ) {
-            TvLazyRow(
-                state = rowState,
-                contentPadding = PaddingValues(
-                    start = rowStartPadding,
-                    end = rowEndPadding,
-                    top = 0.dp,
-                    bottom = if (isCompactHeight) 6.dp else 8.dp
-                ),
-                horizontalArrangement = Arrangement.spacedBy(itemSpacing),
-                pivotOffsets = androidx.tv.foundation.PivotOffsets(
-                    parentFraction = 0.0f,
-                    childFraction = 0.0f
-                )
-            ) {
-                itemsIndexed(items, key = { _, it -> it.id }) { index, item ->
-                    // Create item with year in subtitle (e.g., "Movie | 2023")
-                    val yearValue = item.year.ifBlank { item.releaseDate?.take(4).orEmpty() }
-                    val displayItem = item.copy(
-                        subtitle = yearValue.ifBlank {
-                            when (item.mediaType) {
-                                MediaType.TV -> "TV Show"
-                                MediaType.MOVIE -> "Movie"
+            if (isTouchDevice) {
+                // Mobile: standard LazyRow with touch scrolling and clickable cards
+                val touchRowState = rememberLazyListState()
+                LazyRow(
+                    state = touchRowState,
+                    contentPadding = PaddingValues(
+                        start = rowStartPadding,
+                        end = rowEndPadding,
+                        top = 0.dp,
+                        bottom = if (isCompactHeight) 6.dp else 8.dp
+                    ),
+                    horizontalArrangement = Arrangement.spacedBy(itemSpacing)
+                ) {
+                    items(
+                        count = items.size,
+                        key = { index -> items[index].id }
+                    ) { index ->
+                        val item = items[index]
+                        val yearValue = item.year.ifBlank { item.releaseDate?.take(4).orEmpty() }
+                        val displayItem = item.copy(
+                            subtitle = yearValue.ifBlank {
+                                when (item.mediaType) {
+                                    MediaType.TV -> "TV Show"
+                                    MediaType.MOVIE -> "Movie"
+                                }
                             }
-                        }
+                        )
+                        MediaCard(
+                            item = displayItem,
+                            width = itemWidth,
+                            isLandscape = !usePosterCards,
+                            logoImageUrl = cardLogoUrls["${item.mediaType}_${item.id}"],
+                            showProgress = false,
+                            titleMaxLines = 2,
+                            subtitleMaxLines = 1,
+                            isFocusedOverride = false,
+                            enableSystemFocus = false,
+                            onFocused = { },
+                            onClick = { onItemClick(item) },
+                            modifier = Modifier.clickable { onItemClick(item) }
+                        )
+                    }
+                }
+            } else {
+                // TV: TvLazyRow with D-pad focus management
+                TvLazyRow(
+                    state = rowState,
+                    contentPadding = PaddingValues(
+                        start = rowStartPadding,
+                        end = rowEndPadding,
+                        top = 0.dp,
+                        bottom = if (isCompactHeight) 6.dp else 8.dp
+                    ),
+                    horizontalArrangement = Arrangement.spacedBy(itemSpacing),
+                    pivotOffsets = androidx.tv.foundation.PivotOffsets(
+                        parentFraction = 0.0f,
+                        childFraction = 0.0f
                     )
-                    MediaCard(
-                        item = displayItem,
-                        width = itemWidth,
-                        isLandscape = !usePosterCards,
-                        logoImageUrl = cardLogoUrls["${item.mediaType}_${item.id}"],
-                        showProgress = false,
-                        titleMaxLines = 2,
-                        subtitleMaxLines = 1,
-                        isFocusedOverride = isCurrentRow && index == focusedItemIndex,
-                        enableSystemFocus = false,
-                        onFocused = { },
-                        onClick = { onItemClick(item) }
-                    )
+                ) {
+                    itemsIndexed(items, key = { _, it -> it.id }) { index, item ->
+                        val yearValue = item.year.ifBlank { item.releaseDate?.take(4).orEmpty() }
+                        val displayItem = item.copy(
+                            subtitle = yearValue.ifBlank {
+                                when (item.mediaType) {
+                                    MediaType.TV -> "TV Show"
+                                    MediaType.MOVIE -> "Movie"
+                                }
+                            }
+                        )
+                        MediaCard(
+                            item = displayItem,
+                            width = itemWidth,
+                            isLandscape = !usePosterCards,
+                            logoImageUrl = cardLogoUrls["${item.mediaType}_${item.id}"],
+                            showProgress = false,
+                            titleMaxLines = 2,
+                            subtitleMaxLines = 1,
+                            isFocusedOverride = isCurrentRow && index == focusedItemIndex,
+                            enableSystemFocus = false,
+                            onFocused = { },
+                            onClick = { onItemClick(item) }
+                        )
+                    }
                 }
             }
         }

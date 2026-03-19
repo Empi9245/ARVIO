@@ -202,9 +202,9 @@ class HomeViewModel @Inject constructor(
                 fetched
             }
 
-            // Strict validation: if we can't validate the target episode, don't show it.
+            // If TMDB fetch failed, keep the item rather than silently dropping it.
             if (seasonEpisodes == null) {
-                return@mapNotNull null
+                return@mapNotNull item
             }
 
             // Season loaded but has no known episodes => invalid/future target.
@@ -457,11 +457,11 @@ class HomeViewModel @Inject constructor(
         .coerceAtLeast(1)
     private val backdropPreloadWidth = cardBackdropWidth
     private val backdropPreloadHeight = cardBackdropHeight
-    private val initialLogoPrefetchRows = 2
-    private val initialLogoPrefetchItemsPerRow = 4
+    private val initialLogoPrefetchRows = 3
+    private val initialLogoPrefetchItemsPerRow = 6
     private val initialBackdropPrefetchItems = 2
-    private val incrementalLogoPrefetchItems = 5
-    private val prioritizedLogoPrefetchItems = 6
+    private val incrementalLogoPrefetchItems = 8
+    private val prioritizedLogoPrefetchItems = 10
     private val incrementalBackdropPrefetchItems = 2
     private val initialCategoryItemCap = 30
     private val categoryPageSize = 16
@@ -1146,6 +1146,18 @@ class HomeViewModel @Inject constructor(
                 _cardLogoUrls.value = snapshotLogoCache()
                 refreshWatchedBadges()
 
+                // On mobile/touch devices, prefetch logos for ALL categories in the background
+                // since there's no D-pad focus to trigger incremental loading.
+                if (!isLowRamDevice) {
+                    viewModelScope.launch(networkDispatcher) {
+                        delay(1_500L) // Let initial UI settle first
+                        for (i in initialLogoPrefetchRows until categories.size) {
+                            preloadLogosForCategory(i, prioritizeVisible = false)
+                            delay(300L) // Stagger to avoid API rate limiting
+                        }
+                    }
+                }
+
                 // Immediately refresh EPG for Favorite TV row if the cached data
                 // produced "Live TV" fallback (stale/empty EPG).
                 // The background init warmup may also be refreshing EPG concurrently —
@@ -1534,11 +1546,20 @@ class HomeViewModel @Inject constructor(
                 mergedByShow[key] = source
                 return
             }
+            // Determine which source represents the more recent/correct episode target.
+            // Trakt items are merged last and generally have the most authoritative next-episode.
+            val sameEpisode = source.mediaType != MediaType.TV ||
+                (source.season == existing.season && source.episode == existing.episode)
             val picked = if (source.progress >= existing.progress) source else existing
             mergedByShow[key] = picked.copy(
-                progress = maxOf(existing.progress, source.progress),
-                resumePositionSeconds = maxOf(existing.resumePositionSeconds, source.resumePositionSeconds),
-                durationSeconds = maxOf(existing.durationSeconds, source.durationSeconds),
+                // Only carry resume position/duration forward if it's the SAME episode.
+                // Different episode = fresh start, so use the new source's data (which is 0 for "up next").
+                progress = if (sameEpisode) maxOf(existing.progress, source.progress)
+                    else source.progress.coerceIn(1, 99),
+                resumePositionSeconds = if (sameEpisode) maxOf(existing.resumePositionSeconds, source.resumePositionSeconds)
+                    else source.resumePositionSeconds,
+                durationSeconds = if (sameEpisode) maxOf(existing.durationSeconds, source.durationSeconds)
+                    else source.durationSeconds,
                 season = source.season ?: existing.season,
                 episode = source.episode ?: existing.episode,
                 episodeTitle = source.episodeTitle ?: existing.episodeTitle,
@@ -1713,11 +1734,12 @@ class HomeViewModel @Inject constructor(
                 val mediaTypeKey = if (item.mediaType == MediaType.TV) "tv" else "movie"
                 val exactKey = "$mediaTypeKey:${item.id}:${item.season ?: -1}:${item.episode ?: -1}"
                 val showKey = "$mediaTypeKey:${item.id}"
-                val match = byExactKey[exactKey] ?: byShowKey[showKey]
+                // Only use exact episode-matched history, NOT show-level fallback.
+                // Show-level fallback caused old episode's position to leak to the next episode.
+                val match = byExactKey[exactKey]
                 if (match == null) {
                     item
                 } else {
-                    // Derive progress from position/duration when stored progress is 0
                     val storedProgress = (match.progress * 100f).toInt()
                     val derivedProgress = if (storedProgress <= 0 && match.duration_seconds > 0 && match.position_seconds > 0) {
                         ((match.position_seconds.toFloat() / match.duration_seconds.toFloat()) * 100f).toInt()
@@ -2274,7 +2296,7 @@ class HomeViewModel @Inject constructor(
                                 episode = followingEpisode,
                                 episodeTitle = null,
                                 progress = 3,
-                                positionSeconds = 1L,
+                                positionSeconds = 0L,
                                 durationSeconds = 1L,
                                 year = item.year
                             )
@@ -2288,8 +2310,8 @@ class HomeViewModel @Inject constructor(
                                 episode = followingEpisode,
                                 episodeTitle = null,
                                 progress = 0.01f,
-                                duration = 1L,
-                                position = 60L
+                                duration = 0L,
+                                position = 0L
                             )
                             lastContinueWatchingUpdateMs = 0L
                             refreshContinueWatchingOnly(force = true)
@@ -2368,7 +2390,7 @@ class HomeViewModel @Inject constructor(
                                 episode = followingEpisode,
                                 episodeTitle = null,
                                 progress = 1,
-                                positionSeconds = 1L,
+                                positionSeconds = 0L,
                                 durationSeconds = 1L,
                                 year = item.year
                             )
@@ -2383,8 +2405,8 @@ class HomeViewModel @Inject constructor(
                                 episode = followingEpisode,
                                 episodeTitle = null,
                                 progress = 0.01f,
-                                duration = 1L,
-                                position = 60L
+                                duration = 0L,
+                                position = 0L
                             )
                             // Reset throttle so refresh actually runs
                             lastContinueWatchingUpdateMs = 0L

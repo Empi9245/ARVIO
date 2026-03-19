@@ -16,6 +16,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -37,6 +40,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.Pause
@@ -65,6 +69,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -76,6 +81,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -106,6 +112,8 @@ import com.arflix.tv.data.model.Subtitle
 import com.arflix.tv.ui.components.LoadingIndicator
 import com.arflix.tv.ui.components.StreamSelector
 import com.arflix.tv.ui.components.WaveLoadingDots
+import androidx.compose.ui.text.style.TextOverflow
+import com.arflix.tv.util.LocalDeviceType
 import com.arflix.tv.ui.theme.ArflixTypography
 import com.arflix.tv.ui.theme.Pink
 import com.arflix.tv.ui.theme.PurpleDark
@@ -225,6 +233,7 @@ fun PlayerScreen(
     var startupSameSourceRefreshAttempted by remember { mutableStateOf(false) }
     var startupUrlLock by remember { mutableStateOf<String?>(null) }
     var dvStartupFallbackStage by remember { mutableIntStateOf(0) } // 0=none, 1=HEVC forced, 2=AVC forced
+    var midPlaybackRecoveryAttempts by remember { mutableIntStateOf(0) }
     var blackVideoRecoveryStage by remember { mutableIntStateOf(0) } // 0=none, 1=HEVC forced, 2=AVC forced
     var blackVideoReadySinceMs by remember { mutableStateOf<Long?>(null) }
     val heavyStartupMaxRetries = 6
@@ -319,11 +328,11 @@ fun PlayerScreen(
     val playbackHttpClient = remember(playbackCookieJar) {
         OkHttpClient.Builder()
             .cookieJar(playbackCookieJar)
-            .connectionPool(ConnectionPool(8, 10, TimeUnit.MINUTES))
+            .connectionPool(ConnectionPool(4, 5, TimeUnit.MINUTES))
             .followRedirects(true)
             .followSslRedirects(true)
             .retryOnConnectionFailure(true)
-            .connectTimeout(12, TimeUnit.SECONDS)
+            .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(180, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
             .build()
@@ -340,11 +349,15 @@ fun PlayerScreen(
             .setUpstreamDataSourceFactory(httpDataSourceFactory)
             .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
     }
+    // Non-cached factory for heavy/debrid progressive streams to avoid disk I/O bottleneck
+    val directProgressiveFactory = remember(httpDataSourceFactory) {
+        ProgressiveMediaSource.Factory(httpDataSourceFactory)
+    }
 
     // Protocol-specific media source factories for faster startup
     val hlsFactory = remember(httpDataSourceFactory) {
         HlsMediaSource.Factory(cacheDataSourceFactory)
-            .setAllowChunklessPreparation(true)  // saves 1-3s HLS startup
+            .setAllowChunklessPreparation(true)
     }
     val dashFactory = remember(httpDataSourceFactory) {
         DashMediaSource.Factory(cacheDataSourceFactory)
@@ -352,27 +365,25 @@ fun PlayerScreen(
     val progressiveFactory = remember(httpDataSourceFactory) {
         ProgressiveMediaSource.Factory(cacheDataSourceFactory)
     }
-    // Composite factory: delegates to protocol-specific factory based on URI
     val mediaSourceFactory = remember(httpDataSourceFactory) {
         DefaultMediaSourceFactory(context)
             .setDataSourceFactory(cacheDataSourceFactory)
     }
 
-    // ExoPlayer - configured for maximum codec compatibility and smooth streaming
+    // ExoPlayer - tuned for both small and very large (70GB+) files.
+    // Byte cap is authoritative (prioritize size over time) so high-bitrate streams
+    // cannot exhaust memory on TV devices with limited heap (384-512 MB).
     val exoPlayer = remember {
-        // Conservative buffers to prevent OOM on TV devices (402 MB heap limit).
-        // Cap buffer by BOTH time and size so high-bitrate streams (4K remux)
-        // cannot blow past available memory.
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
-                30_000,    // minBufferMs — keep a larger safety net for remux / high bitrate files
-                120_000,   // maxBufferMs — allow prebuffering up to 2 min when bandwidth allows
-                250,       // bufferForPlaybackMs — fast first frame
-                1_500      // bufferForPlaybackAfterRebufferMs — resume quickly after short stalls
+                15_000,    // minBufferMs — 15s safety net
+                50_000,    // maxBufferMs — 50s max lookahead
+                500,       // bufferForPlaybackMs — stable start
+                2_500      // bufferForPlaybackAfterRebufferMs — stable resume
             )
-            .setTargetBufferBytes(160 * 1024 * 1024)
-            .setPrioritizeTimeOverSizeThresholds(true)
-            .setBackBuffer(10_000, true)
+            .setTargetBufferBytes(80 * 1024 * 1024)   // 80 MB hard cap
+            .setPrioritizeTimeOverSizeThresholds(false) // byte cap is authoritative
+            .setBackBuffer(3_000, false)                // minimal back buffer
             .build()
 
         ExoPlayer.Builder(context)
@@ -441,6 +452,36 @@ fun PlayerScreen(
 
                     override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
                         if (playerReleasedAtomic.get()) return
+
+                        // If playback was already running (has started), transient IO/timeout errors
+                        // during seek or normal playback should attempt recovery by re-preparing
+                        // at the current position instead of failing over to another source.
+                        if (hasPlaybackStarted) {
+                            val isTransientError =
+                                error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_IO_UNSPECIFIED ||
+                                error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ||
+                                error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT ||
+                                error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS ||
+                                error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_TIMEOUT ||
+                                error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW
+                            if (isTransientError && midPlaybackRecoveryAttempts < 3) {
+                                midPlaybackRecoveryAttempts++
+                                val pos = currentPosition.coerceAtLeast(0L)
+                                val wasPlaying = playWhenReady
+                                if (midPlaybackRecoveryAttempts <= 1) {
+                                    // Light recovery: re-seek without re-reading container headers
+                                    seekTo(pos)
+                                } else {
+                                    // Heavy recovery: full re-prepare (needed if light recovery didn't work)
+                                    stop()
+                                    prepare()
+                                    seekTo(pos)
+                                }
+                                playWhenReady = wasPlaying
+                                return
+                            }
+                        }
+
                         // Source/decoder/network errors on startup should fail over to another source.
                         // Error codes: https://developer.android.com/reference/androidx/media3/common/PlaybackException
                         val isSourceError = error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_DECODER_INIT_FAILED ||
@@ -645,6 +686,8 @@ fun PlayerScreen(
         }
     }
 
+    // Frame rate matching: set ExoPlayer strategy + actual display mode switching
+    val frameRateActivity = context as? android.app.Activity
     LaunchedEffect(uiState.frameRateMatchingMode) {
         if (playerReleased) return@LaunchedEffect
         val configuredStrategy = resolveFrameRateStrategyForMode(uiState.frameRateMatchingMode)
@@ -657,6 +700,31 @@ fun PlayerScreen(
             exoPlayer.javaClass
                 .getMethod("setVideoChangeFrameRateStrategy", Int::class.javaPrimitiveType)
                 .invoke(exoPlayer, effectiveStrategy)
+        }
+    }
+
+    // Actual display mode switching when stream URL changes and frame rate matching is enabled
+    LaunchedEffect(uiState.selectedStreamUrl, uiState.frameRateMatchingMode) {
+        val url = uiState.selectedStreamUrl ?: return@LaunchedEffect
+        val mode = uiState.frameRateMatchingMode
+        val activity = frameRateActivity ?: return@LaunchedEffect
+        if (mode == "Off" || mode.isBlank()) {
+            com.arflix.tv.util.FrameRateUtils.restoreOriginalMode(activity)
+            return@LaunchedEffect
+        }
+        // Detect and switch in background
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val detection = com.arflix.tv.util.FrameRateUtils.detectFrameRate(url)
+            if (detection != null) {
+                com.arflix.tv.util.FrameRateUtils.matchFrameRateAndWait(activity, detection.snapped)
+            }
+        }
+    }
+
+    // Restore original display mode when leaving the player
+    DisposableEffect(frameRateActivity) {
+        onDispose {
+            frameRateActivity?.let { com.arflix.tv.util.FrameRateUtils.restoreOriginalMode(it) }
         }
     }
 
@@ -721,11 +789,15 @@ fun PlayerScreen(
             // - HLS: chunkless preparation enabled (saves 1-3s)
             // - DASH/Progressive: dedicated factories for optimal handling
             val urlLower = url.lowercase()
+            val isHeavy = isLikelyHeavyStream(latestUiState.selectedStream)
             val mediaSource: MediaSource = when {
                 urlLower.contains(".m3u8") || urlLower.contains("/hls") || urlLower.contains("format=hls") ->
                     hlsFactory.createMediaSource(mediaItem)
                 urlLower.contains(".mpd") || urlLower.contains("/dash") || urlLower.contains("format=dash") ->
                     dashFactory.createMediaSource(mediaItem)
+                isHeavy ->
+                    // Bypass disk cache for large/debrid progressive streams to avoid I/O bottleneck
+                    directProgressiveFactory.createMediaSource(mediaItem)
                 else -> mediaSourceFactory.createMediaSource(mediaItem)
             }
 
@@ -1026,6 +1098,7 @@ fun PlayerScreen(
                 exoPlayer.isPlaying
             ) {
                 hasPlaybackStarted = true
+                midPlaybackRecoveryAttempts = 0
                 val startupMs = streamSelectedTime?.let { startedAt ->
                     (System.currentTimeMillis() - startedAt).coerceAtLeast(0L)
                 } ?: 0L
@@ -1104,9 +1177,23 @@ fun PlayerScreen(
         }
     }
 
+    // Close menus when an error occurs so the error overlay can receive input
+    LaunchedEffect(uiState.error) {
+        if (uiState.error != null) {
+            showSourceMenu = false
+            showSubtitleMenu = false
+        }
+    }
+
     // Request focus on the container when not showing controls
     LaunchedEffect(showControls, showSubtitleMenu, showSourceMenu, uiState.error) {
         if (!showControls && !showSubtitleMenu && !showSourceMenu && uiState.error == null) {
+            delay(100)
+            try {
+                containerFocusRequester.requestFocus()
+            } catch (_: Exception) {}
+        }
+        if (uiState.error != null) {
             delay(100)
             try {
                 containerFocusRequester.requestFocus()
@@ -1132,12 +1219,27 @@ fun PlayerScreen(
         }
     }
 
+    val isTouchDevice = LocalDeviceType.current.isTouchDevice()
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
             .focusRequester(containerFocusRequester)
             .focusable()
+            .then(
+                if (isTouchDevice) {
+                    Modifier.clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) {
+                        if (uiState.error == null && !showSubtitleMenu && !showSourceMenu) {
+                            showControls = !showControls
+                        }
+                    }
+                } else {
+                    Modifier
+                }
+            )
             .onKeyEvent { event ->
                 if (event.type == KeyEventType.KeyDown) {
                     // Handle error modal
@@ -1342,15 +1444,12 @@ fun PlayerScreen(
                             }
                         }
                         Key.Enter, Key.DirectionCenter -> {
-                            if (!showControls) {
-                                // Show controls and toggle play/pause
-                                if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
-                                showControls = true
-                                true
-                            } else {
-                                // Let the focused button handle Enter key
-                                false
-                            }
+                            // Always toggle play/pause on Enter/Select.
+                            // Controls overlay buttons have their own onKeyEvent handlers
+                            // that will intercept Enter before this point if they have focus.
+                            if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
+                            if (!showControls) showControls = true
+                            true
                         }
                         Key.Spacebar -> {
                             if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
@@ -1526,7 +1625,9 @@ fun PlayerScreen(
                                     fontSize = 24.sp,
                                     fontWeight = FontWeight.Bold
                                 ),
-                                color = TextPrimary
+                                color = TextPrimary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                         if (seasonNumber != null && episodeNumber != null) {
@@ -1539,7 +1640,9 @@ fun PlayerScreen(
                                 Text(
                                     text = "S$seasonNumber E$episodeNumber",
                                     style = ArflixTypography.body.copy(fontSize = 16.sp),
-                                    color = TextSecondary
+                                    color = TextSecondary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                                 // Episode title would be shown here if available
                             }
@@ -1554,7 +1657,9 @@ fun PlayerScreen(
                                 Text(
                                     text = stream.quality,
                                     style = ArflixTypography.caption.copy(fontSize = 12.sp),
-                                    color = Pink
+                                    color = Pink,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                                 stream.sizeBytes?.let { size ->
                                     Text(
@@ -1565,7 +1670,9 @@ fun PlayerScreen(
                                     Text(
                                         text = formatFileSize(size),
                                         style = ArflixTypography.caption.copy(fontSize = 12.sp),
-                                        color = TextSecondary
+                                        color = TextSecondary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
                                     )
                                 }
                             }
@@ -1587,7 +1694,9 @@ fun PlayerScreen(
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Medium
                         ),
-                        color = TextSecondary
+                        color = TextSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
 
@@ -1618,6 +1727,12 @@ fun PlayerScreen(
                                     if (state.isFocused) focusedButton = 0
                                 }
                                 .focusable()
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null
+                                ) {
+                                    if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
+                                }
                                 .graphicsLayer {
                                     scaleX = playButtonScale
                                     scaleY = playButtonScale
@@ -1674,6 +1789,8 @@ fun PlayerScreen(
                             text = formatTime(if (isControlScrubbing) scrubPreviewPosition else currentPosition),
                             style = ArflixTypography.label.copy(fontSize = 13.sp),
                             color = TextPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.width(55.dp)
                         )
 
@@ -1683,10 +1800,12 @@ fun PlayerScreen(
                             if (trackbarFocused) 10f else 5f,
                             label = "trackbarHeight"
                         )
+                        var trackbarWidthPx by remember { mutableIntStateOf(0) }
                         Box(
                             modifier = Modifier
                                 .weight(1f)
                                 .height(trackbarHeight.dp)
+                                .onSizeChanged { trackbarWidthPx = it.width }
                                 .focusRequester(trackbarFocusRequester)
                                 .onFocusChanged { state ->
                                     trackbarFocused = state.isFocused
@@ -1695,6 +1814,46 @@ fun PlayerScreen(
                                     }
                                 }
                                 .focusable()
+                                .pointerInput(duration) {
+                                    detectHorizontalDragGestures(
+                                        onDragStart = { offset ->
+                                            if (duration > 0L && trackbarWidthPx > 0) {
+                                                val fraction = (offset.x / trackbarWidthPx).coerceIn(0f, 1f)
+                                                scrubPreviewPosition = (fraction * duration).toLong()
+                                                isControlScrubbing = true
+                                            }
+                                        },
+                                        onDragEnd = {
+                                            if (isControlScrubbing && !playerReleased) {
+                                                exoPlayer.seekTo(scrubPreviewPosition)
+                                                isControlScrubbing = false
+                                            }
+                                        },
+                                        onDragCancel = {
+                                            if (isControlScrubbing && !playerReleased) {
+                                                exoPlayer.seekTo(scrubPreviewPosition)
+                                                isControlScrubbing = false
+                                            }
+                                        },
+                                        onHorizontalDrag = { _, dragAmount ->
+                                            if (duration > 0L && trackbarWidthPx > 0) {
+                                                val deltaFraction = dragAmount / trackbarWidthPx
+                                                val deltaMs = (deltaFraction * duration).toLong()
+                                                scrubPreviewPosition = (scrubPreviewPosition + deltaMs).coerceIn(0L, duration)
+                                                isControlScrubbing = true
+                                            }
+                                        }
+                                    )
+                                }
+                                .pointerInput(duration) {
+                                    detectTapGestures { offset ->
+                                        if (duration > 0L && trackbarWidthPx > 0 && !playerReleased) {
+                                            val fraction = (offset.x / trackbarWidthPx).coerceIn(0f, 1f)
+                                            val seekPosition = (fraction * duration).toLong()
+                                            exoPlayer.seekTo(seekPosition)
+                                        }
+                                    }
+                                }
                                 .onKeyEvent { event ->
                                     if (event.type == KeyEventType.KeyDown && trackbarFocused) {
                                         when (event.key) {
@@ -1776,6 +1935,8 @@ fun PlayerScreen(
                             text = formatTime(duration),
                             style = ArflixTypography.label.copy(fontSize = 13.sp),
                             color = TextSecondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.width(55.dp)
                         )
                     }
@@ -2219,7 +2380,9 @@ private fun PlayerTextButtonFocusable(
                 fontSize = 14.sp,
                 fontWeight = if (isFocused) FontWeight.SemiBold else FontWeight.Normal
             ),
-            color = if (isFocused) Color.Black else Color.White
+            color = if (isFocused) Color.Black else Color.White,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
     }
 }
@@ -2393,118 +2556,338 @@ private fun SubtitleMenu(
     onSelectAudio: (AudioTrackInfo) -> Unit,
     onClose: () -> Unit
 ) {
+    val isMobile = LocalDeviceType.current.isTouchDevice()
     val subtitleListState = rememberLazyListState()
     val audioListState = rememberLazyListState()
 
-    // Scroll to focused item
-    LaunchedEffect(focusedIndex, activeTab) {
-        if (activeTab == 0) {
-            if (focusedIndex >= 0) {
-                subtitleListState.animateScrollToItem(focusedIndex)
-            }
-        } else {
-            if (focusedIndex >= 0) {
-                audioListState.animateScrollToItem(focusedIndex)
+    if (!isMobile) {
+        // ── TV layout (D-pad side panel) ──────────────────────────────────
+        // Scroll to focused item
+        LaunchedEffect(focusedIndex, activeTab) {
+            if (activeTab == 0) {
+                if (focusedIndex >= 0) {
+                    subtitleListState.animateScrollToItem(focusedIndex)
+                }
+            } else {
+                if (focusedIndex >= 0) {
+                    audioListState.animateScrollToItem(focusedIndex)
+                }
             }
         }
-    }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.6f))
-            .clickable { onClose() },
-        contentAlignment = Alignment.CenterEnd
-    ) {
-        Column(
+        Box(
             modifier = Modifier
-                .width(320.dp)
-                .padding(end = 32.dp)
-                .background(
-                    Color.Black.copy(alpha = 0.85f),
-                    RoundedCornerShape(16.dp)
-                )
-                .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(16.dp))
-                .padding(16.dp)
-                .clickable(enabled = false) {} // Prevent clicks from closing
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.6f))
+                .clickable { onClose() },
+            contentAlignment = Alignment.CenterEnd
         ) {
-            Row(
+            Column(
+                modifier = Modifier
+                    .width(320.dp)
+                    .padding(end = 32.dp)
+                    .background(
+                        Color.Black.copy(alpha = 0.85f),
+                        RoundedCornerShape(16.dp)
+                    )
+                    .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(16.dp))
+                    .padding(16.dp)
+                    .clickable(enabled = false) {} // Prevent clicks from closing
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    TabButton(
+                        text = "Subtitles",
+                        isSelected = activeTab == 0,
+                        onClick = { onTabChanged(0) }
+                    )
+                    TabButton(
+                        text = "Audio",
+                        isSelected = activeTab == 1,
+                        onClick = { onTabChanged(1) }
+                    )
+                }
+
+                // Content based on active tab
+                Box(modifier = Modifier.height(300.dp)) {
+                    if (activeTab == 0) {
+                        // Subtitles tab
+                        LazyColumn(
+                            state = subtitleListState,
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            item {
+                                TrackMenuItem(
+                                    label = "Off",
+                                    subtitle = null,
+                                    isSelected = selectedSubtitle == null,
+                                    isFocused = focusedIndex == 0,
+                                    onClick = { onSelectSubtitle(0) }
+                                )
+                            }
+
+                            itemsIndexed(subtitles) { index, subtitle ->
+                                // Use actual track label as main text, full language name as secondary
+                                val trackLabel = subtitle.label.ifBlank { subtitle.lang }
+                                val languageInfo = getFullLanguageName(subtitle.lang)
+                                // Only show language info if different from label
+                                val subtitleInfo = if (trackLabel.lowercase() != languageInfo.lowercase() &&
+                                                       !trackLabel.lowercase().contains(languageInfo.lowercase())) {
+                                    languageInfo
+                                } else null
+                                TrackMenuItem(
+                                    label = trackLabel,
+                                    subtitle = subtitleInfo,
+                                    isSelected = selectedSubtitle?.id == subtitle.id,
+                                    isFocused = focusedIndex == index + 1,
+                                    onClick = { onSelectSubtitle(index + 1) }
+                                )
+                            }
+                        }
+                    } else {
+                        // Audio tab
+                        LazyColumn(
+                            state = audioListState,
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            if (audioTracks.isEmpty()) {
+                                item {
+                                    Text(
+                                        text = "No audio tracks available",
+                                        style = ArflixTypography.body,
+                                        color = TextSecondary,
+                                        modifier = Modifier.padding(16.dp)
+                                    )
+                                }
+                            } else {
+                                itemsIndexed(audioTracks) { index, track ->
+                                    // Use track label if available, otherwise full language name
+                                    val languageName = getFullLanguageName(track.language)
+                                    val trackLabel = track.label?.takeIf { it.isNotBlank() } ?: languageName
+
+                                    val codecInfo = detectAudioCodecLabel(track.codec, trackLabel)
+                                    val channelInfo = when (track.channelCount) {
+                                        1 -> "Mono"
+                                        2 -> "Stereo"
+                                        6 -> "5.1"
+                                        8 -> "7.1"
+                                        else -> if (track.channelCount > 0) "${track.channelCount}ch" else null
+                                    }
+                                    val subtitleText = listOfNotNull(codecInfo, channelInfo).joinToString(" • ")
+
+                                    TrackMenuItem(
+                                        label = trackLabel,
+                                        subtitle = subtitleText.ifEmpty { null },
+                                        isSelected = index == selectedAudioIndex,
+                                        isFocused = focusedIndex == index,
+                                        onClick = { onSelectAudio(track) }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Navigation hint
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "← → Switch tabs • ↑↓ Navigate • BACK Close",
+                        style = ArflixTypography.caption,
+                        color = TextSecondary.copy(alpha = 0.5f)
+                    )
+                }
+            }
+        }
+    } else {
+        // ── Mobile layout (bottom sheet style) ────────────────────────────
+        var mobileTab by remember { mutableIntStateOf(activeTab) }
+        val mobileListState = rememberLazyListState()
+
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.5f))
+                .clickable(
+                    indication = null,
+                    interactionSource = remember { MutableInteractionSource() }
+                ) { onClose() }
+        ) {
+            // Bottom sheet panel – occupies ~70% of screen height
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(bottom = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    .fillMaxHeight(0.70f)
+                    .align(Alignment.BottomCenter)
+                    .background(
+                        Color(0xFF1A1A1A),
+                        RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
+                    )
+                    .clickable(
+                        indication = null,
+                        interactionSource = remember { MutableInteractionSource() }
+                    ) { /* consume clicks so they don't dismiss */ }
             ) {
-                TabButton(
-                    text = "Subtitles",
-                    isSelected = activeTab == 0,
-                    onClick = { onTabChanged(0) }
-                )
-                TabButton(
-                    text = "Audio",
-                    isSelected = activeTab == 1,
-                    onClick = { onTabChanged(1) }
-                )
-            }
-
-            // Content based on active tab
-            Box(modifier = Modifier.height(300.dp)) {
-                if (activeTab == 0) {
-                    // Subtitles tab
-                    LazyColumn(
-                        state = subtitleListState,
-                        modifier = Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                // ── Header: title + close button ──────────────────────────
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 16.dp, end = 8.dp, top = 12.dp, bottom = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = if (mobileTab == 0) "Subtitles" else "Audio",
+                        style = ArflixTypography.body.copy(
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.SemiBold
+                        ),
+                        color = Color.White
+                    )
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clickable(
+                                indication = null,
+                                interactionSource = remember { MutableInteractionSource() }
+                            ) { onClose() },
+                        contentAlignment = Alignment.Center
                     ) {
-                        item {
-                            TrackMenuItem(
-                                label = "Off",
-                                subtitle = null,
-                                isSelected = selectedSubtitle == null,
-                                isFocused = focusedIndex == 0,
-                                onClick = { onSelectSubtitle(0) }
-                            )
-                        }
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Close",
+                            tint = Color.White,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                }
 
-                        itemsIndexed(subtitles) { index, subtitle ->
-                            // Use actual track label as main text, full language name as secondary
-                            val trackLabel = subtitle.label.ifBlank { subtitle.lang }
-                            val languageInfo = getFullLanguageName(subtitle.lang)
-                            // Only show language info if different from label
-                            val subtitleInfo = if (trackLabel.lowercase() != languageInfo.lowercase() &&
-                                                   !trackLabel.lowercase().contains(languageInfo.lowercase())) {
-                                languageInfo
-                            } else null
-                            TrackMenuItem(
-                                label = trackLabel,
-                                subtitle = subtitleInfo,
-                                isSelected = selectedSubtitle?.id == subtitle.id,
-                                isFocused = focusedIndex == index + 1,
-                                onClick = { onSelectSubtitle(index + 1) }
+                // ── Tab row ───────────────────────────────────────────────
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    listOf("Subtitles" to 0, "Audio" to 1).forEach { (label, tabIndex) ->
+                        val selected = mobileTab == tabIndex
+                        Box(
+                            modifier = Modifier
+                                .clickable(
+                                    indication = null,
+                                    interactionSource = remember { MutableInteractionSource() }
+                                ) {
+                                    mobileTab = tabIndex
+                                    onTabChanged(tabIndex)
+                                }
+                                .background(
+                                    if (selected) Color.White.copy(alpha = 0.15f) else Color.Transparent,
+                                    RoundedCornerShape(20.dp)
+                                )
+                                .then(
+                                    if (selected) Modifier.border(1.dp, Color.White.copy(alpha = 0.6f), RoundedCornerShape(20.dp))
+                                    else Modifier
+                                )
+                                .padding(horizontal = 20.dp, vertical = 8.dp)
+                        ) {
+                            Text(
+                                text = label,
+                                style = ArflixTypography.body.copy(
+                                    fontSize = 14.sp,
+                                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
+                                ),
+                                color = if (selected) Color.White else Color.White.copy(alpha = 0.6f)
                             )
                         }
                     }
-                } else {
-                    // Audio tab
-                    LazyColumn(
-                        state = audioListState,
-                        modifier = Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
+                }
+
+                // ── Thin divider ──────────────────────────────────────────
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
+                        .height(1.dp)
+                        .background(Color.White.copy(alpha = 0.1f))
+                )
+
+                // ── Track list ────────────────────────────────────────────
+                LazyColumn(
+                    state = mobileListState,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    if (mobileTab == 0) {
+                        // "Off" option
+                        item {
+                            MobileTrackItem(
+                                name = "Off",
+                                description = null,
+                                isSelected = selectedSubtitle == null,
+                                onClick = { onSelectSubtitle(0) }
+                            )
+                            // Divider
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 8.dp)
+                                    .height(1.dp)
+                                    .background(Color.White.copy(alpha = 0.06f))
+                            )
+                        }
+
+                        itemsIndexed(subtitles) { index, sub ->
+                            val trackLabel = sub.label.ifBlank { sub.lang }
+                            val languageInfo = getFullLanguageName(sub.lang)
+                            val description = if (trackLabel.lowercase() != languageInfo.lowercase() &&
+                                !trackLabel.lowercase().contains(languageInfo.lowercase())
+                            ) languageInfo else null
+
+                            MobileTrackItem(
+                                name = trackLabel,
+                                description = description,
+                                isSelected = selectedSubtitle?.id == sub.id,
+                                onClick = { onSelectSubtitle(index + 1) }
+                            )
+                            // Divider between items
+                            if (index < subtitles.lastIndex) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 8.dp)
+                                        .height(1.dp)
+                                        .background(Color.White.copy(alpha = 0.06f))
+                                )
+                            }
+                        }
+                    } else {
+                        // Audio tab
                         if (audioTracks.isEmpty()) {
                             item {
                                 Text(
                                     text = "No audio tracks available",
-                                    style = ArflixTypography.body,
+                                    style = ArflixTypography.body.copy(fontSize = 14.sp),
                                     color = TextSecondary,
                                     modifier = Modifier.padding(16.dp)
                                 )
                             }
                         } else {
                             itemsIndexed(audioTracks) { index, track ->
-                                // Use track label if available, otherwise full language name
                                 val languageName = getFullLanguageName(track.language)
                                 val trackLabel = track.label?.takeIf { it.isNotBlank() } ?: languageName
-
                                 val codecInfo = detectAudioCodecLabel(track.codec, trackLabel)
                                 val channelInfo = when (track.channelCount) {
                                     1 -> "Mono"
@@ -2513,34 +2896,28 @@ private fun SubtitleMenu(
                                     8 -> "7.1"
                                     else -> if (track.channelCount > 0) "${track.channelCount}ch" else null
                                 }
-                                val subtitleText = listOfNotNull(codecInfo, channelInfo).joinToString(" • ")
+                                val description = listOfNotNull(codecInfo, channelInfo).joinToString(" • ").ifEmpty { null }
 
-                                TrackMenuItem(
-                                    label = trackLabel,
-                                    subtitle = subtitleText.ifEmpty { null },
+                                MobileTrackItem(
+                                    name = trackLabel,
+                                    description = description,
                                     isSelected = index == selectedAudioIndex,
-                                    isFocused = focusedIndex == index,
                                     onClick = { onSelectAudio(track) }
                                 )
+                                // Divider between items
+                                if (index < audioTracks.lastIndex) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 8.dp)
+                                            .height(1.dp)
+                                            .background(Color.White.copy(alpha = 0.06f))
+                                    )
+                                }
                             }
                         }
                     }
                 }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Navigation hint
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "← → Switch tabs • ↑↓ Navigate • BACK Close",
-                    style = ArflixTypography.caption,
-                    color = TextSecondary.copy(alpha = 0.5f)
-                )
             }
         }
     }
@@ -2623,6 +3000,58 @@ private fun TrackMenuItem(
                 contentDescription = "Selected",
                 tint = if (isFocused) Color.Black else Color.White,
                 modifier = Modifier.size(18.dp)
+            )
+        }
+    }
+}
+
+/** Single track row for the mobile bottom-sheet subtitle/audio selector. */
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun MobileTrackItem(
+    name: String,
+    description: String?,
+    isSelected: Boolean,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(
+                indication = null,
+                interactionSource = remember { MutableInteractionSource() }
+            ) { onClick() }
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = name,
+                style = ArflixTypography.body.copy(fontSize = 14.sp),
+                color = if (isSelected) Color.White else Color.White.copy(alpha = 0.85f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (description != null) {
+                Text(
+                    text = description,
+                    style = ArflixTypography.caption.copy(fontSize = 12.sp),
+                    color = Color.White.copy(alpha = 0.5f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+
+        if (isSelected) {
+            Icon(
+                imageVector = Icons.Default.Check,
+                contentDescription = "Selected",
+                tint = Color(0xFF4CAF50), // Green checkmark
+                modifier = Modifier
+                    .padding(start = 12.dp)
+                    .size(20.dp)
             )
         }
     }
@@ -2772,14 +3201,15 @@ private fun estimateInitialStartupTimeoutMs(
     }
 
     timeoutMs = when {
-        sizeBytes >= 40L * 1024 * 1024 * 1024 -> timeoutMs.coerceAtLeast(110_000L)
-        sizeBytes >= 30L * 1024 * 1024 * 1024 -> timeoutMs.coerceAtLeast(95_000L)
-        sizeBytes >= 20L * 1024 * 1024 * 1024 -> timeoutMs.coerceAtLeast(80_000L)
+        sizeBytes >= 60L * 1024 * 1024 * 1024 -> timeoutMs.coerceAtLeast(180_000L)
+        sizeBytes >= 40L * 1024 * 1024 * 1024 -> timeoutMs.coerceAtLeast(150_000L)
+        sizeBytes >= 30L * 1024 * 1024 * 1024 -> timeoutMs.coerceAtLeast(120_000L)
+        sizeBytes >= 20L * 1024 * 1024 * 1024 -> timeoutMs.coerceAtLeast(90_000L)
         sizeBytes >= 10L * 1024 * 1024 * 1024 -> timeoutMs.coerceAtLeast(60_000L)
         else -> timeoutMs
     }
 
-    return timeoutMs.coerceAtMost(120_000L)
+    return timeoutMs.coerceAtMost(200_000L)
 }
 
 private fun playbackErrorMessageFor(

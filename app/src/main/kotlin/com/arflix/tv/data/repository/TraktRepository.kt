@@ -1281,6 +1281,9 @@ class TraktRepository @Inject constructor(
                     val number = episode.number
                     val key = "${MediaType.TV}:$tmdbId:$season:$number"
                     if (key in processedKeys) continue
+                    // Check if this episode is already watched — don't resurrect completed shows
+                    val epWatchedKey = "show_tmdb:$tmdbId:$season:$number"
+                    if (watchedEpisodesCache.contains(epWatchedKey)) continue
                     candidates.removeAll { it.item.mediaType == MediaType.TV && it.item.id == tmdbId }
                     processedKeys.removeAll { it.startsWith("${MediaType.TV}:$tmdbId:") }
                     candidates.add(

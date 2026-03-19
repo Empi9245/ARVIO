@@ -7,7 +7,15 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material3.Icon
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -162,6 +170,16 @@ fun PersonModal(
                     LoadingIndicator(color = Pink, size = 64.dp)
                 }
             } else if (person != null) {
+                val isMobile = com.arflix.tv.util.LocalDeviceType.current.isTouchDevice()
+                if (isMobile) {
+                    MobilePersonContent(
+                        person = person,
+                        scrollState = scrollState,
+                        focusedKnownForIndex = focusedKnownForIndex,
+                        onMediaClick = onMediaClick,
+                        onClose = onClose
+                    )
+                } else {
                 Row(
                     modifier = Modifier
                         .fillMaxSize()
@@ -323,8 +341,174 @@ fun PersonModal(
                         }
                     }
                 }
+            } // end else (TV layout)
             }
         }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun MobilePersonContent(
+    person: PersonDetails,
+    scrollState: ScrollState,
+    focusedKnownForIndex: Int,
+    onMediaClick: (MediaType, Int) -> Unit,
+    onClose: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(scrollState)
+            .padding(horizontal = 20.dp, vertical = 24.dp)
+    ) {
+        // Back button
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .clip(CircleShape)
+                .background(Color.White.copy(alpha = 0.1f))
+                .clickable { onClose() },
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Default.ArrowBack,
+                contentDescription = "Back",
+                tint = Color.White,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        // Photo + name centered
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(140.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .border(2.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(16.dp))
+            ) {
+                if (person.profilePath != null) {
+                    AsyncImage(
+                        model = person.profilePath,
+                        contentDescription = person.name,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier.fillMaxSize().background(Color(0xFF1a1a1a)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = person.name.firstOrNull()?.toString() ?: "?",
+                            style = ArflixTypography.heroTitle.copy(fontSize = 40.sp),
+                            color = TextSecondary.copy(alpha = 0.5f)
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Text(
+                text = person.name,
+                style = ArflixTypography.sectionTitle.copy(fontSize = 20.sp, fontWeight = FontWeight.SemiBold),
+                color = TextPrimary,
+                textAlign = TextAlign.Center,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            if (person.birthday != null) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = person.birthday,
+                    style = ArflixTypography.body.copy(fontSize = 13.sp),
+                    color = TextSecondary.copy(alpha = 0.7f)
+                )
+            }
+
+            if (person.placeOfBirth != null) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = person.placeOfBirth,
+                    style = ArflixTypography.caption.copy(fontSize = 11.sp),
+                    color = TextSecondary.copy(alpha = 0.5f),
+                    textAlign = TextAlign.Center,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+
+        // Biography
+        if (person.biography.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(24.dp))
+            Text(
+                text = "Biography",
+                style = ArflixTypography.sectionTitle.copy(fontSize = 16.sp, fontWeight = FontWeight.Medium),
+                color = TextPrimary.copy(alpha = 0.9f)
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = person.biography,
+                style = ArflixTypography.body.copy(fontSize = 14.sp, lineHeight = 22.sp),
+                color = TextSecondary.copy(alpha = 0.8f)
+            )
+        }
+
+        // Known For
+        if (person.knownFor.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(24.dp))
+            Text(
+                text = "Known For",
+                style = ArflixTypography.sectionTitle.copy(fontSize = 16.sp, fontWeight = FontWeight.Medium),
+                color = TextPrimary.copy(alpha = 0.9f)
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            LazyRow(
+                contentPadding = PaddingValues(end = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                itemsIndexed(person.knownFor) { index, item ->
+                    Column(
+                        modifier = Modifier
+                            .width(110.dp)
+                            .clickable { onMediaClick(item.mediaType, item.id) }
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .aspectRatio(2f / 3f)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Color(0xFF1a1a1a))
+                        ) {
+                            AsyncImage(
+                                model = item.image,
+                                contentDescription = item.title,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = item.title,
+                            style = ArflixTypography.caption.copy(fontSize = 12.sp),
+                            color = TextPrimary,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
     }
 }
 
