@@ -114,14 +114,26 @@ class SearchViewModel @Inject constructor(
                 val lang = state.selectedCountry?.code
                 val isAnime = type == DiscoverType.ANIME
 
+                val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+                val cal = java.util.Calendar.getInstance()
+                cal.add(java.util.Calendar.DAY_OF_YEAR, -90)
+                val threeMonthsAgo = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(cal.time)
+                cal.time = java.util.Date()
+                cal.add(java.util.Calendar.YEAR, -1)
+                val oneYearAgo = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(cal.time)
+
                 val categories = withContext(Dispatchers.IO) {
                     coroutineScope {
-                        // Build 5 rows with different sorts/flavors for the current filter combo
-                        val row1 = async { buildRow("Trending", type, genre, "popularity.desc", null, lang, isAnime, 1) }
-                        val row2 = async { buildRow("Popular", type, genre, "popularity.desc", null, lang, isAnime, 2) }
-                        val row3 = async { buildRow("Top Rated", type, genre, "vote_average.desc", 500, lang, isAnime, 1) }
-                        val row4 = async { buildRow("New Releases", type, genre, if (type == DiscoverType.TV_SHOWS || isAnime) "first_air_date.desc" else "primary_release_date.desc", null, lang, isAnime, 1) }
-                        val row5 = async { buildRow("Hidden Gems", type, genre, "vote_average.desc", 100, lang, isAnime, 3) }
+                        // Row 1: Trending - popular with minimum votes to filter garbage
+                        val row1 = async { buildRow("Trending", type, genre, "popularity.desc", 50, lang, isAnime, 1, releaseDateLte = today) }
+                        // Row 2: Popular This Year - recent + popular, no obscure stuff
+                        val row2 = async { buildRow("Popular This Year", type, genre, "popularity.desc", 20, lang, isAnime, 1, releaseDateGte = oneYearAgo, releaseDateLte = today) }
+                        // Row 3: Top Rated - high quality, well-known titles
+                        val row3 = async { buildRow("Top Rated", type, genre, "vote_average.desc", 1000, lang, isAnime, 1, releaseDateLte = today) }
+                        // Row 4: New Releases - last 90 days ONLY, must be actually released (date <= today)
+                        val row4 = async { buildRow("New Releases", type, genre, "popularity.desc", 10, lang, isAnime, 1, releaseDateGte = threeMonthsAgo, releaseDateLte = today) }
+                        // Row 5: Hidden Gems - good ratings but less mainstream
+                        val row5 = async { buildRow("Hidden Gems", type, genre, "vote_average.desc", 200, lang, isAnime, 2, releaseDateLte = today) }
                         listOfNotNull(row1.await(), row2.await(), row3.await(), row4.await(), row5.await())
                     }
                 }
@@ -144,19 +156,23 @@ class SearchViewModel @Inject constructor(
         }
     }
 
-    private suspend fun buildRow(title: String, type: DiscoverType, genre: String?, sort: String, minVotes: Int?, lang: String?, isAnime: Boolean, page: Int): Category? {
+    private suspend fun buildRow(
+        title: String, type: DiscoverType, genre: String?, sort: String,
+        minVotes: Int?, lang: String?, isAnime: Boolean, page: Int,
+        releaseDateGte: String? = null, releaseDateLte: String? = null
+    ): Category? {
         return try {
             val items = when (type) {
-                DiscoverType.MOVIES -> mediaRepository.discoverMovies(genre, sort, minVotes, page, language = lang)
-                DiscoverType.TV_SHOWS -> mediaRepository.discoverTv(genre, sort, minVotes, page, language = lang)
+                DiscoverType.MOVIES -> mediaRepository.discoverMovies(genre, sort, minVotes, page, language = lang, releaseDateLte = releaseDateLte, releaseDateGte = releaseDateGte)
+                DiscoverType.TV_SHOWS -> mediaRepository.discoverTv(genre, sort, minVotes, page, language = lang, airDateLte = releaseDateLte, airDateGte = releaseDateGte)
                 DiscoverType.ANIME -> {
                     val animeGenre = if (genre != null) "16,$genre" else "16"
-                    mediaRepository.discoverTv(animeGenre, sort, minVotes, page, language = lang, keywords = "210024")
+                    mediaRepository.discoverTv(animeGenre, sort, minVotes, page, language = lang, keywords = "210024", airDateLte = releaseDateLte, airDateGte = releaseDateGte)
                 }
                 DiscoverType.ALL -> {
                     coroutineScope {
-                        val m = async { mediaRepository.discoverMovies(genre, sort, minVotes, page, language = lang) }
-                        val t = async { mediaRepository.discoverTv(genre, sort, minVotes, page, language = lang) }
+                        val m = async { mediaRepository.discoverMovies(genre, sort, minVotes, page, language = lang, releaseDateLte = releaseDateLte, releaseDateGte = releaseDateGte) }
+                        val t = async { mediaRepository.discoverTv(genre, sort, minVotes, page, language = lang, airDateLte = releaseDateLte, airDateGte = releaseDateGte) }
                         interleave(m.await(), t.await())
                     }
                 }

@@ -1171,9 +1171,11 @@ class MediaRepository @Inject constructor(
         page: Int = 1,
         language: String? = null,
         year: Int? = null,
-        keywords: String? = null
+        keywords: String? = null,
+        releaseDateLte: String? = null,
+        releaseDateGte: String? = null
     ): List<MediaItem> {
-        val response = tmdbApi.discoverMovies(apiKey, genres = genres, sortBy = sortBy, minVoteCount = minVoteCount, page = page, originalLanguage = language, year = year, keywords = keywords, language = contentLanguage)
+        val response = tmdbApi.discoverMovies(apiKey, genres = genres, sortBy = sortBy, minVoteCount = minVoteCount, page = page, originalLanguage = language, year = year, keywords = keywords, language = contentLanguage, releaseDateLte = releaseDateLte, releaseDateGte = releaseDateGte)
         val items = response.results.map { it.toMediaItem(MediaType.MOVIE) }
         cacheItems(items)
         return items
@@ -1189,9 +1191,11 @@ class MediaRepository @Inject constructor(
         page: Int = 1,
         language: String? = null,
         year: Int? = null,
-        keywords: String? = null
+        keywords: String? = null,
+        airDateLte: String? = null,
+        airDateGte: String? = null
     ): List<MediaItem> {
-        val response = tmdbApi.discoverTv(apiKey, genres = genres, sortBy = sortBy, minVoteCount = minVoteCount, page = page, originalLanguage = language, year = year, keywords = keywords, language = contentLanguage)
+        val response = tmdbApi.discoverTv(apiKey, genres = genres, sortBy = sortBy, minVoteCount = minVoteCount, page = page, originalLanguage = language, year = year, keywords = keywords, language = contentLanguage, airDateLte = airDateLte, airDateGte = airDateGte)
         val items = response.results.map { it.toMediaItem(MediaType.TV) }
         cacheItems(items)
         return items
