@@ -1,8 +1,5 @@
 package com.arflix.tv.di
 
-import android.content.Context
-import coil.Coil
-import coil.ImageLoader
 import com.arflix.tv.data.api.AniSkipApi
 import com.arflix.tv.data.api.ArmApi
 import com.arflix.tv.data.api.IntroDbApi
@@ -15,7 +12,6 @@ import com.arflix.tv.util.Constants
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
-import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit
@@ -33,14 +29,6 @@ object AppModule {
         return OkHttpProvider.client
     }
 
-    @Provides
-    @Singleton
-    fun provideImageLoader(
-        @ApplicationContext context: Context
-    ): ImageLoader {
-        return Coil.imageLoader(context)
-    }
-    
     @Provides
     @Singleton
     fun provideTmdbApi(okHttpClient: OkHttpClient): TmdbApi {

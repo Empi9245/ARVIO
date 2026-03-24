@@ -1,6 +1,7 @@
 package com.arflix.tv.ui.screens.settings
 
 import android.content.Context
+import coil.Coil
 import com.arflix.tv.BuildConfig
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
@@ -25,6 +26,7 @@ import com.arflix.tv.data.repository.TvDeviceAuthStatusType
 import com.arflix.tv.data.repository.TraktRepository
 import com.arflix.tv.data.repository.TraktSyncService
 import com.arflix.tv.data.repository.WatchlistRepository
+import com.arflix.tv.network.OkHttpProvider
 import com.arflix.tv.data.repository.SyncProgress
 import com.arflix.tv.data.repository.SyncStatus
 import com.arflix.tv.data.repository.SyncResult
@@ -69,6 +71,8 @@ data class SettingsUiState(
     val autoPlayNext: Boolean = true,
     val autoPlaySingleSource: Boolean = true,
     val autoPlayMinQuality: String = "Any",
+    val dnsProvider: String = "System DNS",
+    val dnsProviderOptions: List<String> = listOf("System DNS", "Cloudflare", "Google", "AdGuard"),
     val includeSpecials: Boolean = false,
     val isLoggedIn: Boolean = false,
     val accountEmail: String? = null,
@@ -165,6 +169,7 @@ class SettingsViewModel @Inject constructor(
     private fun autoPlaySingleSourceKeyFor(profileId: String) = profileManager.profileBooleanKeyFor(profileId, "auto_play_single_source")
     private fun autoPlayMinQualityKey() = profileManager.profileStringKey("auto_play_min_quality")
     private fun autoPlayMinQualityKeyFor(profileId: String) = profileManager.profileStringKeyFor(profileId, "auto_play_min_quality")
+    private fun dnsProviderKey() = profileManager.profileStringKey("dns_provider")
     private fun includeSpecialsKey() = profileManager.profileBooleanKey("include_specials")
     private fun includeSpecialsKeyFor(profileId: String) = profileManager.profileBooleanKeyFor(profileId, "include_specials")
     private val gson = Gson()
@@ -245,6 +250,7 @@ class SettingsViewModel @Inject constructor(
                 context.settingsDataStore.edit { it[autoPlayNextKey()] = true }
             }
             val autoPlayMinQuality = normalizeAutoPlayMinQuality(prefs[autoPlayMinQualityKey()])
+            val dnsProviderValue = normalizeDnsProviderValue(prefs[dnsProviderKey()])
             val includeSpecials = prefs[includeSpecialsKey()] ?: false
 
             // Check auth statuses
@@ -279,6 +285,7 @@ class SettingsViewModel @Inject constructor(
                 autoPlayNext = autoPlay,
                 autoPlaySingleSource = autoPlaySingleSource,
                 autoPlayMinQuality = autoPlayMinQuality,
+                dnsProvider = dnsProviderLabel(dnsProviderValue),
                 includeSpecials = includeSpecials,
                 isLoggedIn = isLoggedIn,
                 accountEmail = accountEmail,
@@ -735,6 +742,60 @@ class SettingsViewModel @Inject constructor(
             "1080p", "fullhd", "fhd" -> "1080p"
             "4k", "2160p", "uhd" -> "4K"
             else -> "Any"
+        }
+    }
+
+    private fun normalizeDnsProviderValue(raw: String?): String {
+        return when (raw?.trim()?.lowercase()) {
+            "system", "system dns", "system_dns" -> "system"
+            "cloudflare", "cloudflare dns", "cloudflare_dns" -> "cloudflare"
+            "google" -> "google"
+            "adguard", "ad guard" -> "adguard"
+            else -> "system"
+        }
+    }
+
+    private fun dnsProviderLabel(value: String): String {
+        return when (normalizeDnsProviderValue(value)) {
+            "system" -> "System DNS"
+            "google" -> "Google"
+            "adguard" -> "AdGuard"
+            else -> "Cloudflare"
+        }
+    }
+
+    private fun dnsProviderValueFromLabel(label: String): String {
+        return when (label.trim().lowercase()) {
+            "system dns" -> "system"
+            "google" -> "google"
+            "adguard" -> "adguard"
+            else -> "cloudflare"
+        }
+    }
+
+    fun setDnsProvider(label: String) {
+        val value = dnsProviderValueFromLabel(label)
+        viewModelScope.launch {
+            val currentValue = dnsProviderValueFromLabel(_uiState.value.dnsProvider)
+            if (value == currentValue) {
+                return@launch
+            }
+
+            withContext(Dispatchers.IO) {
+                OkHttpProvider.setDnsProvider(OkHttpProvider.parseDnsProvider(value))
+            }
+            context.settingsDataStore.edit { prefs ->
+                prefs[dnsProviderKey()] = value
+            }
+            _uiState.value = _uiState.value.copy(
+                dnsProvider = dnsProviderLabel(value)
+            )
+
+            // Keep image requests consistent if restart is delayed by the system.
+            val imageLoader = withContext(Dispatchers.IO) {
+                OkHttpProvider.createCoilImageLoader(context)
+            }
+            Coil.setImageLoader(imageLoader)
         }
     }
 
@@ -1719,7 +1780,4 @@ class SettingsViewModel @Inject constructor(
         traktPollingJob?.cancel()
     }
 }
-
-
-
 

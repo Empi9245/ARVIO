@@ -37,6 +37,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ContentPaste
+import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.LinkOff
 import androidx.compose.material.icons.filled.Movie
@@ -168,6 +169,8 @@ fun SettingsScreen(
     var subtitlePickerIndex by remember { mutableIntStateOf(0) }
     var showAudioLanguagePicker by remember { mutableStateOf(false) }
     var audioLanguagePickerIndex by remember { mutableIntStateOf(0) }
+    var showDnsProviderPicker by remember { mutableStateOf(false) }
+    var dnsProviderPickerIndex by remember { mutableIntStateOf(0) }
     var showContentLanguagePicker by remember { mutableStateOf(false) }
     var contentLanguagePickerIndex by remember { mutableIntStateOf(0) }
 
@@ -189,8 +192,13 @@ fun SettingsScreen(
             .coerceAtLeast(0)
         showAudioLanguagePicker = true
     }
+    val openDnsProviderPicker = {
+        val options = uiState.dnsProviderOptions
+        dnsProviderPickerIndex = options.indexOfFirst { it.equals(uiState.dnsProvider, ignoreCase = true) }
+            .coerceAtLeast(0)
+        showDnsProviderPicker = true
+    }
     val openContentLanguagePicker = {
-        val langOptions = TMDB_LANGUAGES.map { it.second }
         contentLanguagePickerIndex = TMDB_LANGUAGES.indexOfFirst { it.first == uiState.contentLanguage }.coerceAtLeast(0)
         showContentLanguagePicker = true
     }
@@ -217,6 +225,15 @@ fun SettingsScreen(
             audioLanguagePickerIndex = if (targetIndex >= 0) targetIndex else audioLanguagePickerIndex.coerceIn(0, maxIndex)
         }
     }
+
+    LaunchedEffect(showDnsProviderPicker, uiState.dnsProviderOptions) {
+        if (showDnsProviderPicker) {
+            val options = uiState.dnsProviderOptions
+            val maxIndex = (options.size - 1).coerceAtLeast(0)
+            val targetIndex = options.indexOfFirst { it.equals(uiState.dnsProvider, ignoreCase = true) }
+            dnsProviderPickerIndex = if (targetIndex >= 0) targetIndex else dnsProviderPickerIndex.coerceIn(0, maxIndex)
+        }
+    }
     
     // Reset content scroll when switching sections.
     LaunchedEffect(sectionIndex) {
@@ -231,7 +248,7 @@ fun SettingsScreen(
         if (scrollState.maxValue <= 0) return@LaunchedEffect
 
         val maxIndex = when (sectionIndex) {
-            0 -> 6 // General: 7 items
+            0 -> 9 // General: 10 items
             1 -> 2 // IPTV
             2 -> uiState.catalogs.size // Catalogs
             3 -> uiState.addons.size // Addons
@@ -282,7 +299,7 @@ fun SettingsScreen(
             .onPreviewKeyEvent { event ->
                     if (isTouchDevice) return@onPreviewKeyEvent false
                     // BLOCKER FIX: Ignore main screen navigation if modals are open
-                    if (showCustomAddonInput || showSubtitlePicker || showAudioLanguagePicker || showContentLanguagePicker || showIptvInput || showCatalogInput || uiState.showCloudPairDialog || uiState.showCloudEmailPasswordDialog) return@onPreviewKeyEvent false
+                    if (showCustomAddonInput || showSubtitlePicker || showAudioLanguagePicker || showDnsProviderPicker || showContentLanguagePicker || showIptvInput || showCatalogInput || uiState.showCloudPairDialog || uiState.showCloudEmailPasswordDialog) return@onPreviewKeyEvent false
 
                 if (event.type == KeyEventType.KeyDown) {
                     val currentSection = sections.getOrNull(sectionIndex).orEmpty()
@@ -397,7 +414,7 @@ fun SettingsScreen(
                                 Zone.CONTENT -> {
                                     // Dynamic max based on current section
                                     val maxIndex = when (sectionIndex) {
-            0 -> 8 // General: 9 items (subtitle, audio, content lang, card layout, frame rate, ui mode, autoplay, autoplay single, autoplay quality)
+                                        0 -> 9 // General: 10 items (subtitle, audio, content lang, card, frame rate, dns, ui mode, autoplay, single-source, min quality)
                                         1 -> 2 // IPTV: Configure + Refresh + Delete
                                         2 -> uiState.catalogs.size // Catalogs: Add + N catalogs
                                         3 -> uiState.addons.size // Addons: N addons + "Add Custom" button
@@ -442,10 +459,11 @@ fun SettingsScreen(
                                                 2 -> openContentLanguagePicker()
                                                 3 -> viewModel.toggleCardLayoutMode()
                                                 4 -> viewModel.cycleFrameRateMatchingMode()
-                                                5 -> { val next = when (uiState.deviceModeOverride) { "auto" -> "tv"; "tv" -> "tablet"; "tablet" -> "phone"; else -> "auto" }; viewModel.setDeviceModeOverride(next) }
-                                                6 -> viewModel.setAutoPlayNext(!uiState.autoPlayNext)
-                                                7 -> viewModel.setAutoPlaySingleSource(!uiState.autoPlaySingleSource)
-                                                8 -> viewModel.cycleAutoPlayMinQuality()
+                                                5 -> openDnsProviderPicker()
+                                                6 -> { val next = when (uiState.deviceModeOverride) { "auto" -> "tv"; "tv" -> "tablet"; "tablet" -> "phone"; else -> "auto" }; viewModel.setDeviceModeOverride(next) }
+                                                7 -> viewModel.setAutoPlayNext(!uiState.autoPlayNext)
+                                                8 -> viewModel.setAutoPlaySingleSource(!uiState.autoPlaySingleSource)
+                                                9 -> viewModel.cycleAutoPlayMinQuality()
                                             }
                                         }
                                         1 -> { // IPTV
@@ -559,6 +577,7 @@ fun SettingsScreen(
                             defaultSubtitle = uiState.defaultSubtitle,
                             defaultAudioLanguage = uiState.defaultAudioLanguage,
                             contentLanguage = uiState.contentLanguage,
+                            dnsProvider = uiState.dnsProvider,
                             cardLayoutMode = uiState.cardLayoutMode,
                             frameRateMatchingMode = uiState.frameRateMatchingMode,
                             autoPlayNext = uiState.autoPlayNext,
@@ -570,6 +589,7 @@ fun SettingsScreen(
                             onAudioLanguageClick = openAudioLanguagePicker,
                             onCardLayoutToggle = { viewModel.toggleCardLayoutMode() },
                             onFrameRateMatchingClick = { viewModel.cycleFrameRateMatchingMode() },
+                            onDnsProviderClick = openDnsProviderPicker,
                             onAutoPlayToggle = { viewModel.setAutoPlayNext(it) },
                             onAutoPlaySingleSourceToggle = { viewModel.setAutoPlaySingleSource(it) },
                             onAutoPlayMinQualityClick = { viewModel.cycleAutoPlayMinQuality() },
@@ -717,6 +737,7 @@ fun SettingsScreen(
                         "general" -> GeneralSettings(
                             defaultSubtitle = uiState.defaultSubtitle,
                             defaultAudioLanguage = uiState.defaultAudioLanguage,
+                            dnsProvider = uiState.dnsProvider,
                             cardLayoutMode = uiState.cardLayoutMode,
                             frameRateMatchingMode = uiState.frameRateMatchingMode,
                             autoPlayNext = uiState.autoPlayNext,
@@ -729,6 +750,7 @@ fun SettingsScreen(
                             onAudioLanguageClick = openAudioLanguagePicker,
                             onCardLayoutToggle = { viewModel.toggleCardLayoutMode() },
                             onFrameRateMatchingClick = { viewModel.cycleFrameRateMatchingMode() },
+                            onDnsProviderClick = openDnsProviderPicker,
                             onAutoPlayToggle = { viewModel.setAutoPlayNext(it) },
                             onAutoPlaySingleSourceToggle = { viewModel.setAutoPlaySingleSource(it) },
                             onAutoPlayMinQualityClick = { viewModel.cycleAutoPlayMinQuality() },
@@ -940,6 +962,21 @@ fun SettingsScreen(
                     showAudioLanguagePicker = false
                 },
                 onDismiss = { showAudioLanguagePicker = false }
+            )
+        }
+
+        if (showDnsProviderPicker) {
+            SubtitlePickerModal(
+                title = "DNS Provider",
+                options = uiState.dnsProviderOptions,
+                selected = uiState.dnsProvider,
+                focusedIndex = dnsProviderPickerIndex,
+                onFocusChange = { dnsProviderPickerIndex = it },
+                onSelect = {
+                    showDnsProviderPicker = false
+                    viewModel.setDnsProvider(it)
+                },
+                onDismiss = { showDnsProviderPicker = false }
             )
         }
 
@@ -1934,6 +1971,7 @@ private fun GeneralSettings(
     defaultSubtitle: String,
     defaultAudioLanguage: String,
     contentLanguage: String = "en-US",
+    dnsProvider: String,
     cardLayoutMode: String,
     frameRateMatchingMode: String,
     autoPlayNext: Boolean,
@@ -1945,6 +1983,7 @@ private fun GeneralSettings(
     onAudioLanguageClick: () -> Unit,
     onCardLayoutToggle: () -> Unit,
     onFrameRateMatchingClick: () -> Unit,
+    onDnsProviderClick: () -> Unit,
     onAutoPlayToggle: (Boolean) -> Unit,
     onAutoPlaySingleSourceToggle: (Boolean) -> Unit,
     onAutoPlayMinQualityClick: () -> Unit,
@@ -2019,6 +2058,17 @@ private fun GeneralSettings(
 
         Spacer(modifier = Modifier.height(16.dp))
 
+        SettingsRow(
+            icon = Icons.Default.Language,
+            title = "DNS Provider",
+            subtitle = "Resolver for API/image/stream requests. Changes apply immediately.",
+            value = dnsProvider,
+            isFocused = focusedIndex == 5,
+            onClick = onDnsProviderClick
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
         // Device UI Mode
         SettingsRow(
             icon = Icons.Default.Settings,
@@ -2030,7 +2080,7 @@ private fun GeneralSettings(
                 "phone" -> "Phone"
                 else -> "Auto"
             },
-            isFocused = focusedIndex == 5,
+            isFocused = focusedIndex == 6,
             onClick = onDeviceModeClick
         )
 
@@ -2041,7 +2091,7 @@ private fun GeneralSettings(
             title = "Auto-Play Next",
             subtitle = "Start next episode automatically",
             isEnabled = autoPlayNext,
-            isFocused = focusedIndex == 6,
+            isFocused = focusedIndex == 7,
             onToggle = onAutoPlayToggle
         )
 
@@ -2051,7 +2101,7 @@ private fun GeneralSettings(
             title = "Auto-Play Single Source",
             subtitle = "Skip source picker when only one valid source exists",
             isEnabled = autoPlaySingleSource,
-            isFocused = focusedIndex == 7,
+            isFocused = focusedIndex == 8,
             onToggle = onAutoPlaySingleSourceToggle
         )
 
@@ -2062,7 +2112,7 @@ private fun GeneralSettings(
             title = "Auto-Play Min Quality",
             subtitle = "Minimum quality required for single-source auto-play",
             value = autoPlayMinQuality,
-            isFocused = focusedIndex == 8,
+            isFocused = focusedIndex == 9,
             onClick = onAutoPlayMinQualityClick
         )
     }
