@@ -759,7 +759,8 @@ class StreamRepository @Inject constructor(
         tvdbId: Int? = null,
         genreIds: List<Int> = emptyList(),
         originalLanguage: String? = null,
-        title: String = ""
+        title: String = "",
+        airDate: String? = null
     ): List<StreamSource> {
         val startedAt = System.currentTimeMillis()
         return try {
@@ -810,6 +811,39 @@ class StreamRepository @Inject constructor(
                         addonStreams = processStreams(fallbackResponse.streams ?: emptyList(), addon)
                     } catch (_: Exception) {
                     }
+                }
+
+                // Daily show fallback: try air-date-based numbering (S{year}E{dayOfYear})
+                // for shows like Jeopardy, talk shows, news where debrid files use
+                // date-based episode IDs instead of TMDB sequential numbering.
+                if (addonStreams.isEmpty() && airDate != null && airDate.length >= 10) {
+                    try {
+                        val dateParts = airDate.split("-")
+                        if (dateParts.size == 3) {
+                            val year = dateParts[0].toIntOrNull()
+                            val month = dateParts[1].toIntOrNull()
+                            val day = dateParts[2].toIntOrNull()
+                            if (year != null && month != null && day != null) {
+                                val cal = java.util.Calendar.getInstance().apply {
+                                    set(java.util.Calendar.YEAR, year)
+                                    set(java.util.Calendar.MONTH, month - 1)
+                                    set(java.util.Calendar.DAY_OF_MONTH, day)
+                                }
+                                val dayOfYear = cal.get(java.util.Calendar.DAY_OF_YEAR)
+                                val airDateId = "$imdbId:$year:$dayOfYear"
+                                val airDateUrl = if (queryParams != null) {
+                                    "$baseUrl/stream/series/$airDateId.json?$queryParams"
+                                } else {
+                                    "$baseUrl/stream/series/$airDateId.json"
+                                }
+                                val airDateResponse = streamApi.getAddonStreams(airDateUrl)
+                                val airDateStreams = processStreams(airDateResponse.streams ?: emptyList(), addon)
+                                if (airDateStreams.isNotEmpty()) {
+                                    addonStreams = airDateStreams
+                                }
+                            }
+                        }
+                    } catch (_: Exception) { }
                 }
 
                 recordAddonFetchOutcome(
@@ -1076,7 +1110,8 @@ class StreamRepository @Inject constructor(
         genreIds: List<Int> = emptyList(),
         originalLanguage: String? = null,
         title: String = "",
-        forceRefresh: Boolean = false
+        forceRefresh: Boolean = false,
+        airDate: String? = null
     ): StreamResult = withContext(Dispatchers.IO) {
         ensureAddonHealthLoaded()
         val subtitles = mutableListOf<Subtitle>()
@@ -1127,7 +1162,8 @@ class StreamRepository @Inject constructor(
                     tvdbId = tvdbId,
                     genreIds = genreIds,
                     originalLanguage = originalLanguage,
-                    title = title
+                    title = title,
+                    airDate = airDate
                 )
             }
         }
@@ -1152,7 +1188,8 @@ class StreamRepository @Inject constructor(
         genreIds: List<Int> = emptyList(),
         originalLanguage: String? = null,
         title: String = "",
-        forceRefresh: Boolean = false
+        forceRefresh: Boolean = false,
+        airDate: String? = null
     ): Flow<ProgressiveStreamResult> = callbackFlow {
         repositoryScope.launch {
             ensureAddonHealthLoaded()
@@ -1197,7 +1234,8 @@ class StreamRepository @Inject constructor(
                         tvdbId = tvdbId,
                         genreIds = genreIds,
                         originalLanguage = originalLanguage,
-                        title = title
+                        title = title,
+                        airDate = airDate
                     )
                     val emission = mutex.withLock {
                         aggregatedStreams.addAll(addonStreams)

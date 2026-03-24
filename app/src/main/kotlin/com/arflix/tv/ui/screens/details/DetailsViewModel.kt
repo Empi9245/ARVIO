@@ -1017,6 +1017,9 @@ class DetailsViewModel @Inject constructor(
                         year = _uiState.value.item?.year?.toIntOrNull()
                     )
                 } else if (season != null && episode != null) {
+                    val prefetchAirDate = _uiState.value.episodes
+                        .firstOrNull { it.seasonNumber == season && it.episodeNumber == episode }
+                        ?.airDate?.takeIf { it.isNotBlank() }
                     streamRepository.resolveEpisodeStreams(
                         imdbId = imdbId,
                         season = season,
@@ -1025,7 +1028,8 @@ class DetailsViewModel @Inject constructor(
                         tvdbId = _uiState.value.tvdbId,
                         genreIds = _uiState.value.item?.genreIds ?: emptyList(),
                         originalLanguage = _uiState.value.item?.originalLanguage,
-                        title = _uiState.value.item?.title ?: ""
+                        title = _uiState.value.item?.title ?: "",
+                        airDate = prefetchAirDate
                     )
                 } else {
                     null
@@ -1116,6 +1120,11 @@ class DetailsViewModel @Inject constructor(
                         )
                         return@launch
                     }
+                    // Look up air date for daily show stream resolution fallback
+                    val episodeAirDate = _uiState.value.episodes
+                        .firstOrNull { it.seasonNumber == (season ?: 1) && it.episodeNumber == (episode ?: 1) }
+                        ?.airDate?.takeIf { it.isNotBlank() }
+
                     streamRepository.resolveEpisodeStreamsProgressive(
                         imdbId = imdbId,
                         season = season ?: 1,
@@ -1124,7 +1133,8 @@ class DetailsViewModel @Inject constructor(
                         tvdbId = _uiState.value.tvdbId,
                         genreIds = genreIds,
                         originalLanguage = originalLanguage,
-                        title = item?.title ?: ""
+                        title = item?.title ?: "",
+                        airDate = episodeAirDate
                     ).collect { progressive ->
                         if (!isCurrentRequest()) return@collect
                         val existingVod = _uiState.value.streams.filter { it.addonId == "iptv_xtream_vod" }

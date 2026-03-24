@@ -90,6 +90,7 @@ class PlayerViewModel @Inject constructor(
     private var currentBackdrop: String? = null
     private var currentEpisodeTitle: String? = null
     private var currentOriginalLanguage: String? = null
+    private var currentAirDate: String? = null
     private var currentGenreIds: List<Int> = emptyList()
     private var currentItemTitle: String = ""
     private var currentTvdbId: Int? = null  // For anime Kitsu mapping
@@ -139,8 +140,10 @@ class PlayerViewModel @Inject constructor(
         preferredAddonId: String?,
         preferredSourceName: String?,
         preferredBingeGroup: String?,
-        startPositionMs: Long?
+        startPositionMs: Long?,
+        airDate: String? = null
     ) {
+        currentAirDate = airDate
         currentMediaType = mediaType
         currentMediaId = mediaId
         currentSeason = seasonNumber
@@ -373,7 +376,8 @@ class PlayerViewModel @Inject constructor(
                         tvdbId = currentTvdbId,
                         genreIds = currentGenreIds,
                         originalLanguage = currentOriginalLanguage,
-                        title = currentItemTitle
+                        title = currentItemTitle,
+                        airDate = currentAirDate
                     )
                 }
 
