@@ -999,17 +999,36 @@ class HomeViewModel @Inject constructor(
                         }
                     }
 
-                    val preinstalled = savedCatalogs
-                        .filter { it.isPreinstalled }
+                    // Split preinstalled into TMDB-based and MDBList-based
+                    val tmdbPreinstalled = savedCatalogs
+                        .filter { it.isPreinstalled && it.sourceUrl.isNullOrBlank() }
                         .mapNotNull { cfg ->
                             val category = baseById[cfg.id] ?: return@mapNotNull null
-                            // Apply user-renamed title from saved catalog config
                             if (cfg.title.isNotBlank() && cfg.title != category.title) {
                                 category.copy(title = cfg.title)
                             } else {
                                 category
                             }
                         }
+                    // Load MDBList preinstalled catalogs via custom catalog path
+                    val mdblistPreinstalled = savedCatalogs
+                        .filter { it.isPreinstalled && !it.sourceUrl.isNullOrBlank() }
+                        .map { cfg ->
+                            async(networkDispatcher) {
+                                try {
+                                    val result = mediaRepository.loadCustomCatalogPage(catalog = cfg, offset = 0, limit = 20)
+                                    if (result.items.isNotEmpty()) {
+                                        Category(id = cfg.id, title = cfg.title, items = result.items)
+                                    } else null
+                                } catch (_: Exception) { null }
+                            }
+                        }
+                    val mdblistCategories = mdblistPreinstalled.awaitAll().filterNotNull()
+                    // Merge both lists maintaining the saved catalog order
+                    val allPreinstalledById = (tmdbPreinstalled + mdblistCategories).associateBy { it.id }
+                    val preinstalled = savedCatalogs
+                        .filter { it.isPreinstalled }
+                        .mapNotNull { cfg -> allPreinstalledById[cfg.id] }
                     val customCatalogConfigs = savedCatalogs.filter { cfg -> isCustomCatalogConfig(cfg) }
                     val stickyCustomById = currentBaseCategories
                         .filter { category ->
@@ -1391,13 +1410,16 @@ class HomeViewModel @Inject constructor(
                 val currentCategories = _uiState.value.categories
                 val currentCategory = currentCategories.firstOrNull { it.id == categoryId } ?: return@launch
 
-                val result = if (savedCatalogById[categoryId]?.isPreinstalled == true) {
+                val catalog = savedCatalogById[categoryId]
+                val result = if (catalog?.isPreinstalled == true && catalog.sourceUrl.isNullOrBlank()) {
+                    // Pure TMDB preinstalled catalog (no MDBList source)
                     val nextPage = (currentCategory.items.size / categoryPageSize) + 1
                     mediaRepository.loadHomeCategoryPage(categoryId, nextPage)
                 } else {
-                    val catalog = savedCatalogById[categoryId] ?: return@launch
+                    // MDBList/custom catalog (including preinstalled MDBList ones)
+                    val cfg = catalog ?: return@launch
                     mediaRepository.loadCustomCatalogPage(
-                        catalog = catalog,
+                        catalog = cfg,
                         offset = currentCategory.items.size,
                         limit = categoryPageSize
                     )

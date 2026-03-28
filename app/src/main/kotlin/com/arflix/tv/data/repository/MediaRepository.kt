@@ -157,17 +157,30 @@ class MediaRepository @Inject constructor(
     fun getDefaultCatalogConfigs(): List<CatalogConfig> {
         return listOf(
             CatalogConfig("favorite_tv", "Favorite TV", CatalogSourceType.PREINSTALLED, isPreinstalled = true),
-            CatalogConfig("trending_movies", "Trending Movies", CatalogSourceType.PREINSTALLED, isPreinstalled = true),
-            CatalogConfig("trending_tv", "Trending Series", CatalogSourceType.PREINSTALLED, isPreinstalled = true),
-            CatalogConfig("trending_anime", "Trending Anime", CatalogSourceType.PREINSTALLED, isPreinstalled = true),
-            CatalogConfig("trending_netflix", "Trending on Netflix", CatalogSourceType.PREINSTALLED, isPreinstalled = true),
-            CatalogConfig("trending_disney", "Trending on Disney+", CatalogSourceType.PREINSTALLED, isPreinstalled = true),
-            CatalogConfig("trending_prime", "Trending on Prime Video", CatalogSourceType.PREINSTALLED, isPreinstalled = true),
-            CatalogConfig("trending_hbo", "Trending on Max", CatalogSourceType.PREINSTALLED, isPreinstalled = true),
-            CatalogConfig("trending_apple", "Trending on Apple TV+", CatalogSourceType.PREINSTALLED, isPreinstalled = true),
-            CatalogConfig("trending_paramount", "Trending on Paramount+", CatalogSourceType.PREINSTALLED, isPreinstalled = true),
-            CatalogConfig("trending_hulu", "Trending on Hulu", CatalogSourceType.PREINSTALLED, isPreinstalled = true),
-            CatalogConfig("trending_peacock", "Trending on Peacock", CatalogSourceType.PREINSTALLED, isPreinstalled = true)
+            CatalogConfig("trending_movies", "Trending in Movies", CatalogSourceType.MDBLIST, isPreinstalled = true, sourceUrl = "https://mdblist.com/lists/snoak/trending-movies", sourceRef = "mdblist:https://mdblist.com/lists/snoak/trending-movies"),
+            CatalogConfig("trending_tv", "Trending in Shows", CatalogSourceType.MDBLIST, isPreinstalled = true, sourceUrl = "https://mdblist.com/lists/snoak/trakt-s-trending-shows", sourceRef = "mdblist:https://mdblist.com/lists/snoak/trakt-s-trending-shows"),
+            CatalogConfig("trending_anime", "Trending in Anime", CatalogSourceType.MDBLIST, isPreinstalled = true, sourceUrl = "https://mdblist.com/lists/snoak/trending-anime-shows", sourceRef = "mdblist:https://mdblist.com/lists/snoak/trending-anime-shows"),
+            CatalogConfig("top10_movies_today", "Top 10 Movies Today", CatalogSourceType.MDBLIST, isPreinstalled = true, sourceUrl = "https://mdblist.com/lists/snoak/top-10-movies-of-the-day", sourceRef = "mdblist:https://mdblist.com/lists/snoak/top-10-movies-of-the-day"),
+            CatalogConfig("top10_shows_today", "Top 10 Shows Today", CatalogSourceType.MDBLIST, isPreinstalled = true, sourceUrl = "https://mdblist.com/lists/snoak/top-10-shows-of-the-day", sourceRef = "mdblist:https://mdblist.com/lists/snoak/top-10-shows-of-the-day"),
+            CatalogConfig("just_added", "Just Added", CatalogSourceType.MDBLIST, isPreinstalled = true, sourceUrl = "https://mdblist.com/lists/snoak/latest-movies-digital-release", sourceRef = "mdblist:https://mdblist.com/lists/snoak/latest-movies-digital-release"),
+            CatalogConfig("top_movies_week", "Top Movies This Week", CatalogSourceType.MDBLIST, isPreinstalled = true, sourceUrl = "https://mdblist.com/lists/linaspurinis/top-watched-movies-of-the-week", sourceRef = "mdblist:https://mdblist.com/lists/linaspurinis/top-watched-movies-of-the-week"),
+            CatalogConfig("trending_netflix_movies", "Trending Movies on Netflix", CatalogSourceType.MDBLIST, isPreinstalled = true, sourceUrl = "https://mdblist.com/lists/snoak/netflix-top-10-movies", sourceRef = "mdblist:https://mdblist.com/lists/snoak/netflix-top-10-movies"),
+            CatalogConfig("trending_netflix_shows", "Trending Shows on Netflix", CatalogSourceType.MDBLIST, isPreinstalled = true, sourceUrl = "https://mdblist.com/lists/snoak/netflix-top-10-shows", sourceRef = "mdblist:https://mdblist.com/lists/snoak/netflix-top-10-shows"),
+            CatalogConfig("trending_prime_movies", "Trending Movies on Prime", CatalogSourceType.MDBLIST, isPreinstalled = true, sourceUrl = "https://mdblist.com/lists/snoak/amazon-prime-top-10-shows", sourceRef = "mdblist:https://mdblist.com/lists/snoak/amazon-prime-top-10-shows"),
+            CatalogConfig("trending_prime_shows", "Trending Shows on Prime", CatalogSourceType.MDBLIST, isPreinstalled = true, sourceUrl = "https://mdblist.com/lists/snoak/amazon-prime-top-10-tv-shows", sourceRef = "mdblist:https://mdblist.com/lists/snoak/amazon-prime-top-10-tv-shows"),
+            CatalogConfig("trending_max_movies", "Trending Movies on Max", CatalogSourceType.MDBLIST, isPreinstalled = true, sourceUrl = "https://mdblist.com/lists/snoak/hbo-top-10-movies-2", sourceRef = "mdblist:https://mdblist.com/lists/snoak/hbo-top-10-movies-2"),
+            CatalogConfig("trending_max_shows", "Trending Shows on Max", CatalogSourceType.MDBLIST, isPreinstalled = true, sourceUrl = "https://mdblist.com/lists/snoak/hbo-top-10-tv-shows", sourceRef = "mdblist:https://mdblist.com/lists/snoak/hbo-top-10-tv-shows"),
+            CatalogConfig("trending_disney_movies", "Trending Movies on Disney+", CatalogSourceType.MDBLIST, isPreinstalled = true, sourceUrl = "https://mdblist.com/lists/snoak/disney-plus-top-10-movies", sourceRef = "mdblist:https://mdblist.com/lists/snoak/disney-plus-top-10-movies"),
+            CatalogConfig("trending_disney_shows", "Trending Shows on Disney+", CatalogSourceType.MDBLIST, isPreinstalled = true, sourceUrl = "https://mdblist.com/lists/snoak/disney-plus-top-10-tv-shows", sourceRef = "mdblist:https://mdblist.com/lists/snoak/disney-plus-top-10-tv-shows"),
+            CatalogConfig("trending_paramount_movies", "Trending Movies on Paramount+", CatalogSourceType.MDBLIST, isPreinstalled = true, sourceUrl = "https://mdblist.com/lists/snoak/paramount-plus-top-10-movies", sourceRef = "mdblist:https://mdblist.com/lists/snoak/paramount-plus-top-10-movies"),
+            CatalogConfig("trending_paramount_shows", "Trending Shows on Paramount+", CatalogSourceType.MDBLIST, isPreinstalled = true, sourceUrl = "https://mdblist.com/lists/snoak/paramount-plus-top-10-tv-shows", sourceRef = "mdblist:https://mdblist.com/lists/snoak/paramount-plus-top-10-tv-shows"),
+            CatalogConfig("trending_apple_movies", "Trending Movies on Apple TV+", CatalogSourceType.MDBLIST, isPreinstalled = true, sourceUrl = "https://mdblist.com/lists/snoak/apple-tv-top-10-movies", sourceRef = "mdblist:https://mdblist.com/lists/snoak/apple-tv-top-10-movies"),
+            CatalogConfig("trending_apple_shows", "Trending Shows on Apple TV+", CatalogSourceType.MDBLIST, isPreinstalled = true, sourceUrl = "https://mdblist.com/lists/snoak/apple-tv-top-10-tv-shows", sourceRef = "mdblist:https://mdblist.com/lists/snoak/apple-tv-top-10-tv-shows"),
+            CatalogConfig("new_kdramas", "New in K-Dramas", CatalogSourceType.MDBLIST, isPreinstalled = true, sourceUrl = "https://mdblist.com/lists/snoak/latest-kdrama-shows", sourceRef = "mdblist:https://mdblist.com/lists/snoak/latest-kdrama-shows"),
+            CatalogConfig("new_horror", "New in Horror Movies", CatalogSourceType.MDBLIST, isPreinstalled = true, sourceUrl = "https://mdblist.com/lists/snoak/latest-horror-movies", sourceRef = "mdblist:https://mdblist.com/lists/snoak/latest-horror-movies"),
+            CatalogConfig("new_scifi", "New in Sci-Fi Movies", CatalogSourceType.MDBLIST, isPreinstalled = true, sourceUrl = "https://mdblist.com/lists/snoak/latest-sci-fi-movies", sourceRef = "mdblist:https://mdblist.com/lists/snoak/latest-sci-fi-movies"),
+            CatalogConfig("new_spy_thriller", "New in Spy & Thriller Movies", CatalogSourceType.MDBLIST, isPreinstalled = true, sourceUrl = "https://mdblist.com/lists/snoak/latest-spythrillerassassin-movies", sourceRef = "mdblist:https://mdblist.com/lists/snoak/latest-spythrillerassassin-movies"),
+            CatalogConfig("coming_soon", "Coming Soon", CatalogSourceType.MDBLIST, isPreinstalled = true, sourceUrl = "https://mdblist.com/lists/snoak/upcoming-movies", sourceRef = "mdblist:https://mdblist.com/lists/snoak/upcoming-movies")
         )
     }
     
