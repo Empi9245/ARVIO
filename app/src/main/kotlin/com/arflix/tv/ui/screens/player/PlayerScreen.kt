@@ -886,16 +886,18 @@ fun PlayerScreen(
         }
     }
 
-    // Rebuild media source when new external subtitles arrive after initial load.
-    // This fixes the race condition where subtitles from addons arrive after the
-    // MediaItem was already built and set on ExoPlayer.
-    var lastSubtitleCount by remember { mutableIntStateOf(0) }
+    // When new external subtitles arrive after initial load, rebuild the MediaItem once.
+    // Uses a flag to prevent infinite rebuild loops (onTracksChanged → size change → rebuild → onTracksChanged).
+    var subtitleRebuildDone by remember { mutableStateOf(false) }
+    var initialSubtitleCount by remember { mutableIntStateOf(-1) }
     LaunchedEffect(uiState.subtitles.size) {
-        if (playerReleased) return@LaunchedEffect
+        if (playerReleased || subtitleRebuildDone) return@LaunchedEffect
         val newCount = uiState.subtitles.size
+        if (initialSubtitleCount < 0) { initialSubtitleCount = newCount; return@LaunchedEffect }
         val url = uiState.selectedStreamUrl ?: return@LaunchedEffect
-        // Only rebuild if subtitles increased (new ones arrived) and player is already playing
-        if (newCount > lastSubtitleCount && lastSubtitleCount > 0 && exoPlayer.playbackState != Player.STATE_IDLE) {
+        // Only rebuild once when external subtitles arrive (count increases after initial)
+        if (newCount > initialSubtitleCount && exoPlayer.playbackState != Player.STATE_IDLE) {
+            subtitleRebuildDone = true
             val currentPosition = exoPlayer.currentPosition
             val wasPlaying = exoPlayer.isPlaying
             val subtitleConfigs = buildExternalSubtitleConfigurations(uiState.subtitles)
@@ -907,8 +909,9 @@ fun PlayerScreen(
             exoPlayer.prepare()
             if (wasPlaying) exoPlayer.play()
         }
-        lastSubtitleCount = newCount
     }
+    // Reset rebuild flag when stream changes
+    LaunchedEffect(uiState.selectedStreamUrl) { subtitleRebuildDone = false; initialSubtitleCount = -1 }
 
     // Apply subtitle changes without reloading the media source.
     LaunchedEffect(uiState.selectedSubtitle, uiState.subtitleSelectionNonce, uiState.subtitles) {
@@ -1934,12 +1937,12 @@ fun PlayerScreen(
 
                         // Trackbar
                         var trackbarFocused by remember { mutableStateOf(false) }
-                        val trackbarHeight by animateFloatAsState(if (trackbarFocused) 8f else 4f, label = "trackbarHeight")
+                        val trackbarHeight by animateFloatAsState(if (trackbarFocused) 8f else if (isTouchDevice) 6f else 4f, label = "trackbarHeight")
                         var trackbarWidthPx by remember { mutableIntStateOf(0) }
                         Box(
                             modifier = Modifier
                                 .weight(1f)
-                                .height(trackbarHeight.dp)
+                                .height(if (isTouchDevice) 28.dp else 20.dp)
                                 .onSizeChanged { trackbarWidthPx = it.width }
                                 .focusRequester(trackbarFocusRequester)
                                 .onFocusChanged { state ->
@@ -1970,14 +1973,18 @@ fun PlayerScreen(
                                         }
                                     } else false
                                 }
-                                .background(Color.White.copy(alpha = if (trackbarFocused) 0.25f else 0.15f), RoundedCornerShape(3.dp)),
-                            contentAlignment = Alignment.CenterStart
+                                .background(Color.Transparent),
+                            contentAlignment = Alignment.Center
                         ) {
+                            // Visible thin bar centered in the larger touch target
+                            val barHeight = if (trackbarFocused) 8.dp else if (isTouchDevice) 6.dp else 4.dp
+                            Box(modifier = Modifier.fillMaxWidth().height(barHeight).background(Color.White.copy(alpha = if (trackbarFocused) 0.25f else 0.15f), RoundedCornerShape(3.dp)))
                             val frac = if (duration > 0) ((if (isControlScrubbing) scrubPreviewPosition else currentPosition).toFloat() / duration.toFloat()).coerceIn(0f, 1f) else progress
-                            // Watched portion - brighter when focused
+                            Box(modifier = Modifier.fillMaxWidth().height(barHeight).align(Alignment.Center), contentAlignment = Alignment.CenterStart) {
                             Box(modifier = Modifier.fillMaxWidth(frac).fillMaxHeight().background(
                                 if (trackbarFocused) Pink else Pink.copy(alpha = 0.8f), RoundedCornerShape(3.dp)
                             ))
+                            }
                         }
 
                         Spacer(modifier = Modifier.width(8.dp))
