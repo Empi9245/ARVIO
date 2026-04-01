@@ -877,6 +877,8 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             val result = streamRepository.addCustomAddon(url)
             result.onSuccess { addon ->
+                // Small delay to let DataStore flush the write before reading back
+                delay(150)
                 val currentAddons = streamRepository.installedAddons.first()
                 val importedCatalogs = addon.manifest?.catalogs?.size ?: 0
                 runCatching {

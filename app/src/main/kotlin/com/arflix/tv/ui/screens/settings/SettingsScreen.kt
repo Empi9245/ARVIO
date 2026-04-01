@@ -3734,7 +3734,14 @@ private fun InputModal(
                                             val target = fields.firstOrNull()
                                             if (clipboardText != null && target != null) {
                                                 target.onValueChange(clipboardText)
+                                                // Also update the EditText directly to keep in sync
+                                                editTextRefs.getOrNull(0)?.let { edit ->
+                                                    edit.setText(clipboardText)
+                                                    edit.clearFocus()
+                                                }
                                             }
+                                            // Ensure Compose focus stays on the modal for D-pad nav
+                                            modalFocusRequester.requestFocus()
                                             true
                                         }
                                         focusedIndex == fields.size + 1 -> {
@@ -3857,11 +3864,47 @@ private fun InputModal(
                                                 field.onValueChange(editable?.toString() ?: "")
                                             }
 
+                                            // Forward D-pad events to Compose navigation instead of letting EditText consume them
+                                            setOnKeyListener { v, keyCode, event ->
+                                                if (event.action == android.view.KeyEvent.ACTION_DOWN) {
+                                                    when (keyCode) {
+                                                        android.view.KeyEvent.KEYCODE_DPAD_DOWN -> {
+                                                            val imm = ctx.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+                                                            imm?.hideSoftInputFromWindow(windowToken, 0)
+                                                            clearFocus()
+                                                            focusedIndex = (index + 1).coerceAtMost(totalItems - 1)
+                                                            modalFocusRequester.requestFocus()
+                                                            true
+                                                        }
+                                                        android.view.KeyEvent.KEYCODE_DPAD_UP -> {
+                                                            if (index > 0) {
+                                                                val imm = ctx.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+                                                                imm?.hideSoftInputFromWindow(windowToken, 0)
+                                                                clearFocus()
+                                                                focusedIndex = index - 1
+                                                                modalFocusRequester.requestFocus()
+                                                            }
+                                                            true
+                                                        }
+                                                        android.view.KeyEvent.KEYCODE_BACK -> {
+                                                            val imm = ctx.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+                                                            imm?.hideSoftInputFromWindow(windowToken, 0)
+                                                            clearFocus()
+                                                            modalFocusRequester.requestFocus()
+                                                            true
+                                                        }
+                                                        else -> false
+                                                    }
+                                                } else false
+                                            }
+
                                             setOnEditorActionListener { _, actionId, _ ->
                                                 if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_DONE) {
                                                     val imm = ctx.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as? InputMethodManager
                                                     imm?.hideSoftInputFromWindow(windowToken, 0)
                                                     clearFocus()
+                                                    // Return focus to Compose so D-pad navigation works
+                                                    modalFocusRequester.requestFocus()
                                                     true
                                                 } else false
                                             }

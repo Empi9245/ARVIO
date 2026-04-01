@@ -81,6 +81,12 @@ class MediaRepository @Inject constructor(
     private data class CacheEntry<T>(val data: T, val timestamp: Long)
     private val CACHE_TTL_MS = 5 * 60 * 1000L // 5 minutes
 
+    // Home categories cache - survives ViewModel recreation
+    @Volatile var cachedHomeCategories: List<Category> = emptyList()
+        private set
+    @Volatile private var homeCategoriesFetchedAt = 0L
+    private val HOME_CATEGORIES_CACHE_MS = 120_000L // 2 minutes
+
     private val detailsCache = mutableMapOf<String, CacheEntry<MediaItem>>()
     private val castCache = mutableMapOf<String, CacheEntry<List<CastMember>>>()
     private val similarCache = mutableMapOf<String, CacheEntry<List<MediaItem>>>()
@@ -192,6 +198,18 @@ class MediaRepository @Inject constructor(
      * - Provider categories: wider recency window to keep full rows populated
      */
     suspend fun getHomeCategories(): List<Category> = coroutineScope {
+        // Return cached categories if still fresh
+        val now = System.currentTimeMillis()
+        if (cachedHomeCategories.isNotEmpty() && now - homeCategoriesFetchedAt < HOME_CATEGORIES_CACHE_MS) {
+            return@coroutineScope cachedHomeCategories
+        }
+        val result = getHomeCategoriesInternal()
+        cachedHomeCategories = result
+        homeCategoriesFetchedAt = System.currentTimeMillis()
+        result
+    }
+
+    private suspend fun getHomeCategoriesInternal(): List<Category> = coroutineScope {
         suspend fun fetchUpTo40(fetchPage: suspend (Int) -> TmdbListResponse): List<TmdbMediaItem> {
             val first = runCatching { fetchPage(1) }.getOrNull() ?: return emptyList()
             val firstItems = first.results

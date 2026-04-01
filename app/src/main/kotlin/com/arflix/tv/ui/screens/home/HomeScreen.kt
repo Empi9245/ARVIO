@@ -2017,6 +2017,7 @@ private fun MobileHomeRowsLayer(
                                         isLandscape = !usePosterCards,
                                         logoImageUrl = cardLogoUrl,
                                         showProgress = false,
+                                        showTitle = false,
                                         isFocusedOverride = false,
                                         enableSystemFocus = false,
                                         onFocused = {},
@@ -2033,6 +2034,7 @@ private fun MobileHomeRowsLayer(
                                 isLandscape = !usePosterCards,
                                 logoImageUrl = cardLogoUrl,
                                 showProgress = isContinueWatching,
+                                showTitle = false,
                                 isFocusedOverride = false,
                                 enableSystemFocus = false,
                                 onFocused = {},
@@ -2117,10 +2119,11 @@ private fun TvHomeRowsLayer(
                         animationSpec = tween(durationMillis = 300),
                         label = "homeRowAlpha"
                     ).value
+                    val rowHeight = if (usePosterCards) 240.dp else 190.dp
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(220.dp)
+                            .height(rowHeight)
                             .clipToBounds()
                             .graphicsLayer { alpha = rowAlpha }
                     ) {
@@ -2299,7 +2302,7 @@ private fun ContentRow(
     val configuration = LocalConfiguration.current
     val density = LocalDensity.current
     val isContinueWatching = category.id == "continue_watching"
-    val itemWidth = if (usePosterCards) 114.dp else 210.dp
+    val itemWidth = if (usePosterCards) 125.dp else 210.dp
     val itemSpacing = 14.dp
     val availableWidthDp = configuration.screenWidthDp.dp - 56.dp - 12.dp
     val fallbackItemsPerPage = remember(configuration, density, itemWidth, itemSpacing) {
@@ -2487,9 +2490,9 @@ private fun ContentRow(
                 val itemIsFocused = currentIsCurrentRow && index == currentFocusedIndex
                 if (isRanked) {
                     // RANKED ITEM: Number + Card
-                    val rankedCardWidth = if (usePosterCards) 90.dp else 140.dp
-                    val rankedBoxWidth = if (usePosterCards) 150.dp else 210.dp
-                    val rankedBoxHeight = if (usePosterCards) 160.dp else 140.dp
+                    val rankedCardWidth = if (usePosterCards) 100.dp else 140.dp
+                    val rankedBoxWidth = if (usePosterCards) 165.dp else 210.dp
+                    val rankedBoxHeight = if (usePosterCards) 176.dp else 140.dp
                     val rankFontSize = if (usePosterCards) 80.sp else 100.sp
                     Box(
                         modifier = Modifier
@@ -2520,6 +2523,7 @@ private fun ContentRow(
                                 isLandscape = !usePosterCards,
                                 logoImageUrl = cardLogoUrl,
                                 showProgress = false,
+                                showTitle = false,
                                 isFocusedOverride = itemIsFocused,
                                 enableSystemFocus = false,
                                 onFocused = { onItemFocused(item, index) },
@@ -2536,6 +2540,7 @@ private fun ContentRow(
                         isLandscape = !usePosterCards,
                         logoImageUrl = cardLogoUrl,
                         showProgress = isContinueWatching,
+                        showTitle = false,
                         isFocusedOverride = itemIsFocused,
                         enableSystemFocus = false,
                         onFocused = { onItemFocused(item, index) },

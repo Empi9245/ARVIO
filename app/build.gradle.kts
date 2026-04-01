@@ -22,12 +22,13 @@ android {
 
     defaultConfig {
         applicationId = "com.arvio.tv"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // Fire TV devices can be as low as Android 7.1 (API 25) or lower depending on model/OS.
         // Lower minSdk to maximize compatibility and avoid "There was a problem parsing the package".
         minSdk = 21
         targetSdk = 35
-        versionCode = 227
-        versionName = "1.9.6"
+        versionCode = 228
+        versionName = "1.9.7"
         buildConfigField("String", "GITHUB_OWNER", "\"ProdigyV21\"")
         buildConfigField("String", "GITHUB_REPO", "\"ARVIO\"")
 
@@ -154,7 +155,11 @@ android {
 
     packaging {
         resources {
-            excludes += "/META-INF/{AL2.0,LGPL2.1}"
+            excludes += setOf(
+                "/META-INF/{AL2.0,LGPL2.1}",
+                "/META-INF/LICENSE*",
+                "/META-INF/NOTICE*",
+            )
         }
         jniLibs {
             useLegacyPackaging = false  // Required for 16KB page size support
@@ -286,7 +291,9 @@ dependencies {
     // Android Instrumented Testing
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
     androidTestImplementation("androidx.test:core-ktx:1.5.0")
+    androidTestImplementation("androidx.test:runner:1.5.2")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
+    androidTestImplementation("androidx.test.uiautomator:uiautomator:2.2.0")
     androidTestImplementation("io.mockk:mockk-android:1.13.8")
     androidTestImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
 }
