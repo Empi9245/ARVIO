@@ -827,8 +827,12 @@ class DetailsViewModel @Inject constructor(
                 if (newInWatchlist) {
                     // Pass the full MediaItem so it appears instantly in watchlist
                     watchlistRepository.addToWatchlist(currentMediaType, currentMediaId, currentItem)
+                    // Also add to Trakt if connected
+                    runCatching { traktRepository.addToWatchlist(currentMediaType, currentMediaId) }
                 } else {
                     watchlistRepository.removeFromWatchlist(currentMediaType, currentMediaId)
+                    // Also remove from Trakt if connected
+                    runCatching { traktRepository.removeFromWatchlist(currentMediaType, currentMediaId) }
                 }
                 runCatching { cloudSyncRepository.pushToCloud() }
 

@@ -823,7 +823,14 @@ fun PlayerScreen(
             rebufferRecoverAttempted = false
             longRebufferCount = 0
 
-            val subtitleConfigs = buildExternalSubtitleConfigurations(uiState.subtitles)
+            // Only add the selected subtitle to ExoPlayer (not all 30+).
+            // Loading all external subs slows down preparation and causes non-UTF8 subs to fail.
+            val selectedSub = uiState.selectedSubtitle
+            val subtitleConfigs = if (selectedSub != null && !selectedSub.isEmbedded) {
+                buildExternalSubtitleConfigurations(listOf(selectedSub))
+            } else {
+                emptyList()
+            }
             val mediaItemBuilder = MediaItem.Builder().setUri(Uri.parse(url))
             if (subtitleConfigs.isNotEmpty()) {
                 mediaItemBuilder.setSubtitleConfigurations(subtitleConfigs)
@@ -887,20 +894,61 @@ fun PlayerScreen(
     }
 
     // When new external subtitles arrive after initial load, rebuild the MediaItem once.
-    // Uses a flag to prevent infinite rebuild loops (onTracksChanged → size change → rebuild → onTracksChanged).
+    // Subtitle rebuild removed: we now load only the selected subtitle on-demand.
+    // When user switches subtitles, the LaunchedEffect below rebuilds the MediaItem with the new sub.
     var subtitleRebuildDone by remember { mutableStateOf(false) }
     var initialSubtitleCount by remember { mutableIntStateOf(-1) }
     LaunchedEffect(uiState.subtitles.size) {
-        if (playerReleased || subtitleRebuildDone) return@LaunchedEffect
+        if (playerReleased) return@LaunchedEffect
         val newCount = uiState.subtitles.size
         if (initialSubtitleCount < 0) { initialSubtitleCount = newCount; return@LaunchedEffect }
+        // No longer rebuild with all subs - they're loaded individually on selection
+        initialSubtitleCount = newCount
+    }
+    // Reset rebuild flag when stream changes
+    LaunchedEffect(uiState.selectedStreamUrl) { subtitleRebuildDone = false; initialSubtitleCount = -1 }
+
+    // When subtitle selection changes, rebuild MediaItem with just the selected subtitle.
+    // This avoids loading all 30+ subtitle files and fixes non-English encoding issues.
+    LaunchedEffect(uiState.selectedSubtitle, uiState.subtitleSelectionNonce) {
+        if (playerReleased) return@LaunchedEffect
+        val subtitle = uiState.selectedSubtitle
         val url = uiState.selectedStreamUrl ?: return@LaunchedEffect
-        // Only rebuild once when external subtitles arrive (count increases after initial)
-        if (newCount > initialSubtitleCount && exoPlayer.playbackState != Player.STATE_IDLE) {
-            subtitleRebuildDone = true
+
+        if (subtitle == null) {
+            // Disable all text tracks
+            exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+                .buildUpon()
+                .clearOverridesOfType(C.TRACK_TYPE_TEXT)
+                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+                .build()
+            return@LaunchedEffect
+        }
+
+        if (subtitle.isEmbedded && subtitle.groupIndex != null && subtitle.trackIndex != null) {
+            // For embedded subs, just select the track directly
+            val groups = exoPlayer.currentTracks.groups
+            val params = exoPlayer.trackSelectionParameters.buildUpon()
+                .clearOverridesOfType(C.TRACK_TYPE_TEXT)
+                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+            if (subtitle.groupIndex in groups.indices &&
+                groups[subtitle.groupIndex].type == C.TRACK_TYPE_TEXT) {
+                params.setOverrideForType(
+                    androidx.media3.common.TrackSelectionOverride(
+                        groups[subtitle.groupIndex].mediaTrackGroup,
+                        subtitle.trackIndex
+                    )
+                )
+            }
+            exoPlayer.trackSelectionParameters = params.build()
+            return@LaunchedEffect
+        }
+
+        // External subtitle: rebuild MediaItem with just this one subtitle
+        if (subtitle.url.isNotBlank() && exoPlayer.playbackState != Player.STATE_IDLE) {
             val currentPosition = exoPlayer.currentPosition
             val wasPlaying = exoPlayer.isPlaying
-            val subtitleConfigs = buildExternalSubtitleConfigurations(uiState.subtitles)
+            val subtitleConfigs = buildExternalSubtitleConfigurations(listOf(subtitle))
             val mediaItem = MediaItem.Builder()
                 .setUri(Uri.parse(url))
                 .setSubtitleConfigurations(subtitleConfigs)
@@ -908,54 +956,46 @@ fun PlayerScreen(
             exoPlayer.setMediaItem(mediaItem, currentPosition)
             exoPlayer.prepare()
             if (wasPlaying) exoPlayer.play()
+
+            // Enable the subtitle track after rebuild
+            exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+                .buildUpon()
+                .clearOverridesOfType(C.TRACK_TYPE_TEXT)
+                .setPreferredTextLanguage(subtitle.lang)
+                .setSelectUndeterminedTextLanguage(true)
+                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                .build()
         }
     }
-    // Reset rebuild flag when stream changes
-    LaunchedEffect(uiState.selectedStreamUrl) { subtitleRebuildDone = false; initialSubtitleCount = -1 }
 
-    // Apply subtitle changes without reloading the media source.
-    LaunchedEffect(uiState.selectedSubtitle, uiState.subtitleSelectionNonce, uiState.subtitles) {
+    // Re-apply embedded subtitle selection when track list updates (e.g., after onTracksChanged)
+    LaunchedEffect(uiState.subtitles) {
         if (playerReleased) return@LaunchedEffect
-        val subtitle = uiState.selectedSubtitle
+        val subtitle = uiState.selectedSubtitle ?: return@LaunchedEffect
+        if (!subtitle.isEmbedded) return@LaunchedEffect
 
-        val params = exoPlayer.trackSelectionParameters
-            .buildUpon()
-            .clearOverridesOfType(C.TRACK_TYPE_TEXT)
-
-        if (subtitle == null) {
-            exoPlayer.trackSelectionParameters = params
-                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
-                .build()
-            return@LaunchedEffect
-        }
-
-        val resolvedSubtitle = uiState.subtitles.firstOrNull {
+        // Find the resolved version with groupIndex/trackIndex from ExoPlayer
+        val resolved = uiState.subtitles.firstOrNull {
             it.id == subtitle.id && it.groupIndex != null && it.trackIndex != null
-        } ?: uiState.subtitles.firstOrNull {
-            subtitle.url.isNotBlank() && it.url == subtitle.url && it.groupIndex != null && it.trackIndex != null
-        } ?: subtitle
+        } ?: return@LaunchedEffect
 
-        val groupIndex = resolvedSubtitle.groupIndex
-        val trackIndex = resolvedSubtitle.trackIndex
         val groups = exoPlayer.currentTracks.groups
-        if (groupIndex != null && trackIndex != null &&
-            groupIndex in groups.indices &&
-            groups[groupIndex].type == C.TRACK_TYPE_TEXT
+        if (resolved.groupIndex != null && resolved.trackIndex != null &&
+            resolved.groupIndex in groups.indices &&
+            groups[resolved.groupIndex].type == C.TRACK_TYPE_TEXT
         ) {
-            params.setOverrideForType(
-                androidx.media3.common.TrackSelectionOverride(
-                    groups[groupIndex].mediaTrackGroup,
-                    trackIndex
+            exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+                .buildUpon()
+                .clearOverridesOfType(C.TRACK_TYPE_TEXT)
+                .setOverrideForType(
+                    androidx.media3.common.TrackSelectionOverride(
+                        groups[resolved.groupIndex].mediaTrackGroup,
+                        resolved.trackIndex
+                    )
                 )
-            )
+                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                .build()
         }
-
-        exoPlayer.trackSelectionParameters = params
-            .setPreferredTextLanguage(subtitle.lang)
-            .setSelectUndeterminedTextLanguage(true)
-            .setIgnoredTextSelectionFlags(0)
-            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
-            .build()
     }
 
     // Auto-hide controls and return focus to container
@@ -2311,9 +2351,7 @@ private fun PlayerIconButton(
     onDownKey: () -> Unit = {}
 ) {
     var focused by remember { mutableStateOf(false) }
-    // Focused: enlarge icon and brighten it (glow effect via scale + tint)
-    val scale by animateFloatAsState(if (focused) 1.35f else 1f, label = "iconScale")
-    val iconAlpha by animateFloatAsState(if (focused) 1f else 0.6f, label = "iconAlpha")
+    val scale by animateFloatAsState(if (focused) 1.15f else 1f, label = "iconScale")
 
     Box(
         modifier = Modifier
@@ -2334,13 +2372,17 @@ private fun PlayerIconButton(
                 } else false
             }
             .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { onClick() }
-            .graphicsLayer { scaleX = scale; scaleY = scale },
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .background(
+                color = if (focused) Color.White else Color.Transparent,
+                shape = CircleShape
+            ),
         contentAlignment = Alignment.Center
     ) {
         Icon(
             imageVector = icon,
             contentDescription = contentDescription,
-            tint = Color.White.copy(alpha = iconAlpha),
+            tint = if (focused) Color.Black else Color.White.copy(alpha = 0.6f),
             modifier = Modifier.size(iconSize)
         )
     }

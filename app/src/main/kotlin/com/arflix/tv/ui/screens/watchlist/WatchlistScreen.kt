@@ -36,6 +36,7 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.dp
@@ -83,20 +84,23 @@ fun WatchlistScreen(
     onBack: () -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val logoUrls by viewModel.logoUrls.collectAsState()
     val usePosterCards = com.arflix.tv.ui.components.rememberCardLayoutMode() == com.arflix.tv.ui.components.CardLayoutMode.POSTER
     val configuration = LocalConfiguration.current
     val isMobile = LocalDeviceType.current.isTouchDevice()
-    val gridColumns = if (isMobile) 2 else when {
+    val gridColumns = if (isMobile) 2 else if (usePosterCards) {
+        when {
+            configuration.screenWidthDp >= 2200 -> 8
+            configuration.screenWidthDp >= 1600 -> 7
+            else -> 6
+        }
+    } else when {
         configuration.screenWidthDp >= 2200 -> 5
         configuration.screenWidthDp >= 1600 -> 4
         else -> 3
     }
     val cardWidth = if (usePosterCards) {
-        if (isMobile) 142.dp else when (gridColumns) {
-            5 -> 198.dp
-            4 -> 210.dp
-            else -> 188.dp
-        }
+        if (isMobile) 124.dp else 125.dp
     } else if (isMobile) 160.dp else when (gridColumns) {
         5 -> 240.dp
         4 -> 250.dp
@@ -155,20 +159,32 @@ fun WatchlistScreen(
                 }
             }
             .focusable()
-            .onKeyEvent { event ->
+            .onPreviewKeyEvent { event ->
                 if (event.type == KeyEventType.KeyDown) {
+                    // Helper: transition focus from grid to sidebar
+                    fun moveToSidebar() {
+                        isSidebarFocused = true
+                        // Immediately steal focus from grid card to prevent card click on next Enter
+                        runCatching { rootFocusRequester.requestFocus() }
+                    }
+
                     when (event.key) {
                         Key.Back, Key.Escape -> {
                             if (isSidebarFocused) {
                                 onBack()
                             } else {
-                                isSidebarFocused = true
+                                moveToSidebar()
                             }
                             true
                         }
                         Key.DirectionLeft -> {
                             if (!isSidebarFocused) {
-                                true
+                                if (focusedGridIndex % gridColumns == 0) {
+                                    moveToSidebar()
+                                    true
+                                } else {
+                                    false
+                                }
                             } else {
                                 if (sidebarFocusIndex > 0) {
                                     sidebarFocusIndex = (sidebarFocusIndex - 1).coerceIn(0, maxSidebarIndex)
@@ -190,11 +206,9 @@ fun WatchlistScreen(
                             if (isSidebarFocused) {
                                 true
                             } else {
-                                // When in grid and Up is pressed, allow native focus to handle it
-                                // If at first visible item, transition to sidebar
                                 val firstVisibleIndex = gridState.firstVisibleItemIndex
                                 if (firstVisibleIndex == 0 && focusedGridIndex < gridColumns) {
-                                    isSidebarFocused = true
+                                    moveToSidebar()
                                     true
                                 } else {
                                     false
@@ -212,10 +226,8 @@ fun WatchlistScreen(
                                 }
                                 true
                             } else {
-                                // When in grid and Down is pressed, allow native focus to handle it
-                                // Only consume if we're at the last item (prevent getting stuck)
                                 if (focusedGridIndex >= uiState.items.size - 1) {
-                                    true // Consume to prevent focus loss
+                                    true
                                 } else {
                                     false
                                 }
@@ -348,10 +360,12 @@ fun WatchlistScreen(
                                 }
                         ) {
                             itemsIndexed(uiState.items) { index, item ->
+                                val logoUrl = logoUrls["${item.mediaType}_${item.id}"]
                                 MediaCard(
                                     item = item,
                                     width = cardWidth,
                                     isLandscape = !usePosterCards,
+                                    logoImageUrl = logoUrl,
                                     onFocused = { focusedGridIndex = index },
                                     onClick = { onNavigateToDetails(item.mediaType, item.id) }
                                 )
