@@ -10,22 +10,10 @@ All notable changes to this project are documented in this file.
 ## [1.9.73] - 2026-04-03
 
 ### Fixed
-- Fixed white-on-white unreadable buttons across the app: in-app update buttons, cloud sign-in button, next episode "Play Now", context menu check icon, stream selector check icon, and text input modal buttons now have proper contrast.
-- Release pipeline now injects Supabase and Google credentials into CI builds, fixing `Unable to resolve host 'your-project.supabase.co'` errors on Play Store and GitHub-built APKs.
-
-## [1.9.72] - 2026-04-03
-
-### Fixed
-- Cloud sign-in now survives Supabase session-import failures on some devices by falling back to the returned JWT identity and caching the raw session tokens for recovery.
-
-## [1.9.71] - 2026-04-03
-
-### Fixed
-- Mobile cloud sign-in no longer opens the email/password dialog before the pairing session exists, which previously caused false `Cloud login expired` errors.
-- Cloud sign-in now recreates the pairing session before submit when needed and shows the real start failure instead of a misleading expiry message.
-- Startup no longer crashes on TV devices/ROMs that reject `android.media.tv` channel queries for launcher continue-watching publishing.
-- Launcher continue-watching publishing now fails closed, so unsupported TV providers are skipped instead of breaking app startup.
-- Cloud sign-in now survives Supabase session-import failures on some devices by falling back to the returned JWT identity and caching the raw session tokens for recovery.
+- Fixed unreadable white-on-white buttons throughout the app
+- Fixed cloud sign-in failing with misleading "expired" error
+- Fixed app startup crash on certain TV devices
+- Fixed Play Store builds not connecting to cloud services
 
 ## [1.9.7] - 2026-04-01
 
