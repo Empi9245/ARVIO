@@ -28,20 +28,16 @@ jobs:
 
       - name: Create keystore.properties
         run: |
-          cat > keystore.properties <<EOF
-          storeFile=release.keystore
-          storePassword=${{ secrets.KEYSTORE_PASSWORD }}
-          keyAlias=${{ secrets.KEY_ALIAS }}
-          keyPassword=${{ secrets.KEY_PASSWORD }}
-          EOF
+          echo "storeFile=release.keystore" > keystore.properties
+          echo "storePassword=${{ secrets.KEYSTORE_PASSWORD }}" >> keystore.properties
+          echo "keyAlias=${{ secrets.KEY_ALIAS }}" >> keystore.properties
+          echo "keyPassword=${{ secrets.KEY_PASSWORD }}" >> keystore.properties
 
       - name: Create secrets.properties
         run: |
-          cat > secrets.properties <<EOF
-          SUPABASE_URL=${{ secrets.SUPABASE_URL }}
-          SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
-          GOOGLE_WEB_CLIENT_ID=${{ secrets.GOOGLE_WEB_CLIENT_ID }}
-          EOF
+          echo "SUPABASE_URL=${{ secrets.SUPABASE_URL }}" > secrets.properties
+          echo "SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}" >> secrets.properties
+          echo "GOOGLE_WEB_CLIENT_ID=${{ secrets.GOOGLE_WEB_CLIENT_ID }}" >> secrets.properties
           # Fail fast if placeholder leaked through
           if grep -q 'your-project' secrets.properties; then
             echo "::error::secrets.properties contains placeholder values — set SUPABASE_URL, SUPABASE_ANON_KEY, GOOGLE_WEB_CLIENT_ID in GitHub repo secrets"

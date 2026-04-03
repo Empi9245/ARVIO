@@ -7,13 +7,14 @@ All notable changes to this project are documented in this file.
 ### Added
 - (Nothing yet)
 
-## [1.9.73] - 2026-04-03
+## [1.9.74] - 2026-04-03
 
 ### Fixed
 - Fixed unreadable white-on-white buttons throughout the app
 - Fixed cloud sign-in failing with misleading "expired" error
 - Fixed app startup crash on certain TV devices
 - Fixed Play Store builds not connecting to cloud services
+- Fixed APK signing key mismatch causing "app in conflict" install errors
 
 ## [1.9.7] - 2026-04-01
 
