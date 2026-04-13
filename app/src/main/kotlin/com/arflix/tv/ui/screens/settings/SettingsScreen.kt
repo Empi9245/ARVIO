@@ -101,6 +101,7 @@ import com.arflix.tv.data.model.CatalogSourceType
 import com.arflix.tv.data.model.RuntimeKind
 import com.arflix.tv.data.model.CloudstreamPluginIndexEntry
 import com.arflix.tv.data.model.CloudstreamRepositoryManifest
+import com.arflix.tv.data.repository.StreamRepository
 import com.arflix.tv.data.repository.CloudstreamRepositoryRecord
 import com.arflix.tv.ui.components.AppTopBar
 import com.arflix.tv.ui.components.AppTopBarContentTopInset
@@ -116,6 +117,17 @@ import com.arflix.tv.ui.theme.SuccessGreen
 import com.arflix.tv.ui.theme.TextPrimary
 import com.arflix.tv.ui.theme.TextSecondary
 import kotlin.math.abs
+
+internal fun cloudstreamPluginUnsupportedLabel(
+    pluginApiVersion: Int,
+    supportedApiVersion: Int
+): String? {
+    return if (StreamRepository.isCloudstreamPluginApiVersionSupported(pluginApiVersion, supportedApiVersion)) {
+        null
+    } else {
+        "Unsupported API v$pluginApiVersion (app supports up to v$supportedApiVersion)"
+    }
+}
 
 /**
  * Settings screen
@@ -3789,7 +3801,7 @@ private fun CloudstreamPluginPickerModal(
                             Key.Enter, Key.DirectionCenter -> {
                                 plugins.getOrNull(focusedIndex)?.let { selected ->
                                     val installedAddon = installedAddonFor(selected)
-                                    if (selected.apiVersion < supportedApiVersion) {
+                                    if (!StreamRepository.isCloudstreamPluginApiVersionSupported(selected.apiVersion, supportedApiVersion)) {
                                         return@let
                                     }
                                     if (focusedAction == 1 && installedAddon != null) {
@@ -3851,7 +3863,11 @@ private fun CloudstreamPluginPickerModal(
                         itemsIndexed(plugins) { index, plugin ->
                             val isFocused = focusedIndex == index
                             val installedAddon = installedAddonFor(plugin)
-                            val isSupported = plugin.apiVersion >= supportedApiVersion
+                            val isSupported = StreamRepository.isCloudstreamPluginApiVersionSupported(
+                                plugin.apiVersion,
+                                supportedApiVersion
+                            )
+                            val unsupportedLabel = cloudstreamPluginUnsupportedLabel(plugin.apiVersion, supportedApiVersion)
                             val hasUpdate = installedAddon != null && plugin.version > (installedAddon.pluginVersionCode ?: Int.MIN_VALUE)
                             val isPrimaryFocused = isFocused && focusedAction == 0
                             val isRemoveFocused = isFocused && focusedAction == 1 && installedAddon != null
@@ -3912,7 +3928,7 @@ private fun CloudstreamPluginPickerModal(
                                     if (!isSupported) {
                                         Spacer(modifier = Modifier.height(4.dp))
                                         Text(
-                                            text = "Unsupported API v${plugin.apiVersion} (requires v$supportedApiVersion)",
+                                            text = unsupportedLabel.orEmpty(),
                                             style = ArflixTypography.caption,
                                             color = Color(0xFFF59E0B),
                                             maxLines = 1,

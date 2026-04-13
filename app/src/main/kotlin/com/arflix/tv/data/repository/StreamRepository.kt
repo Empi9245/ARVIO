@@ -79,6 +79,20 @@ class StreamRepository @Inject constructor(
 ) {
     companion object {
         const val SUPPORTED_CLOUDSTREAM_API_VERSION = 1
+
+        internal fun isCloudstreamPluginApiVersionSupported(
+            pluginApiVersion: Int,
+            supportedApiVersion: Int = SUPPORTED_CLOUDSTREAM_API_VERSION
+        ): Boolean = pluginApiVersion <= supportedApiVersion
+
+        internal fun requireSupportedCloudstreamPluginApiVersion(
+            pluginApiVersion: Int,
+            supportedApiVersion: Int = SUPPORTED_CLOUDSTREAM_API_VERSION
+        ) {
+            require(isCloudstreamPluginApiVersionSupported(pluginApiVersion, supportedApiVersion)) {
+                "Unsupported Cloudstream plugin API version: v$pluginApiVersion (app supports up to v$supportedApiVersion)"
+            }
+        }
     }
 
     private val gson = Gson()
@@ -422,9 +436,7 @@ class StreamRepository @Inject constructor(
             return@withContext Result.failure(IllegalStateException("Cloudstream support is only available in the sideload build"))
         }
         try {
-            require(plugin.apiVersion >= SUPPORTED_CLOUDSTREAM_API_VERSION) {
-                "Unsupported Cloudstream plugin API version: ${plugin.apiVersion}"
-            }
+            requireSupportedCloudstreamPluginApiVersion(plugin.apiVersion)
             val normalizedRepoUrl = cloudstreamRepositoryService.normalizeRepositoryUrl(repoUrl)
             val artifact = cloudstreamPluginInstaller.install(
                 pluginUrl = plugin.url,
