@@ -35,6 +35,9 @@ val DEVICE_MODE_OVERRIDE_KEY = stringPreferencesKey("device_mode_override")
 val SKIP_PROFILE_SELECTION_KEY = booleanPreferencesKey("skip_profile_selection")
 
 /** Values: "auto" (default), "tv", "tablet", "phone" */
+
+/** Key for device-wide quality regex filters (applies to all profiles on this device) */
+val QUALITY_FILTERS_KEY = stringPreferencesKey("quality_filters")
 fun detectDeviceType(context: Context): DeviceType {
     // Check for user override first
     val override = try {

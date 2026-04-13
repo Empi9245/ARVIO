@@ -186,6 +186,11 @@ fun SettingsScreen(
     var nextUiMode by remember { mutableStateOf("") }
 
     val sections = remember { listOf("general", "iptv", "catalogs", "addons", "accounts") }
+    // Quality filters modal state
+    var showQualityFiltersModal by remember { mutableStateOf(false) }
+    var editingQualityFilterId by remember { mutableStateOf("") }
+    var qualityFilterDeviceName by remember { mutableStateOf("") }
+    var qualityFilterRegex by remember { mutableStateOf("") }
 
     val focusRequester = remember { FocusRequester() }
     val scrollState = rememberScrollState()
@@ -268,7 +273,7 @@ fun SettingsScreen(
         if (scrollState.maxValue <= 0) return@LaunchedEffect
 
         val maxIndex = when (sectionIndex) {
-            0 -> 16 // General: 17 items (+ Clock Format)
+            0 -> 17 // General: 18 items (+ Quality Filters)
             1 -> 2 + uiState.iptvPlaylists.size // IPTV: Add + playlist rows + Refresh + Delete
             2 -> uiState.catalogs.size // Catalogs
             3 -> uiState.addons.size // Addons
@@ -483,7 +488,7 @@ fun SettingsScreen(
                                 Zone.CONTENT -> {
                                     // Dynamic max based on current section
                                     val maxIndex = when (sectionIndex) {
-                                        0 -> 16 // General: 17 items (+ Clock Format)
+                                        0 -> 17 // General: 18 items (+ Quality Filters)
                                         1 -> 2 + uiState.iptvPlaylists.size // IPTV dynamic rows
                                         2 -> uiState.catalogs.size // Catalogs: Add + N catalogs
                                         3 -> uiState.addons.size // Addons: N addons + "Add Custom" button
@@ -538,6 +543,7 @@ fun SettingsScreen(
                                                 14 -> viewModel.setShowBudget(!uiState.showBudget)
                                                 15 -> openDnsProviderPicker()
                                                 16 -> viewModel.cycleVolumeBoost()
+                                                                                            17 -> showQualityFiltersModal = true
                                             }
                                         }
                                         1 -> { // IPTV
@@ -1315,6 +1321,221 @@ private fun ModalScrim(
             ),
             content = content
         )
+        /**
+         * Modal dialog for managing device-scoped quality regex filters.
+         * Allows users to create/edit/delete/toggle filters to exclude quality tiers.
+         */
+        @Composable
+        fun QualityFiltersModal(
+            qualityFilters: List<QualityFilterConfig>,
+            showModal: Boolean,
+            onDismiss: () -> Unit,
+            onAddFilter: (deviceName: String, regexPattern: String) -> Unit,
+            onUpdateFilter: (filterId: String, deviceName: String, regexPattern: String) -> Unit,
+            onToggleFilter: (filterId: String) -> Unit,
+            onDeleteFilter: (filterId: String) -> Unit,
+            editingFilterId: String?,
+            inputDeviceName: String,
+            onDeviceNameChange: (String) -> Unit,
+            inputRegexPattern: String,
+            onRegexPatternChange: (String) -> Unit
+        ) {
+            if (!showModal) return
+
+            Dialog(
+                onDismissRequest = onDismiss,
+                properties = DialogProperties(usePlatformDefaultWidth = false)
+            ) {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth(0.85f)
+                        .fillMaxHeight(0.9f)
+                        .clip(RoundedCornerShape(12.dp)),
+                    color = BackgroundSecondary,
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .fillMaxHeight()
+                            .padding(24.dp)
+                    ) {
+                        // Header
+                        Text(
+                            text = "Quality Regex Filters",
+                            style = ArflixTypography.headlineSmall,
+                            color = TextPrimary,
+                            modifier = Modifier.marginBottom(16.dp)
+                        )
+
+                        // Instructions
+                        Text(
+                            text = "Exclude quality tiers using regex. Example: \"4K|2160p\" excludes 4K sources.",
+                            style = ArflixTypography.bodySmall,
+                            color = TextSecondary,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .marginBottom(20.dp)
+                        )
+
+                        // Scrollable content
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f)
+                                .marginBottom(20.dp)
+                        ) {
+                            // Existing filters list
+                            items(qualityFilters.size) { index ->
+                                val filter = qualityFilters[index]
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(bottom = 12.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(if (filter.enabled) Accent.copy(alpha = 0.1f) else Color.Transparent)
+                                        .padding(12.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = filter.deviceName.ifBlank { "untitled" },
+                                            style = ArflixTypography.bodyMedium,
+                                            color = TextPrimary
+                                        )
+                                        Text(
+                                            text = filter.regexPattern,
+                                            style = ArflixTypography.bodySmall,
+                                            color = TextSecondary,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        // Toggle chip
+                                        FilterChip(
+                                            selected = filter.enabled,
+                                            onClick = { onToggleFilter(filter.id) },
+                                            label = { Text(if (filter.enabled) "ON" else "OFF", style = ArflixTypography.labelSmall) }
+                                        )
+
+                                        // Delete chip
+                                        FilterChip(
+                                            selected = false,
+                                            onClick = { onDeleteFilter(filter.id) },
+                                            label = { Text("DEL", style = ArflixTypography.labelSmall) }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        // Input section
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .marginBottom(20.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(BackgroundSecondary.copy(alpha = 0.5f))
+                                .padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Text(
+                                text = if (editingFilterId != null) "Edit Filter" else "Add New Filter",
+                                style = ArflixTypography.titleSmall,
+                                color = TextPrimary
+                            )
+
+                            // Device name input
+                            OutlinedTextField(
+                                value = inputDeviceName,
+                                onValueChange = onDeviceNameChange,
+                                label = { Text("Device Name (optional)", style = ArflixTypography.labelSmall) },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                textStyle = ArflixTypography.bodySmall.copy(color = TextPrimary)
+                            )
+
+                            // Regex pattern input
+                            OutlinedTextField(
+                                value = inputRegexPattern,
+                                onValueChange = onRegexPatternChange,
+                                label = { Text("Regex Pattern (required)", style = ArflixTypography.labelSmall) },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                textStyle = ArflixTypography.bodySmall.copy(color = TextPrimary),
+                                isError = inputRegexPattern.isNotBlank() && !isValidRegex(inputRegexPattern)
+                            )
+
+                            if (inputRegexPattern.isNotBlank() && !isValidRegex(inputRegexPattern)) {
+                                Text(
+                                    text = "Invalid regex pattern",
+                                    style = ArflixTypography.labelSmall,
+                                    color = Color.Red
+                                )
+                            }
+                        }
+
+                        // Bottom buttons
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Button(
+                                onClick = onDismiss,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(40.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = BackgroundSecondary,
+                                    contentColor = TextPrimary
+                                )
+                            ) {
+                                Text("Close", style = ArflixTypography.labelMedium)
+                            }
+
+                            Button(
+                                onClick = {
+                                    if (editingFilterId != null) {
+                                        onUpdateFilter(editingFilterId, inputDeviceName, inputRegexPattern)
+                                    } else {
+                                        onAddFilter(inputDeviceName, inputRegexPattern)
+                                    }
+                                },
+                                enabled = inputRegexPattern.isNotBlank() && isValidRegex(inputRegexPattern),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(40.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = Accent,
+                                    contentColor = Color.White
+                                )
+                            ) {
+                                Text(
+                                    if (editingFilterId != null) "Update" else "Add",
+                                    style = ArflixTypography.labelMedium
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        /**
+         * Helper function to validate regex pattern without throwing
+         */
+        private fun isValidRegex(pattern: String): Boolean {
+            return try {
+                Regex(pattern)
+                true
+            } catch (e: Exception) {
+                false
+            }
+        }
+
     }
 }
 
@@ -2274,6 +2495,7 @@ private fun GeneralSettings(
     showBudget: Boolean = true,
     volumeBoostDb: Int = 0,
     focusedIndex: Int,
+        qualityFilters: List<com.arflix.tv.data.model.QualityFilterConfig> = emptyList(),
     onSubtitleClick: () -> Unit,
     onAudioLanguageClick: () -> Unit,
     onCardLayoutToggle: () -> Unit,
@@ -2291,7 +2513,9 @@ private fun GeneralSettings(
     trailerAutoPlay: Boolean = false,
     onSubtitleSizeClick: () -> Unit = {},
     onSubtitleColorClick: () -> Unit = {},
-    onTrailerAutoPlayToggle: (Boolean) -> Unit = {}
+    onTrailerAutoPlayToggle: (Boolean) -> Unit = {},
+    onQualityFiltersClick: () -> Unit = {}
+) {
 ) {
     Column {
         // ── Language & Subtitles ──
@@ -3574,6 +3798,10 @@ data class InputField(
     val isSecret: Boolean = false,
     val onValueChange: (String) -> Unit
 )
+                                qualityFilters = uiState.qualityFilters,
+                                onQualityFiltersClick = { showQualityFiltersModal = true }
+                    qualityFilters = uiState.qualityFilters,
+                    onQualityFiltersClick = { showQualityFiltersModal = true }
 
 /**
  * Input modal for text entry (custom addon URL, API keys, etc.)
@@ -3601,6 +3829,39 @@ private fun InputModalLegacy(
         if (fieldFocusRequesters.isNotEmpty()) {
             fieldFocusRequesters[0].requestFocus()
         }
+                // Quality Filters Modal
+                QualityFiltersModal(
+                    qualityFilters = uiState.qualityFilters,
+                    showModal = showQualityFiltersModal,
+                    onDismiss = { 
+                        showQualityFiltersModal = false
+                        editingQualityFilterId = null
+                        qualityFilterDeviceName = ""
+                        qualityFilterRegex = ""
+                    },
+                    onAddFilter = { deviceName, regex ->
+                        viewModel.addQualityFilter(deviceName, regex)
+                        qualityFilterDeviceName = ""
+                        qualityFilterRegex = ""
+                    },
+                    onUpdateFilter = { filterId, deviceName, regex ->
+                        viewModel.updateQualityFilter(filterId, deviceName, regex)
+                        editingQualityFilterId = null
+                        qualityFilterDeviceName = ""
+                        qualityFilterRegex = ""
+                    },
+                    onToggleFilter = { filterId ->
+                        viewModel.toggleQualityFilter(filterId)
+                    },
+                    onDeleteFilter = { filterId ->
+                        viewModel.deleteQualityFilter(filterId)
+                    },
+                    editingFilterId = editingQualityFilterId,
+                    inputDeviceName = qualityFilterDeviceName,
+                    onDeviceNameChange = { qualityFilterDeviceName = it },
+                    inputRegexPattern = qualityFilterRegex,
+                    onRegexPatternChange = { qualityFilterRegex = it }
+                )
     }
 
     // Request focus when focusedIndex changes to a text field
@@ -3837,6 +4098,24 @@ private fun InputModalLegacy(
             )
             }
         }
+
+        // ── Quality Filters ──
+        Spacer(modifier = Modifier.height(24.dp))
+        Text(
+            text = "Quality Filters",
+            style = ArflixTypography.caption.copy(fontSize = 11.sp, letterSpacing = 0.8.sp),
+            color = TextSecondary.copy(alpha = 0.5f),
+            modifier = Modifier.padding(start = 4.dp, bottom = 12.dp)
+        )
+
+        SettingsRow(
+            icon = Icons.Default.HighQuality,
+            title = "Quality Regex Filters",
+            subtitle = "Exclude quality tiers per device (e.g., exclude 4K on 1080p TV)",
+            value = if (qualityFilters.isEmpty()) "NONE" else "${qualityFilters.size} active",
+            isFocused = focusedIndex == 17,
+            onClick = onQualityFiltersClick
+        )
     }
 }
 

@@ -140,7 +140,9 @@ data class SettingsUiState(
     val clockFormat: String = "24h",
     // Toast
     val toastMessage: String? = null,
-    val toastType: ToastType = ToastType.INFO
+    val toastType: ToastType = ToastType.INFO,
+    // Quality filters - device-wide regex patterns to exclude unwanted quality tiers
+    val qualityFilters: List<com.arflix.tv.data.model.QualityFilterConfig> = emptyList()
 )
 
 @HiltViewModel
@@ -195,6 +197,9 @@ class SettingsViewModel @Inject constructor(
     private fun subtitleColorKey() = profileManager.profileStringKey("subtitle_color")
     private fun dnsProviderKey() = profileManager.profileStringKey("dns_provider")
     private fun includeSpecialsKey() = profileManager.profileBooleanKey("include_specials")
+        // Note: qualityFiltersKey() is NOT profile-scoped; it's device-wide (applies to all profiles)
+        // This way, a 1080p TV excludes 4K regardless of which profile is logged in
+        private fun qualityFiltersKey() = com.arflix.tv.util.QUALITY_FILTERS_KEY
     private fun includeSpecialsKeyFor(profileId: String) = profileManager.profileBooleanKeyFor(profileId, "include_specials")
     private val gson = Gson()
     private var lastObservedIptvM3u: String = ""
@@ -305,6 +310,17 @@ class SettingsViewModel @Inject constructor(
             val iptvConfig = iptvRepository.observeConfig().first()
             val existingCatalogs = _uiState.value.catalogs.ifEmpty {
                 mediaRepository.getDefaultCatalogConfigs()
+                        val qualityFiltersJson = prefs[qualityFiltersKey()] ?: ""
+                        val qualityFilters = try {
+                            if (qualityFiltersJson.isNotBlank()) {
+                                gson.fromJson<List<com.arflix.tv.data.model.QualityFilterConfig>>(
+                                    qualityFiltersJson,
+                                    object : TypeToken<List<com.arflix.tv.data.model.QualityFilterConfig>>(){}.type
+                                )
+                            } else emptyList()
+                        } catch (e: Exception) {
+                            emptyList()
+                        }
             }
 
             val currentState = _uiState.value
@@ -350,7 +366,8 @@ class SettingsViewModel @Inject constructor(
                 contentLanguage = contentLang,
                 deviceModeOverride = deviceModeOverride,
                 skipProfileSelection = skipProfileSelection,
-                clockFormat = clockFormat
+                clockFormat = clockFormat,
+                qualityFilters = qualityFilters
             )
         }
     }
@@ -916,6 +933,61 @@ class SettingsViewModel @Inject constructor(
                 prefs[includeSpecialsKey()] = enabled
             }
             _uiState.value = _uiState.value.copy(includeSpecials = enabled)
+
+                // ========== Quality Filter Management ==========
+
+                fun addQualityFilter(deviceName: String, regexPattern: String) {
+                    viewModelScope.launch {
+                        val newFilter = com.arflix.tv.data.model.QualityFilterConfig(
+                            id = java.util.UUID.randomUUID().toString(),
+                            deviceName = deviceName,
+                            regexPattern = regexPattern,
+                            enabled = true
+                        )
+                        val updated = _uiState.value.qualityFilters.toMutableList().apply { add(newFilter) }
+                        saveQualityFilters(updated)
+                    }
+                }
+
+                fun updateQualityFilter(filterId: String, deviceName: String, regexPattern: String) {
+                    viewModelScope.launch {
+                        val updated = _uiState.value.qualityFilters.map { filter ->
+                            if (filter.id == filterId) {
+                                filter.copy(deviceName = deviceName, regexPattern = regexPattern)
+                            } else filter
+                        }
+                        saveQualityFilters(updated)
+                    }
+                }
+
+                fun toggleQualityFilter(filterId: String) {
+                    viewModelScope.launch {
+                        val updated = _uiState.value.qualityFilters.map { filter ->
+                            if (filter.id == filterId) {
+                                filter.copy(enabled = !filter.enabled)
+                            } else filter
+                        }
+                        saveQualityFilters(updated)
+                    }
+                }
+
+                fun deleteQualityFilter(filterId: String) {
+                    viewModelScope.launch {
+                        val updated = _uiState.value.qualityFilters.filter { it.id != filterId }
+                        saveQualityFilters(updated)
+                    }
+                }
+
+                private fun saveQualityFilters(filters: List<com.arflix.tv.data.model.QualityFilterConfig>) {
+                    viewModelScope.launch {
+                        val json = gson.toJson(filters)
+                        context.settingsDataStore.edit { prefs ->
+                            prefs[qualityFiltersKey()] = json
+                        }
+                        _uiState.value = _uiState.value.copy(qualityFilters = filters)
+                        syncLocalStateToCloud(silent = true)
+                    }
+                }
             syncLocalStateToCloud(silent = true)
         }
     }
