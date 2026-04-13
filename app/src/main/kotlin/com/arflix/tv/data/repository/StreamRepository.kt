@@ -111,6 +111,7 @@ class StreamRepository @Inject constructor(
         stremioAddonRuntime,
         cloudstreamAddonRuntime
     ).associateBy { it.kind }
+    private val addonRuntimeAggregator = AddonRuntimeAggregator(addonRuntimes)
     private data class AddonRuntimeHealth(
         var fetchSuccesses: Int = 0,
         var fetchFailures: Int = 0,
@@ -1229,18 +1230,12 @@ class StreamRepository @Inject constructor(
         }
 
         val prioritizedAddons = streamAddons.sortedByDescending { getAddonHealthBias(it.id) }
-        val streams = mutableListOf<StreamSource>()
         val movieRequest = MovieRuntimeRequest(imdbId = imdbId, title = title, year = year)
-        if (prioritizedAddons.isNotEmpty()) {
-            streams += addonRuntimes[RuntimeKind.STREMIO]
-                ?.resolveMovieStreams(prioritizedAddons, movieRequest)
-                .orEmpty()
-        }
-        if (cloudstreamAddons.isNotEmpty()) {
-            streams += addonRuntimes[RuntimeKind.CLOUDSTREAM]
-                ?.resolveMovieStreams(cloudstreamAddons, movieRequest)
-                .orEmpty()
-        }
+        val streams = addonRuntimeAggregator.resolveMovieStreams(
+            stremioAddons = prioritizedAddons,
+            cloudstreamAddons = cloudstreamAddons,
+            request = movieRequest
+        )
 
         // Keep core source lookup fully addon-driven and non-blocking.
         // IPTV VOD enrichment is appended separately in ViewModels.
@@ -1519,17 +1514,11 @@ class StreamRepository @Inject constructor(
             title = title,
             airDate = airDate
         )
-        val streams = mutableListOf<StreamSource>()
-        if (prioritizedAddons.isNotEmpty()) {
-            streams += addonRuntimes[RuntimeKind.STREMIO]
-                ?.resolveEpisodeStreams(prioritizedAddons, episodeRequest)
-                .orEmpty()
-        }
-        if (cloudstreamAddons.isNotEmpty()) {
-            streams += addonRuntimes[RuntimeKind.CLOUDSTREAM]
-                ?.resolveEpisodeStreams(cloudstreamAddons, episodeRequest)
-                .orEmpty()
-        }
+        val streams = addonRuntimeAggregator.resolveEpisodeStreams(
+            stremioAddons = prioritizedAddons,
+            cloudstreamAddons = cloudstreamAddons,
+            request = episodeRequest
+        )
 
         // Keep core source lookup fully addon-driven and non-blocking.
         // IPTV VOD enrichment is appended separately in ViewModels.
