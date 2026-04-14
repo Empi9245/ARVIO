@@ -1,6 +1,7 @@
 package com.arflix.tv.data.repository
 
 import android.content.Context
+import android.util.Log
 import com.arflix.tv.data.model.Addon
 import com.arflix.tv.data.model.StreamSource
 import com.lagradost.cloudstream3.MainAPI
@@ -16,6 +17,8 @@ import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
+private const val CLOUDSTREAM_TAG = "CloudstreamRuntime"
+
 @Singleton
 class CloudstreamProviderRuntime @Inject constructor(
     private val artifactExecutor: CloudstreamArtifactExecutor
@@ -25,12 +28,34 @@ class CloudstreamProviderRuntime @Inject constructor(
         title: String,
         year: Int?
     ): List<StreamSource> = withContext(Dispatchers.IO) {
-        resolveWithPerProviderSafety(addons) { addon, artifactPath ->
+        val primary = resolveWithPerProviderSafety(addons) { addon, artifactPath ->
             artifactExecutor.resolveMovieStreams(
                 artifactPath = artifactPath,
                 request = CloudstreamMovieRequest(title = title, year = year)
             ).map { it.toStreamSource(addon) }
         }
+
+        if (primary.isNotEmpty() || year == null) {
+            return@withContext primary
+        }
+
+        Log.w(
+            CLOUDSTREAM_TAG,
+            "[Cloudstream] empty movie result for title=$title year=$year; retrying without year"
+        )
+
+        val fallback = resolveWithPerProviderSafety(addons) { addon, artifactPath ->
+            artifactExecutor.resolveMovieStreams(
+                artifactPath = artifactPath,
+                request = CloudstreamMovieRequest(title = title, year = null)
+            ).map { it.toStreamSource(addon) }
+        }
+
+        Log.d(
+            CLOUDSTREAM_TAG,
+            "[Cloudstream] movie fallback result title=$title fallbackStreams=${fallback.size}"
+        )
+        fallback
     }
 
     suspend fun resolveEpisodeStreams(
@@ -127,9 +152,36 @@ class ReflectiveCloudstreamArtifactExecutor @Inject constructor(
         request: CloudstreamMovieRequest
     ): List<CloudstreamResolvedStream> {
         val entrypoints = loadEntrypoints(artifactPath)
+        if (entrypoints.isEmpty()) {
+            Log.w(CLOUDSTREAM_TAG, "[Cloudstream] no entrypoints loaded artifact=$artifactPath")
+            return emptyList()
+        }
+
         return entrypoints.flatMap { entrypoint ->
-            entrypoint.resolveMovie(request)
-                .filter { stream -> shouldKeepByTitle(request.title, stream.name) }
+            val providerLabel = entrypoint.javaClass.simpleName.ifBlank { "UnknownProvider" }
+            val raw = runCatching { entrypoint.resolveMovie(request) }
+                .onFailure {
+                    Log.w(
+                        CLOUDSTREAM_TAG,
+                        "[Cloudstream] movie resolve failed artifact=$artifactPath provider=$providerLabel error=${it.message}"
+                    )
+                }
+                .getOrDefault(emptyList())
+
+            val filtered = raw.filter { stream -> shouldKeepByTitle(request.title, stream.name) }
+            if (raw.isNotEmpty() && filtered.isEmpty()) {
+                Log.w(
+                    CLOUDSTREAM_TAG,
+                    "[Cloudstream] title filter dropped all movie streams; using raw results artifact=$artifactPath provider=$providerLabel title=${request.title} raw=${raw.size}"
+                )
+                raw
+            } else {
+                Log.d(
+                    CLOUDSTREAM_TAG,
+                    "[Cloudstream] movie streams artifact=$artifactPath provider=$providerLabel raw=${raw.size} filtered=${filtered.size}"
+                )
+                filtered
+            }
         }
     }
 
@@ -138,9 +190,36 @@ class ReflectiveCloudstreamArtifactExecutor @Inject constructor(
         request: CloudstreamEpisodeRequest
     ): List<CloudstreamResolvedStream> {
         val entrypoints = loadEntrypoints(artifactPath)
+        if (entrypoints.isEmpty()) {
+            Log.w(CLOUDSTREAM_TAG, "[Cloudstream] no entrypoints loaded artifact=$artifactPath")
+            return emptyList()
+        }
+
         return entrypoints.flatMap { entrypoint ->
-            entrypoint.resolveEpisode(request)
-                .filter { stream -> shouldKeepByTitle(request.title, stream.name) }
+            val providerLabel = entrypoint.javaClass.simpleName.ifBlank { "UnknownProvider" }
+            val raw = runCatching { entrypoint.resolveEpisode(request) }
+                .onFailure {
+                    Log.w(
+                        CLOUDSTREAM_TAG,
+                        "[Cloudstream] episode resolve failed artifact=$artifactPath provider=$providerLabel error=${it.message}"
+                    )
+                }
+                .getOrDefault(emptyList())
+
+            val filtered = raw.filter { stream -> shouldKeepByTitle(request.title, stream.name) }
+            if (raw.isNotEmpty() && filtered.isEmpty()) {
+                Log.w(
+                    CLOUDSTREAM_TAG,
+                    "[Cloudstream] title filter dropped all episode streams; using raw results artifact=$artifactPath provider=$providerLabel title=${request.title} raw=${raw.size}"
+                )
+                raw
+            } else {
+                Log.d(
+                    CLOUDSTREAM_TAG,
+                    "[Cloudstream] episode streams artifact=$artifactPath provider=$providerLabel raw=${raw.size} filtered=${filtered.size}"
+                )
+                filtered
+            }
         }
     }
 

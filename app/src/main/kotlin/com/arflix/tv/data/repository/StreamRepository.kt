@@ -1,6 +1,7 @@
 package com.arflix.tv.data.repository
 
 import android.content.Context
+import android.util.Log
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
@@ -46,6 +47,7 @@ import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import retrofit2.HttpException
 import java.net.URLDecoder
 import java.net.URLEncoder
 import java.security.MessageDigest
@@ -1056,6 +1058,44 @@ class StreamRepository @Inject constructor(
         return ageMs < cacheTtlMsFor(cached.result)
     }
 
+    private fun sanitizeLogUrl(rawUrl: String): String {
+        return runCatching {
+            val uri = java.net.URI(rawUrl)
+            val host = uri.host ?: return@runCatching rawUrl
+            val path = uri.path.orEmpty()
+            val rawQuery = uri.rawQuery
+            if (rawQuery.isNullOrBlank()) {
+                "${uri.scheme}://$host$path"
+            } else {
+                val redacted = rawQuery.split('&').joinToString("&") { part ->
+                    val key = part.substringBefore('=', "").lowercase(Locale.US)
+                    val shouldRedact = key.contains("token") ||
+                        key.contains("auth") ||
+                        key.contains("key") ||
+                        key.contains("pass") ||
+                        key.contains("jwt") ||
+                        key.contains("session")
+                    if (!shouldRedact) {
+                        part
+                    } else {
+                        val normalizedKey = part.substringBefore('=', key)
+                        "$normalizedKey=***"
+                    }
+                }
+                "${uri.scheme}://$host$path?$redacted"
+            }
+        }.getOrDefault(rawUrl)
+    }
+
+    private fun Throwable.toShortLogMessage(): String {
+        val http = this as? HttpException
+        return if (http != null) {
+            "HttpException(code=${http.code()} message=${http.message()})"
+        } else {
+            "${this::class.java.simpleName}: ${message ?: "no-message"}"
+        }
+    }
+
     private suspend fun fetchMovieStreamsFromAddon(addon: Addon, imdbId: String): List<StreamSource> {
         val startedAt = System.currentTimeMillis()
         return try {
@@ -1066,8 +1106,16 @@ class StreamRepository @Inject constructor(
                 } else {
                     "$baseUrl/stream/movie/$imdbId.json"
                 }
+                Log.d(
+                    TAG,
+                    "[StreamFetch][Movie] request addon=${addon.name} addonId=${addon.id} url=${sanitizeLogUrl(url)}"
+                )
                 val response = streamApi.getAddonStreams(url)
                 val streams = processStreams(response.streams ?: emptyList(), addon)
+                Log.d(
+                    TAG,
+                    "[StreamFetch][Movie] response addon=${addon.name} addonId=${addon.id} streams=${streams.size} elapsedMs=${System.currentTimeMillis() - startedAt}"
+                )
                 recordAddonFetchOutcome(
                     addonId = addon.id,
                     success = streams.isNotEmpty(),
@@ -1075,14 +1123,22 @@ class StreamRepository @Inject constructor(
                 )
                 streams
             }
-        } catch (_: TimeoutCancellationException) {
+        } catch (timeout: TimeoutCancellationException) {
+            Log.w(
+                TAG,
+                "[StreamFetch][Movie] timeout addon=${addon.name} addonId=${addon.id} elapsedMs=${System.currentTimeMillis() - startedAt}"
+            )
             recordAddonFetchOutcome(
                 addonId = addon.id,
                 success = false,
                 latencyMs = System.currentTimeMillis() - startedAt
             )
             emptyList()
-        } catch (_: Exception) {
+        } catch (error: Exception) {
+            Log.w(
+                TAG,
+                "[StreamFetch][Movie] failure addon=${addon.name} addonId=${addon.id} elapsedMs=${System.currentTimeMillis() - startedAt} error=${error.toShortLogMessage()}"
+            )
             recordAddonFetchOutcome(
                 addonId = addon.id,
                 success = false,
@@ -1139,8 +1195,17 @@ class StreamRepository @Inject constructor(
                     "$baseUrl/stream/series/$contentId.json"
                 }
 
+                Log.d(
+                    TAG,
+                    "[StreamFetch][Episode] request addon=${addon.name} addonId=${addon.id} url=${sanitizeLogUrl(url)} kitsu=$useKitsu"
+                )
+
                 val response = streamApi.getAddonStreams(url)
                 var addonStreams = processStreams(response.streams ?: emptyList(), addon)
+                Log.d(
+                    TAG,
+                    "[StreamFetch][Episode] response addon=${addon.name} addonId=${addon.id} streams=${addonStreams.size} elapsedMs=${System.currentTimeMillis() - startedAt}"
+                )
 
                 if (addonStreams.isEmpty() && useKitsu && contentId != seriesId) {
                     val fallbackUrl = if (queryParams != null) {
@@ -1148,10 +1213,22 @@ class StreamRepository @Inject constructor(
                     } else {
                         "$baseUrl/stream/series/$seriesId.json"
                     }
+                    Log.d(
+                        TAG,
+                        "[StreamFetch][Episode] fallback request addon=${addon.name} addonId=${addon.id} url=${sanitizeLogUrl(fallbackUrl)}"
+                    )
                     try {
                         val fallbackResponse = streamApi.getAddonStreams(fallbackUrl)
                         addonStreams = processStreams(fallbackResponse.streams ?: emptyList(), addon)
-                    } catch (_: Exception) {
+                        Log.d(
+                            TAG,
+                            "[StreamFetch][Episode] fallback response addon=${addon.name} addonId=${addon.id} streams=${addonStreams.size}"
+                        )
+                    } catch (fallbackError: Exception) {
+                        Log.w(
+                            TAG,
+                            "[StreamFetch][Episode] fallback failure addon=${addon.name} addonId=${addon.id} error=${fallbackError.toShortLogMessage()}"
+                        )
                     }
                 }
 
@@ -1178,14 +1255,27 @@ class StreamRepository @Inject constructor(
                                 } else {
                                     "$baseUrl/stream/series/$airDateId.json"
                                 }
+                                Log.d(
+                                    TAG,
+                                    "[StreamFetch][Episode] airDate request addon=${addon.name} addonId=${addon.id} url=${sanitizeLogUrl(airDateUrl)}"
+                                )
                                 val airDateResponse = streamApi.getAddonStreams(airDateUrl)
                                 val airDateStreams = processStreams(airDateResponse.streams ?: emptyList(), addon)
+                                Log.d(
+                                    TAG,
+                                    "[StreamFetch][Episode] airDate response addon=${addon.name} addonId=${addon.id} streams=${airDateStreams.size}"
+                                )
                                 if (airDateStreams.isNotEmpty()) {
                                     addonStreams = airDateStreams
                                 }
                             }
                         }
-                    } catch (_: Exception) { }
+                    } catch (airDateError: Exception) {
+                        Log.w(
+                            TAG,
+                            "[StreamFetch][Episode] airDate failure addon=${addon.name} addonId=${addon.id} error=${airDateError.toShortLogMessage()}"
+                        )
+                    }
                 }
 
                 recordAddonFetchOutcome(
@@ -1195,14 +1285,22 @@ class StreamRepository @Inject constructor(
                 )
                 addonStreams
             }
-        } catch (_: TimeoutCancellationException) {
+        } catch (timeout: TimeoutCancellationException) {
+            Log.w(
+                TAG,
+                "[StreamFetch][Episode] timeout addon=${addon.name} addonId=${addon.id} elapsedMs=${System.currentTimeMillis() - startedAt}"
+            )
             recordAddonFetchOutcome(
                 addonId = addon.id,
                 success = false,
                 latencyMs = System.currentTimeMillis() - startedAt
             )
             emptyList()
-        } catch (_: Exception) {
+        } catch (error: Exception) {
+            Log.w(
+                TAG,
+                "[StreamFetch][Episode] failure addon=${addon.name} addonId=${addon.id} elapsedMs=${System.currentTimeMillis() - startedAt} error=${error.toShortLogMessage()}"
+            )
             recordAddonFetchOutcome(
                 addonId = addon.id,
                 success = false,
@@ -1288,10 +1386,19 @@ class StreamRepository @Inject constructor(
 
             val prioritizedAddons = streamAddons.sortedByDescending { getAddonHealthBias(it.id) }
             if (prioritizedAddons.isEmpty() && cloudstreamAddons.isEmpty()) {
+                Log.w(
+                    TAG,
+                    "[StreamFetch][Movie] no enabled streaming addons imdbId=$imdbId"
+                )
                 trySend(ProgressiveStreamResult(emptyList(), emptyList(), 0, 0, true))
                 close()
                 return@launch
             }
+
+            Log.d(
+                TAG,
+                "[StreamFetch][Movie] querying addons imdbId=$imdbId stremio=${prioritizedAddons.size} cloudstream=${cloudstreamAddons.size}"
+            )
 
             val mutex = Mutex()
             val aggregatedStreams = mutableListOf<StreamSource>()
@@ -1579,10 +1686,19 @@ class StreamRepository @Inject constructor(
 
             val prioritizedAddons = streamAddons.sortedByDescending { getAddonHealthBias(it.id) }
             if (prioritizedAddons.isEmpty() && cloudstreamAddons.isEmpty()) {
+                Log.w(
+                    TAG,
+                    "[StreamFetch][Episode] no enabled streaming addons imdbId=$imdbId season=$season episode=$episode"
+                )
                 trySend(ProgressiveStreamResult(emptyList(), emptyList(), 0, 0, true))
                 close()
                 return@launch
             }
+
+            Log.d(
+                TAG,
+                "[StreamFetch][Episode] querying addons imdbId=$imdbId season=$season episode=$episode stremio=${prioritizedAddons.size} cloudstream=${cloudstreamAddons.size}"
+            )
 
             val mutex = Mutex()
             val aggregatedStreams = mutableListOf<StreamSource>()
