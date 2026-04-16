@@ -31,6 +31,7 @@ interface TmdbApi {
         @Query("watch_region") watchRegion: String = "US",
         @Query("sort_by") sortBy: String = "popularity.desc",
         @Query("with_genres") genres: String? = null,
+        @Query("with_people") people: String? = null,
         @Query("with_original_language") originalLanguage: String? = null,
         @Query("first_air_date_year") year: Int? = null,
         @Query("vote_count.gte") minVoteCount: Int? = null,
@@ -45,6 +46,7 @@ interface TmdbApi {
     suspend fun discoverMovies(
         @Query("api_key") apiKey: String,
         @Query("with_genres") genres: String? = null,
+        @Query("with_crew") crew: String? = null,
         @Query("sort_by") sortBy: String = "popularity.desc",
         @Query("vote_count.gte") minVoteCount: Int? = null,
         @Query("with_keywords") keywords: String? = null,

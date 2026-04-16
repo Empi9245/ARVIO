@@ -15,8 +15,12 @@ import com.arflix.tv.data.api.TraktPublicListItem
 import com.arflix.tv.data.api.StremioMetaPreview
 import com.arflix.tv.data.model.CastMember
 import com.arflix.tv.data.model.CatalogConfig
+import com.arflix.tv.data.model.CatalogKind
 import com.arflix.tv.data.model.CatalogSourceType
 import com.arflix.tv.data.model.Category
+import com.arflix.tv.data.model.CollectionGroupKind
+import com.arflix.tv.data.model.CollectionSourceConfig
+import com.arflix.tv.data.model.CollectionSourceKind
 import com.arflix.tv.data.model.Episode
 import com.arflix.tv.data.model.MediaItem
 import com.arflix.tv.data.model.MediaType
@@ -65,6 +69,13 @@ class MediaRepository @Inject constructor(
     private val okHttpClient: OkHttpClient,
     private val streamRepository: StreamRepository
 ) {
+    companion object {
+        const val STREAMING_COLLECTION_ADDON_URL = "https://pastebin.com/raw/P4gfd98n"
+        const val MARVEL_COLLECTION_ADDON_URL = "https://pastebin.com/raw/dJ9xiqUv"
+        const val DC_COLLECTION_ADDON_URL = "https://pastebin.com/raw/S7ypRVJZ"
+        const val STAR_WARS_COLLECTION_ADDON_URL = "https://pastebin.com/raw/u4sk4Y3b"
+    }
+
     data class CategoryPageResult(
         val items: List<MediaItem>,
         val hasMore: Boolean
@@ -187,6 +198,158 @@ class MediaRepository @Inject constructor(
             CatalogConfig("new_scifi", "New in Sci-Fi Movies", CatalogSourceType.MDBLIST, isPreinstalled = true, sourceUrl = "https://mdblist.com/lists/snoak/latest-sci-fi-movies", sourceRef = "mdblist:https://mdblist.com/lists/snoak/latest-sci-fi-movies"),
             CatalogConfig("new_spy_thriller", "New in Spy & Thriller Movies", CatalogSourceType.MDBLIST, isPreinstalled = true, sourceUrl = "https://mdblist.com/lists/snoak/latest-spythrillerassassin-movies", sourceRef = "mdblist:https://mdblist.com/lists/snoak/latest-spythrillerassassin-movies"),
             CatalogConfig("coming_soon", "Coming Soon", CatalogSourceType.MDBLIST, isPreinstalled = true, sourceUrl = "https://mdblist.com/lists/snoak/upcoming-movies", sourceRef = "mdblist:https://mdblist.com/lists/snoak/upcoming-movies")
+        ) + getDefaultCollectionCatalogConfigs()
+    }
+
+    private fun getDefaultCollectionCatalogConfigs(): List<CatalogConfig> {
+        fun addonCollectionSource(type: String, id: String) = CollectionSourceConfig(
+            kind = CollectionSourceKind.ADDON_CATALOG,
+            addonCatalogType = type,
+            addonCatalogId = id
+        )
+        fun genreCollectionSource(mediaType: MediaType, genreId: Int) = CollectionSourceConfig(
+            kind = CollectionSourceKind.TMDB_GENRE,
+            mediaType = if (mediaType == MediaType.MOVIE) "movie" else "series",
+            tmdbGenreId = genreId,
+            sortBy = "popularity.desc"
+        )
+        fun directorCollectionSource(mediaType: MediaType, personId: Int) = CollectionSourceConfig(
+            kind = CollectionSourceKind.TMDB_PERSON,
+            mediaType = if (mediaType == MediaType.MOVIE) "movie" else "series",
+            tmdbPersonId = personId,
+            sortBy = "popularity.desc"
+        )
+        fun collection(
+            id: String,
+            title: String,
+            group: CollectionGroupKind,
+            description: String,
+            cover: String? = null,
+            hero: String? = null,
+            sources: List<CollectionSourceConfig>,
+            requiredAddons: List<String> = emptyList()
+        ) = CatalogConfig(
+            id = id,
+            title = title,
+            sourceType = CatalogSourceType.PREINSTALLED,
+            isPreinstalled = true,
+            kind = CatalogKind.COLLECTION,
+            collectionGroup = group,
+            collectionDescription = description,
+            collectionCoverImageUrl = cover,
+            collectionFocusGifUrl = cover,
+            collectionHeroImageUrl = hero ?: cover,
+            collectionHeroGifUrl = hero ?: cover,
+            collectionSources = sources,
+            requiredAddonUrls = requiredAddons
+        )
+
+        return listOf(
+            collection(
+                id = "collection_service_netflix",
+                title = "Netflix",
+                group = CollectionGroupKind.SERVICE,
+                description = "Netflix movies and series from the installed streaming catalog addon.",
+                cover = "https://nuvioapp.space/uploads/covers/0696cf9a-3612-4d9b-bb65-72c6c5a060ba.gif",
+                hero = "https://nuvioapp.space/uploads/covers/b70ef89e-662d-4b9b-b0c8-9ab75d2843f3.jpg",
+                sources = listOf(addonCollectionSource("movie", "nfx"), addonCollectionSource("series", "nfx")),
+                requiredAddons = listOf(STREAMING_COLLECTION_ADDON_URL)
+            ),
+            collection(
+                id = "collection_service_prime",
+                title = "Prime Video",
+                group = CollectionGroupKind.SERVICE,
+                description = "Prime Video movies and series from the installed streaming catalog addon.",
+                cover = "https://media1.tenor.com/m/T7L_NCdPIvAAAAAC/prime-video.gif",
+                hero = "https://nuvioapp.space/uploads/covers/f32bd112-9c7e-45d9-aa93-c76cffd7cbea.png",
+                sources = listOf(addonCollectionSource("movie", "amp"), addonCollectionSource("series", "amp")),
+                requiredAddons = listOf(STREAMING_COLLECTION_ADDON_URL)
+            ),
+            collection(
+                id = "collection_service_disney",
+                title = "Disney+",
+                group = CollectionGroupKind.SERVICE,
+                description = "Disney+ movies and series from the installed streaming catalog addon.",
+                cover = "https://nuvioapp.space/uploads/covers/d18e4e34-ec05-4cee-87d0-586cd83779d9.gif",
+                hero = "https://nuvioapp.space/uploads/covers/5928ff51-999f-491d-9b0c-5b442735b5d6.jpg",
+                sources = listOf(addonCollectionSource("movie", "dnp"), addonCollectionSource("series", "dnp")),
+                requiredAddons = listOf(STREAMING_COLLECTION_ADDON_URL)
+            ),
+            collection(
+                id = "collection_service_hbo",
+                title = "HBO Max",
+                group = CollectionGroupKind.SERVICE,
+                description = "HBO Max movies and series from the installed streaming catalog addon.",
+                cover = "https://nuvioapp.space/uploads/covers/1b0ddda8-649e-41f2-af27-70550964f03d.gif",
+                hero = "https://i.postimg.cc/MT2fZ1Rz/HBO-Max.jpg",
+                sources = listOf(addonCollectionSource("movie", "hbm"), addonCollectionSource("series", "hbm")),
+                requiredAddons = listOf(STREAMING_COLLECTION_ADDON_URL)
+            ),
+            collection(
+                id = "collection_genre_action",
+                title = "Action",
+                group = CollectionGroupKind.GENRE,
+                description = "Action hits across movies and shows.",
+                sources = listOf(genreCollectionSource(MediaType.MOVIE, 28), genreCollectionSource(MediaType.TV, 10759))
+            ),
+            collection(
+                id = "collection_genre_comedy",
+                title = "Comedy",
+                group = CollectionGroupKind.GENRE,
+                description = "Comedy favorites across movies and shows.",
+                sources = listOf(genreCollectionSource(MediaType.MOVIE, 35), genreCollectionSource(MediaType.TV, 35))
+            ),
+            collection(
+                id = "collection_genre_horror",
+                title = "Horror",
+                group = CollectionGroupKind.GENRE,
+                description = "Horror movies and dark genre TV picks.",
+                sources = listOf(genreCollectionSource(MediaType.MOVIE, 27), genreCollectionSource(MediaType.TV, 9648))
+            ),
+            collection(
+                id = "collection_director_nolan",
+                title = "Christopher Nolan",
+                group = CollectionGroupKind.DIRECTOR,
+                description = "Directed films and shows linked to Christopher Nolan.",
+                sources = listOf(directorCollectionSource(MediaType.MOVIE, 525), directorCollectionSource(MediaType.TV, 525))
+            ),
+            collection(
+                id = "collection_director_spielberg",
+                title = "Steven Spielberg",
+                group = CollectionGroupKind.DIRECTOR,
+                description = "Directed films and shows linked to Steven Spielberg.",
+                sources = listOf(directorCollectionSource(MediaType.MOVIE, 488), directorCollectionSource(MediaType.TV, 488))
+            ),
+            collection(
+                id = "collection_franchise_marvel",
+                title = "Marvel",
+                group = CollectionGroupKind.FRANCHISE,
+                description = "MCU chronology from the Marvel addon.",
+                cover = "https://giffiles.alphacoders.com/127/12700.gif",
+                hero = "https://www.justsaying.asia/wp-content/uploads/2014/08/marvel-logo-wallpaper-20367-hd-wallpapers.jpg",
+                sources = listOf(addonCollectionSource("Marvel", "marvel-mcu")),
+                requiredAddons = listOf(MARVEL_COLLECTION_ADDON_URL)
+            ),
+            collection(
+                id = "collection_franchise_dc",
+                title = "DC",
+                group = CollectionGroupKind.FRANCHISE,
+                description = "DC chronology from the DC addon.",
+                cover = "https://i.ibb.co/chw2zR64/dc-superhero-films-opening-introduction-t9kpwalz3ep57s9i.gif-d089a77e11c1.jpg",
+                hero = "https://images-wixmp-ed30a86b8c4ca887773594c2.wixmp.com/f/9ce75266-f939-47b3-a590-80b1285c0365/dg7g77f-82b62efd-c08b-4d7c-b22b-d089a77e11c1.jpg/v1/fit/w_800,h_450,q_70,strp/hd_wallpaper_dc_new_logo_dc_comics_logo_by_louicossyme_dg7g77f-414w-2x.jpg",
+                sources = listOf(addonCollectionSource("DC", "dc-chronological")),
+                requiredAddons = listOf(DC_COLLECTION_ADDON_URL)
+            ),
+            collection(
+                id = "collection_franchise_starwars",
+                title = "Star Wars",
+                group = CollectionGroupKind.FRANCHISE,
+                description = "Star Wars chronology from the Star Wars addon.",
+                cover = "https://uploads-ssl.webflow.com/6168ba8dd2ae854a5842be56/61bb821adfcd18676d586d9d_ezgif.com-gif-maker%20(2).gif",
+                hero = "https://images.steamusercontent.com/ugc/2258055576432666610/F333CDBF79C5E51910C86563B3D8F0D91E717B48/",
+                sources = listOf(addonCollectionSource("StarWars", "sw-movies-series-chronological")),
+                requiredAddons = listOf(STAR_WARS_COLLECTION_ADDON_URL)
+            )
         )
     }
     
@@ -526,6 +689,10 @@ class MediaRepository @Inject constructor(
     }
 
     suspend fun loadCustomCatalog(catalog: CatalogConfig, maxItems: Int = 40): Category? = coroutineScope {
+        if (catalog.kind == CatalogKind.COLLECTION) {
+            val page = loadCollectionCatalogPage(catalog = catalog, offset = 0, limit = maxItems)
+            return@coroutineScope if (page.items.isEmpty()) null else Category(catalog.id, catalog.title, page.items)
+        }
         val mediaRefs = when (catalog.sourceType) {
             CatalogSourceType.TRAKT -> loadTraktCatalogRefs(catalog.sourceUrl, catalog.sourceRef)
             CatalogSourceType.MDBLIST -> loadMdblistCatalogRefs(catalog.sourceUrl, catalog.sourceRef)
@@ -561,6 +728,9 @@ class MediaRepository @Inject constructor(
         offset: Int,
         limit: Int
     ): CategoryPageResult = coroutineScope {
+        if (catalog.kind == CatalogKind.COLLECTION) {
+            return@coroutineScope loadCollectionCatalogPage(catalog, offset, limit)
+        }
         if (limit <= 0 || offset < 0) return@coroutineScope CategoryPageResult(emptyList(), hasMore = false)
 
         val pageRefs: List<Pair<MediaType, Int>>
@@ -607,6 +777,112 @@ class MediaRepository @Inject constructor(
             items = items,
             hasMore = hasMore
         )
+    }
+
+    suspend fun loadCollectionCatalogPage(
+        catalog: CatalogConfig,
+        offset: Int,
+        limit: Int
+    ): CategoryPageResult = coroutineScope {
+        if (catalog.collectionSources.isEmpty() || limit <= 0 || offset < 0) {
+            return@coroutineScope CategoryPageResult(emptyList(), hasMore = false)
+        }
+
+        val refs = LinkedHashSet<Pair<MediaType, Int>>()
+        catalog.collectionSources.forEach { source ->
+            resolveCollectionSourceRefs(source, offset = 0, limit = (offset + limit).coerceAtLeast(limit)).forEach { refs.add(it) }
+        }
+        if (refs.isEmpty()) return@coroutineScope CategoryPageResult(emptyList(), hasMore = false)
+
+        val pageRefs = refs.drop(offset).take(limit)
+        val semaphore = Semaphore(6)
+        val jobs = pageRefs.map { (type, tmdbId) ->
+            async {
+                semaphore.withPermit {
+                    runCatching {
+                        when (type) {
+                            MediaType.MOVIE -> getMovieDetails(tmdbId)
+                            MediaType.TV -> getTvDetails(tmdbId)
+                        }
+                    }.getOrNull()
+                }
+            }
+        }
+        val items = jobs.mapNotNull { it.await() }
+        if (items.isNotEmpty()) cacheItems(items)
+        CategoryPageResult(items = items, hasMore = offset + pageRefs.size < refs.size)
+    }
+
+    private suspend fun resolveCollectionSourceRefs(
+        source: CollectionSourceConfig,
+        offset: Int,
+        limit: Int
+    ): List<Pair<MediaType, Int>> {
+        return when (source.kind) {
+            CollectionSourceKind.ADDON_CATALOG -> loadCollectionAddonRefs(source, offset, limit)
+            CollectionSourceKind.TMDB_GENRE -> loadCollectionGenreRefs(source, limit)
+            CollectionSourceKind.TMDB_PERSON -> loadCollectionPersonRefs(source, limit)
+        }
+    }
+
+    private suspend fun loadCollectionAddonRefs(
+        source: CollectionSourceConfig,
+        offset: Int,
+        limit: Int
+    ): List<Pair<MediaType, Int>> = coroutineScope {
+        val catalogType = source.addonCatalogType?.trim().orEmpty()
+        val catalogId = source.addonCatalogId?.trim().orEmpty()
+        if (catalogType.isBlank() || catalogId.isBlank()) return@coroutineScope emptyList()
+        val addonId = streamRepository.findInstalledAddonIdForCatalog(
+            catalogType = catalogType,
+            catalogId = catalogId,
+            preferredAddonId = source.addonId
+        ) ?: return@coroutineScope emptyList()
+
+        val response = runCatching {
+            streamRepository.getAddonCatalogPage(
+                addonId = addonId,
+                catalogType = catalogType,
+                catalogId = catalogId,
+                skip = offset.coerceAtLeast(0)
+            )
+        }.getOrNull() ?: return@coroutineScope emptyList()
+
+        val metas = (response.metas ?: response.items ?: emptyList()).take(limit)
+        parseAddonPageRefs(
+            metas = metas,
+            descriptor = AddonCatalogDescriptor(addonId = addonId, catalogType = catalogType, catalogId = catalogId)
+        )
+    }
+
+    private suspend fun loadCollectionGenreRefs(
+        source: CollectionSourceConfig,
+        limit: Int
+    ): List<Pair<MediaType, Int>> {
+        val genreId = source.tmdbGenreId ?: return emptyList()
+        val sortBy = source.sortBy ?: "popularity.desc"
+        return when (source.mediaType?.lowercase(Locale.US)) {
+            "movie" -> tmdbApi.discoverMovies(apiKey, genres = genreId.toString(), sortBy = sortBy, language = contentLanguage, page = 1)
+                .results.map { MediaType.MOVIE to it.id }.take(limit)
+            "series", "tv", "show" -> tmdbApi.discoverTv(apiKey, genres = genreId.toString(), sortBy = sortBy, language = contentLanguage, page = 1)
+                .results.map { MediaType.TV to it.id }.take(limit)
+            else -> emptyList()
+        }
+    }
+
+    private suspend fun loadCollectionPersonRefs(
+        source: CollectionSourceConfig,
+        limit: Int
+    ): List<Pair<MediaType, Int>> {
+        val personId = source.tmdbPersonId ?: return emptyList()
+        val sortBy = source.sortBy ?: "popularity.desc"
+        return when (source.mediaType?.lowercase(Locale.US)) {
+            "movie" -> tmdbApi.discoverMovies(apiKey, crew = personId.toString(), sortBy = sortBy, language = contentLanguage, page = 1)
+                .results.map { MediaType.MOVIE to it.id }.take(limit)
+            "series", "tv", "show" -> tmdbApi.discoverTv(apiKey, people = personId.toString(), sortBy = sortBy, language = contentLanguage, page = 1)
+                .results.map { MediaType.TV to it.id }.take(limit)
+            else -> emptyList()
+        }
     }
 
     private data class AddonCatalogDescriptor(

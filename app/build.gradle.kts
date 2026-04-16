@@ -242,6 +242,7 @@ dependencies {
 
     // Image loading - Coil
     implementation("io.coil-kt:coil-compose:2.5.0")
+    implementation("io.coil-kt:coil-gif:2.5.0")
     implementation("com.google.zxing:core:3.5.3")
 
     // Supabase (optional - for cloud sync)

@@ -95,6 +95,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
 import com.arflix.tv.data.model.CatalogConfig
+import com.arflix.tv.data.model.CatalogKind
 import com.arflix.tv.data.model.CatalogSourceType
 import com.arflix.tv.ui.components.AppTopBar
 import com.arflix.tv.ui.components.AppTopBarContentTopInset
@@ -2856,14 +2857,22 @@ private fun CatalogsSettings(
         catalogs.forEachIndexed { index, catalog ->
             val rowFocusIndex = index + 1
             val isRowFocused = focusedIndex == rowFocusIndex
-            val title = if (catalog.isPreinstalled) "${catalog.title} (Built-in)" else catalog.title
-            val subtitle = when (catalog.sourceType) {
-                CatalogSourceType.PREINSTALLED -> "Preinstalled catalog"
+            val title = if (catalog.isPreinstalled) {
+                if (catalog.kind == CatalogKind.COLLECTION) "${catalog.title} (Built-in Collection)" else "${catalog.title} (Built-in)"
+            } else catalog.title
+            val subtitle = when {
+                catalog.kind == CatalogKind.COLLECTION -> {
+                    val group = catalog.collectionGroup?.name?.lowercase()?.replaceFirstChar { it.uppercase() } ?: "Collection"
+                    "$group collection"
+                }
+                catalog.sourceType == CatalogSourceType.PREINSTALLED -> "Preinstalled catalog"
+                else -> when (catalog.sourceType) {
                 CatalogSourceType.ADDON -> {
                     val addonLabel = catalog.addonName?.takeIf { it.isNotBlank() } ?: "Addon"
                     "From $addonLabel"
                 }
-                else -> catalog.sourceUrl ?: "Custom catalog"
+                    else -> catalog.sourceUrl ?: "Custom catalog"
+                }
             }
 
             Row(

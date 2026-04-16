@@ -107,6 +107,7 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import coil.size.Precision
 import com.arflix.tv.data.model.Category
+import com.arflix.tv.data.model.CatalogConfig
 import com.arflix.tv.data.model.MediaItem
 import com.arflix.tv.data.model.MediaType
 import com.arflix.tv.network.OkHttpProvider
@@ -230,6 +231,7 @@ fun HomeScreen(
     preloadedLogoCache: Map<String, String> = emptyMap(),
     currentProfile: com.arflix.tv.data.model.Profile? = null,
     onNavigateToDetails: (MediaType, Int, Int?, Int?) -> Unit = { _, _, _, _ -> },
+    onNavigateToCollection: (String) -> Unit = {},
     onNavigateToSearch: () -> Unit = {},
     onNavigateToWatchlist: () -> Unit = {},
     onNavigateToTv: (channelId: String?, streamUrl: String?) -> Unit = { _, _ -> },
@@ -440,12 +442,13 @@ fun HomeScreen(
 
     // ── IPTV hero live-player state ──
     val isHeroIptv = displayHeroItem != null && viewModel.isIptvItem(displayHeroItem)
+    val isHeroCollection = displayHeroItem != null && viewModel.isCollectionItem(displayHeroItem)
     val heroVideoUrl = displayHeroItem?.let { if (isHeroIptv) viewModel.getIptvStreamUrl(it.id) else null }
 
     // Warm details assets for the currently displayed hero item so selecting
     // Details doesn't pause on the first clearlogo/episodes fetch.
     LaunchedEffect(displayHeroItem?.id, displayHeroItem?.mediaType, displayHeroItem?.nextEpisode?.seasonNumber) {
-        displayHeroItem?.let { viewModel.prefetchDetailsAssets(it) }
+        displayHeroItem?.takeUnless { viewModel.isCollectionItem(it) }?.let { viewModel.prefetchDetailsAssets(it) }
     }
 
     val heroOkHttp = remember {
@@ -607,6 +610,8 @@ fun HomeScreen(
                 displayHeroItem?.let { item ->
                     if (viewModel.isIptvItem(item)) {
                         onNavigateToTv(viewModel.getIptvChannelId(item), viewModel.getIptvStreamUrl(item.id))
+                    } else if (viewModel.isCollectionItem(item)) {
+                        onNavigateToCollection(item.status?.removePrefix("collection:").orEmpty())
                     } else {
                         onNavigateToDetails(item.mediaType, item.id, item.nextEpisode?.seasonNumber, item.nextEpisode?.episodeNumber)
                     }
@@ -616,6 +621,8 @@ fun HomeScreen(
                 displayHeroItem?.let { item ->
                     if (viewModel.isIptvItem(item)) {
                         onNavigateToTv(viewModel.getIptvChannelId(item), viewModel.getIptvStreamUrl(item.id))
+                    } else if (viewModel.isCollectionItem(item)) {
+                        onNavigateToCollection(item.status?.removePrefix("collection:").orEmpty())
                     } else {
                         onNavigateToDetails(item.mediaType, item.id, null, null)
                     }
@@ -625,8 +632,9 @@ fun HomeScreen(
             profileCount = profileCount,
             clockFormat = uiState.clockFormat,
             syncStatus = uiState.syncStatus,
-            onItemFocusedPrefetch = { item -> viewModel.prefetchDetailsAssets(item) },
+            onItemFocusedPrefetch = { item -> if (!viewModel.isCollectionItem(item)) viewModel.prefetchDetailsAssets(item) },
             onNavigateToDetails = onNavigateToDetails,
+            onNavigateToCollection = onNavigateToCollection,
             onNavigateToSearch = onNavigateToSearch,
             onNavigateToWatchlist = onNavigateToWatchlist,
             onNavigateToTv = onNavigateToTv,
@@ -1643,6 +1651,7 @@ private fun HomeInputLayer(
     syncStatus: com.arflix.tv.data.repository.CloudSyncStatus = com.arflix.tv.data.repository.CloudSyncStatus.NOT_SIGNED_IN,
     onItemFocusedPrefetch: (MediaItem) -> Unit = {},
     onNavigateToDetails: (MediaType, Int, Int?, Int?) -> Unit,
+    onNavigateToCollection: (String) -> Unit,
     onNavigateToSearch: () -> Unit,
     onNavigateToWatchlist: () -> Unit,
     onNavigateToTv: (channelId: String?, streamUrl: String?) -> Unit,
@@ -1917,8 +1926,11 @@ private fun HomeInputLayer(
                     return@HomeRowsLayer
                 }
                 val iptvId = item.status?.removePrefix("iptv:")?.takeIf { item.status?.startsWith("iptv:") == true && it.isNotBlank() }
+                val collectionId = item.status?.removePrefix("collection:")?.takeIf { item.status?.startsWith("collection:") == true && it.isNotBlank() }
                 if (iptvId != null) {
                     onNavigateToTv(iptvId, getIptvStreamUrl(item.id))
+                } else if (collectionId != null) {
+                    onNavigateToCollection(collectionId)
                 } else {
                     onNavigateToDetails(item.mediaType, item.id, item.nextEpisode?.seasonNumber, item.nextEpisode?.episodeNumber)
                 }
@@ -2005,6 +2017,7 @@ private fun MobileHomeRowsLayer(
         ) { _, category ->
             val isContinueWatching = category.id == "continue_watching"
             val isRanked = category.title.contains("Top 10", ignoreCase = true)
+            val isCollectionRow = category.id.startsWith("collection_row_")
 
             Column(modifier = Modifier.padding(bottom = 8.dp)) {
                 // Section title
@@ -2047,7 +2060,7 @@ private fun MobileHomeRowsLayer(
                                 ArvioMediaCard(
                                     item = item,
                                     width = mobileItemWidth,
-                                    isLandscape = !usePosterCards,
+                                    isLandscape = if (isCollectionRow) true else !usePosterCards,
                                     logoImageUrl = cardLogoUrl,
                                     showProgress = false,
                                     showTitle = true,
@@ -2086,7 +2099,7 @@ private fun MobileHomeRowsLayer(
                             ArvioMediaCard(
                                 item = item,
                                 width = mobileItemWidth,
-                                isLandscape = !usePosterCards,
+                                isLandscape = if (isCollectionRow) true else !usePosterCards,
                                 logoImageUrl = cardLogoUrl,
                                 showProgress = isContinueWatching,
                                 showTitle = true,
@@ -2390,6 +2403,7 @@ private fun ContentRow(
     onItemClick: (MediaItem) -> Unit,
     onItemFocused: (MediaItem, Int) -> Unit
 ) {
+    val isCollectionRow = category.id.startsWith("collection_row_")
     val rowState = rememberLazyListState()
     val configuration = LocalConfiguration.current
     val density = LocalDensity.current
@@ -2398,7 +2412,8 @@ private fun ContentRow(
     // row spacing (which made the section layout feel loose), slightly reduce the
     // poster card width so the 1.05x focus zoom has more breathing room inside the
     // existing row spacing. ~5% smaller than before.
-    val itemWidth = if (usePosterCards) 119.dp else 210.dp
+    val effectivePosterMode = if (isCollectionRow) false else usePosterCards
+    val itemWidth = if (effectivePosterMode) 119.dp else 210.dp
     val itemSpacing = 14.dp
     val availableWidthDp = configuration.screenWidthDp.dp - 56.dp - 12.dp
     val fallbackItemsPerPage = remember(configuration, density, itemWidth, itemSpacing) {
@@ -2601,10 +2616,10 @@ private fun ContentRow(
                         ArvioMediaCard(
                             item = item,
                             width = itemWidth,
-                            isLandscape = !usePosterCards,
+                            isLandscape = !effectivePosterMode,
                             logoImageUrl = cardLogoUrl,
                             showProgress = false,
-                            showTitle = false,
+                            showTitle = isCollectionRow,
                             isFocusedOverride = itemIsFocused,
                             enableSystemFocus = false,
                             onFocused = { onItemFocused(item, index) },
@@ -2641,10 +2656,10 @@ private fun ContentRow(
                     ArvioMediaCard(
                         item = item,
                         width = itemWidth,
-                        isLandscape = !usePosterCards,
-                        logoImageUrl = cardLogoUrl,
-                        showProgress = isContinueWatching,
-                        showTitle = false,
+                            isLandscape = !effectivePosterMode,
+                            logoImageUrl = cardLogoUrl,
+                            showProgress = isContinueWatching,
+                            showTitle = isCollectionRow,
                         isFocusedOverride = itemIsFocused,
                         enableSystemFocus = false,
                         onFocused = { onItemFocused(item, index) },

@@ -787,9 +787,9 @@ class IptvRepository @Inject constructor(
                 // ── Slow path: XMLTV download (always runs to fill remaining channels) ──
                 if (epgCandidates.isNotEmpty()) {
                     val epgCandidatesToTry = epgCandidates
-                    var xmltvResolved = false
+                    var bestCoverage = epgCoverageRatio(channels, resolvedNowNext)
+                    var bestNowNext = resolvedNowNext
                     epgCandidatesToTry.forEachIndexed { index, epgUrl ->
-                        if (xmltvResolved) return@forEachIndexed
                         val pct = (90 + ((index * 8) / epgCandidatesToTry.size.coerceAtLeast(1))).coerceIn(90, 98)
                         onProgress(IptvLoadProgress("Loading full EPG (${index + 1}/${epgCandidatesToTry.size})...", pct))
                         val attempt = runCatching {
@@ -803,19 +803,26 @@ class IptvRepository @Inject constructor(
                                 // Merge: XMLTV as base, then overlay short EPG (fresher per-channel data)
                                 val merged = ConcurrentHashMap(parsed)
                                 shortEpgResult?.let { merged.putAll(it) } // Short EPG wins for channels it covers
-                                resolvedNowNext = merged
-                                cachedNowNext = merged
-                                cachedEpgAt = System.currentTimeMillis()
-                                epgUpdated = true
-                                preferredDerivedEpgUrl = epgUrl
-                                resolved = true
-                                xmltvResolved = true
-                                System.err.println("[EPG] XMLTV SUCCESS: ${parsed.size} from XMLTV + ${shortEpgResult?.size ?: 0} from short EPG = ${merged.size} total")
+                                val coverage = epgCoverageRatio(channels, merged)
+                                if (coverage >= bestCoverage) {
+                                    bestCoverage = coverage
+                                    bestNowNext = merged
+                                    preferredDerivedEpgUrl = epgUrl
+                                    resolved = true
+                                    System.err.println("[EPG] XMLTV candidate ${index + 1} coverage=${(coverage * 100).toInt()}% (best so far)")
+                                }
                             }
                         } else {
                             epgFailureMessage = attempt.exceptionOrNull()?.message
                             System.err.println("[EPG] XMLTV attempt ${index + 1} failed: ${epgFailureMessage}")
                         }
+                    }
+                    if (resolved) {
+                        resolvedNowNext = bestNowNext
+                        cachedNowNext = ConcurrentHashMap(bestNowNext)
+                        cachedEpgAt = System.currentTimeMillis()
+                        epgUpdated = true
+                        System.err.println("[EPG] Final best EPG coverage=${(bestCoverage * 100).toInt()}% for ${channels.size} channels")
                     }
                 }
 
@@ -3944,6 +3951,15 @@ class IptvRepository @Inject constructor(
         return nowNext.values.any { item ->
             item.now != null || item.next != null || item.later != null || item.upcoming.isNotEmpty()
         }
+    }
+
+    private fun epgCoverageRatio(channels: List<IptvChannel>, nowNext: Map<String, IptvNowNext>): Float {
+        if (channels.isEmpty() || nowNext.isEmpty()) return 0f
+        val covered = channels.count { ch ->
+            val item = nowNext[ch.id]
+            item != null && (item.now != null || item.next != null || item.later != null || item.upcoming.isNotEmpty())
+        }
+        return covered.toFloat() / channels.size.toFloat()
     }
 
     private fun parseXmlTvDate(rawValue: String?): Long {

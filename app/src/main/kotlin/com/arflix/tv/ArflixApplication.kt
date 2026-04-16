@@ -14,6 +14,8 @@ import androidx.work.WorkManager
 import androidx.work.workDataOf
 import coil.ImageLoader
 import coil.ImageLoaderFactory
+import coil.decode.GifDecoder
+import coil.decode.ImageDecoderDecoder
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
 import com.arflix.tv.network.OkHttpProvider
@@ -34,6 +36,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
+import android.os.Build
 
 /**
  * ARVIO TV Application class
@@ -137,6 +140,13 @@ class ArflixApplication : Application(), Configuration.Provider, ImageLoaderFact
             // on the home hero. Error = transparent so failed loads are invisible
             // (the card surface background is the fallback visual).
             .error(android.R.color.transparent)
+            .components {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    add(ImageDecoderDecoder.Factory())
+                } else {
+                    add(GifDecoder.Factory())
+                }
+            }
             .build()
     }
 

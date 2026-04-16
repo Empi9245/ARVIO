@@ -236,7 +236,7 @@ class StreamRepository @Inject constructor(
      */
     suspend fun addCustomAddon(url: String, customName: String? = null): Result<Addon> = withContext(Dispatchers.IO) {
         try {
-            val normalizedUrl = normalizeAddonInputUrl(url)
+            val normalizedUrl = resolveAddonInstallUrl(url)
             if (normalizedUrl.isBlank()) {
                 return@withContext Result.failure(IllegalArgumentException("Addon URL is empty"))
             }
@@ -292,6 +292,54 @@ class StreamRepository @Inject constructor(
         } catch (e: Exception) {
             Result.failure(e)
         }
+    }
+
+    suspend fun ensureCustomAddons(urls: List<String>): List<Result<Addon>> = withContext(Dispatchers.IO) {
+        val requested = urls
+            .map { resolveAddonInstallUrl(it) }
+            .filter { it.isNotBlank() }
+            .distinct()
+        if (requested.isEmpty()) return@withContext emptyList()
+
+        val installedByUrl = installedAddons.first()
+            .mapNotNull { addon ->
+                val url = addon.url?.let { normalizeAddonInputUrl(it) } ?: return@mapNotNull null
+                url to addon
+            }
+            .toMap()
+
+        requested.map { normalizedUrl ->
+            val existing = installedByUrl[normalizedUrl]
+            if (existing != null) {
+                Result.success(existing)
+            } else {
+                addCustomAddon(normalizedUrl)
+            }
+        }
+    }
+
+    suspend fun findInstalledAddonIdForCatalog(
+        catalogType: String,
+        catalogId: String,
+        preferredAddonId: String? = null
+    ): String? {
+        val normalizedType = catalogType.trim()
+        val normalizedId = catalogId.trim()
+        if (normalizedType.isBlank() || normalizedId.isBlank()) return null
+
+        val addons = installedAddons.first()
+            .filter { it.isInstalled && it.isEnabled }
+        val preferred = preferredAddonId?.trim().takeUnless { it.isNullOrBlank() }
+
+        fun matches(addon: Addon): Boolean {
+            return addon.manifest?.catalogs.orEmpty().any { catalog ->
+                catalog.id.equals(normalizedId, ignoreCase = true) &&
+                    catalog.type.equals(normalizedType, ignoreCase = true)
+            }
+        }
+
+        return addons.firstOrNull { it.id == preferred && matches(it) }?.id
+            ?: addons.firstOrNull { matches(it) }?.id
     }
 
     private fun buildAddonInstanceId(manifestId: String, url: String): String {
@@ -504,6 +552,28 @@ class StreamRepository @Inject constructor(
         val baseUrl = getTransportUrl(parts[0])
         val queryParams = parts.getOrNull(1)
         return Pair(baseUrl, queryParams)
+    }
+
+    private suspend fun resolveAddonInstallUrl(rawUrl: String): String {
+        val normalized = normalizeAddonInputUrl(rawUrl)
+        if (!normalized.contains("pastebin.com/raw/", ignoreCase = true)) {
+            return normalized
+        }
+        val request = Request.Builder().url(normalized).build()
+        val body = runCatching {
+            okHttpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return normalized
+                response.body?.string().orEmpty()
+            }
+        }.getOrDefault("")
+        val link = body.lineSequence()
+            .map { it.trim() }
+            .firstOrNull { line ->
+                line.startsWith("stremio://", ignoreCase = true) ||
+                    line.startsWith("https://", ignoreCase = true) ||
+                    line.startsWith("http://", ignoreCase = true)
+            }
+        return if (link.isNullOrBlank()) normalized else normalizeAddonInputUrl(link)
     }
 
     suspend fun getAddonCatalogPage(
