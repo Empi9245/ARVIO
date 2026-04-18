@@ -40,20 +40,48 @@ private val ADULT_KEYWORDS = listOf("adult", "xxx", "18+", "erot", "nsfw")
 private val TAG_RE = Regex("""[|\-:/,]+""")
 private val TRIM_PUNCT = Regex("""^[\s\-|:•\u2022]+|[\s\-|:•\u2022]+$""")
 
-// Country prefixes we care about (spec §5). Extend freely without breaking.
+// Bucketing codes. Real ISO countries plus language prefixes commonly used in
+// IPTV playlists (EN, JA, KO, ZH, AR, SV, DA, EL, CS, HI, HE, FA) so groups
+// like "EN | CHRISTMAS 1 4K" resolve instead of falling into the null bucket.
 private val KNOWN_COUNTRIES = setOf(
+    // ISO 3166-1 alpha-2 plus the UK/GB, USA aliases
     "NL", "UK", "GB", "US", "USA", "DE", "FR", "IT", "ES", "PT",
     "BE", "TR", "AR", "IN", "BR", "PL", "EX", "SE", "DK", "NO",
     "FI", "RU", "GR", "RO", "HU", "CZ", "AT", "CH", "IE", "JP",
     "KR", "CN", "TW", "HK", "MX", "CA", "AU", "NZ", "ZA", "AE",
-    "SA", "EG", "MA",
+    "SA", "EG", "MA", "UA", "BG", "HR", "RS", "SK", "SI", "LT",
+    "LV", "EE", "IL",
+    // Language codes used as playlist buckets
+    "EN", "JA", "KO", "ZH", "SV", "DA", "EL", "CS", "HI", "HE",
+    "FA", "AF",
 )
 
 private val COUNTRY_ALIASES = mapOf("GB" to "UK", "USA" to "US")
 
+// When rendering a flag for a language/bucket code that isn't itself a valid
+// regional-indicator country, substitute the most-representative country flag.
+// "EN" → UK flag, "JA" → JP, etc. Keeps sidebar labels honest ("EN") while
+// producing a recognisable flag glyph.
+private val FLAG_SUBSTITUTES = mapOf(
+    "EN" to "GB",
+    "JA" to "JP",
+    "KO" to "KR",
+    "ZH" to "CN",
+    "SV" to "SE",
+    "DA" to "DK",
+    "EL" to "GR",
+    "CS" to "CZ",
+    "HI" to "IN",
+    "HE" to "IL",
+    "FA" to "IR",
+    "AR" to "SA",
+    "AF" to "ZA",
+)
+
 fun countryFlag(code: String?): String {
     if (code.isNullOrBlank() || code.length != 2) return "🌐"
-    return code.uppercase().map { ch ->
+    val effective = FLAG_SUBSTITUTES[code.uppercase()] ?: code.uppercase()
+    return effective.map { ch ->
         val off = 0x1F1E6 + (ch.code - 'A'.code)
         String(Character.toChars(off))
     }.joinToString("")
@@ -85,7 +113,8 @@ fun qualityFromText(text: String): Quality {
     }
 }
 
-/** Extract a 2-letter country code from a group/channel name. */
+/** Extract a 2-letter bucket code from a group/channel name. Accepts ISO
+ *  country codes or language prefixes (EN, JA, …) commonly used in IPTV. */
 fun countryFromText(text: String): String? {
     val tokens = text.split(TAG_RE).map { it.trim().trim('[', ']', '(', ')') }
     for (tok in tokens) {
@@ -95,10 +124,12 @@ fun countryFromText(text: String): String? {
             if (canonical.length == 2 && canonical in KNOWN_COUNTRIES) return canonical
         }
     }
-    // Look for `CC |` pattern as a strong prefix hint.
-    val head = text.take(3).uppercase()
-    val prefix = head.take(2)
-    if (prefix in KNOWN_COUNTRIES) return COUNTRY_ALIASES[prefix] ?: prefix
+    // Fallback: first two/three chars of the string — handles "UK|Sports"
+    // and similar no-delimiter prefixes.
+    val head = text.trim().take(3).uppercase()
+    val two = head.take(2)
+    if (two in KNOWN_COUNTRIES) return COUNTRY_ALIASES[two] ?: two
+    if (head in COUNTRY_ALIASES) return COUNTRY_ALIASES[head]
     return null
 }
 
