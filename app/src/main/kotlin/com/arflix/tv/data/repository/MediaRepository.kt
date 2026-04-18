@@ -242,6 +242,7 @@ class MediaRepository @Inject constructor(
             cover: String? = null,
             focusGif: String? = null,
             hero: String? = null,
+            heroVideo: String? = null,
             clearLogo: String? = null,
             sources: List<CollectionSourceConfig>,
             requiredAddons: List<String> = emptyList()
@@ -257,6 +258,7 @@ class MediaRepository @Inject constructor(
             collectionFocusGifUrl = focusGif ?: cover,
             collectionHeroImageUrl = hero ?: cover,
             collectionHeroGifUrl = focusGif ?: hero ?: cover,
+            collectionHeroVideoUrl = heroVideo,
             collectionClearLogoUrl = clearLogo,
             collectionSources = sources,
             requiredAddonUrls = requiredAddons
