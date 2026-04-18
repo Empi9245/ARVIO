@@ -86,6 +86,7 @@ data class CatalogConfig(
     val collectionFocusGifUrl: String? = null,
     val collectionHeroImageUrl: String? = null,
     val collectionHeroGifUrl: String? = null,
+    val collectionHeroVideoUrl: String? = null,
     val collectionClearLogoUrl: String? = null,
     val collectionSources: List<CollectionSourceConfig> = emptyList(),
     val requiredAddonUrls: List<String> = emptyList()
