@@ -237,6 +237,7 @@ fun EpgGrid(
                                 windowStartMillis = windowStartMillis,
                                 pxPerMin = pxPerMin,
                                 stripe = idx % 2 == 1,
+                                isActive = ch.id == selectedChannelId,
                                 onClick = { onChannelSelect(ch) },
                             )
                         }
@@ -261,6 +262,7 @@ private fun ProgramsRow(
     windowStartMillis: Long,
     pxPerMin: Int,
     stripe: Boolean,
+    isActive: Boolean,
     onClick: () -> Unit,
 ) {
     val totalWidth = LiveDims.EpgHalfHourWidth * 20
@@ -269,7 +271,13 @@ private fun ProgramsRow(
         modifier = Modifier
             .width(totalWidth)
             .height(LiveDims.EpgRowHeight)
-            .background(if (stripe) LiveColors.RowStripe else Color.Transparent),
+            .background(
+                when {
+                    isActive -> LiveColors.FocusBg
+                    stripe -> LiveColors.RowStripe
+                    else -> Color.Transparent
+                }
+            ),
     ) {
         if (programs.isEmpty()) {
             // No EPG data for this channel — still render a wide NOW placeholder
