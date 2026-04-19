@@ -15,10 +15,17 @@ import com.arflix.tv.ui.theme.InterFontFamily
 // for the numeric/badge slots; can swap for bundled JBMono later).
 
 object LiveColors {
-    val Bg           = Color(0xFF16171B) // oklch(0.13 0.008 270)
-    val Panel        = Color(0xFF1C1D22) // oklch(0.16 0.01 270)
-    val PanelDeep    = Color(0xFF1A1B20) // oklch(0.15 0.01 270)
-    val PanelRaised  = Color(0xFF20212A) // oklch(0.18 0.012 270)
+    // Slightly lifted backgrounds for the layered "premium" look of the
+    // latest mockup. Panels now sit clearly above Bg; PanelRaised sits above
+    // Panel so the mini-player / NOW card / focused cells pop without relying
+    // on borders alone.
+    val Bg           = Color(0xFF0F1013)
+    val Panel        = Color(0xFF191A20)
+    val PanelDeep    = Color(0xFF14151A)
+    val PanelRaised  = Color(0xFF23242D)
+    // Subtle alternating stripe for EPG rows — just a few lumens above Bg
+    // so the grid feels "combed" without looking busy.
+    val RowStripe    = Color(0xFF121317)
 
     val Divider       = Color(0x992B2D36)
     val DividerStrong = Color(0xE6333542)
@@ -27,9 +34,11 @@ object LiveColors {
     val FgDim  = Color(0xFFB5B6BE)
     val FgMute = Color(0xFF7D7E86)
 
-    val Accent    = Color(0xFFF5C26B)
-    val AccentDim = Color(0xFFB68634)
-    val FocusBg   = Color(0x1AF5C26B)
+    // Mockup-true accent: cyan (`#7EC8E3`) not amber. The amber variant is
+    // still available to theme, but the shipped design uses cyan.
+    val Accent    = Color(0xFF7EC8E3)
+    val AccentDim = Color(0xFF4D9BB8)
+    val FocusBg   = Color(0x1A7EC8E3)
 
     val LiveRed = Color(0xFFFF3B30)
     val Online  = Color(0xFF4ADE80)
@@ -63,12 +72,15 @@ object LiveDims {
     val SidebarExpanded  = 260.dp
     val SidebarCollapsed = 76.dp
 
-    val MiniPlayerWidth  = 440.dp
-    val MiniPlayerHeight = 248.dp
+    // Mini-player is smaller than spec §3.2 to match the newer mockup —
+    // leaves more vertical space for the EPG grid below.
+    val MiniPlayerWidth  = 400.dp
+    val MiniPlayerHeight = 225.dp
 
     val EpgChannelColWidth = 340.dp
-    val EpgRowHeight       = 84.dp
-    val EpgHeaderHeight    = 44.dp
+    // Tightened from 84 → 72 so ~2 extra rows fit on a 1080p frame.
+    val EpgRowHeight       = 72.dp
+    val EpgHeaderHeight    = 40.dp
     val EpgPxPerMinute     = 5
     val EpgHalfHourWidth   = 150.dp
 

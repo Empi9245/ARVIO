@@ -52,6 +52,7 @@ fun ChannelRow(
     nowNext: IptvNowNext?,
     isActive: Boolean,
     isFavorite: Boolean,
+    stripe: Boolean = false,
     onClick: () -> Unit,
     onFavoriteToggle: () -> Unit,
 ) {
@@ -59,6 +60,7 @@ fun ChannelRow(
     val bg = when {
         focused -> LiveColors.PanelRaised
         isActive -> LiveColors.FocusBg
+        stripe -> LiveColors.RowStripe
         else -> Color.Transparent
     }
     Row(

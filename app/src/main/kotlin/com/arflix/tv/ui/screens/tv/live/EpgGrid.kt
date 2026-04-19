@@ -145,7 +145,7 @@ fun EpgGrid(
                     .fillMaxHeight()
                     .background(LiveColors.DividerStrong)
             )
-            // Scrolling time ruler
+            // Scrolling time ruler with NOW pill pinned to the current minute.
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -160,15 +160,27 @@ fun EpgGrid(
                                 .padding(start = 12.dp),
                             contentAlignment = Alignment.CenterStart,
                         ) {
-                            val isNowSlot = slot.isNow
                             Text(
                                 text = slot.label,
-                                style = LiveType.TimeMono.copy(
-                                    color = if (isNowSlot) LiveColors.Accent else LiveColors.FgDim,
-                                ),
+                                style = LiveType.TimeMono.copy(color = LiveColors.FgDim),
                             )
                         }
                     }
+                }
+                // Cyan "NOW hh:mm" pill hovering above the now-line inside the header.
+                val nowMin = ((System.currentTimeMillis() - windowStartMillis) / 60_000L).toInt()
+                val nowOffset = (nowMin * pxPerMin).dp
+                Box(
+                    modifier = Modifier
+                        .offset(x = nowOffset - 46.dp, y = 6.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(LiveColors.Accent)
+                        .padding(horizontal = 8.dp, vertical = 3.dp),
+                ) {
+                    Text(
+                        text = "NOW " + formatClock(System.currentTimeMillis()),
+                        style = LiveType.Badge.copy(color = LiveColors.Bg),
+                    )
                 }
             }
         }
@@ -192,12 +204,13 @@ fun EpgGrid(
                         .fillMaxHeight()
                         .background(LiveColors.PanelDeep),
                 ) {
-                    itemsIndexed(channels, key = { _, ch -> ch.id }) { _, ch ->
+                    itemsIndexed(channels, key = { _, ch -> ch.id }) { idx, ch ->
                         ChannelRow(
                             channel = ch,
                             isActive = ch.id == selectedChannelId,
                             nowNext = nowNext[ch.id],
                             isFavorite = ch.id in favorites,
+                            stripe = idx % 2 == 1,
                             onClick = { onChannelSelect(ch) },
                             onFavoriteToggle = { onChannelFavoriteToggle(ch.id) },
                         )
@@ -217,11 +230,13 @@ fun EpgGrid(
                             .fillMaxSize()
                             .horizontalScroll(hScroll),
                     ) {
-                        itemsIndexed(channels, key = { _, ch -> ch.id }) { _, ch ->
+                        itemsIndexed(channels, key = { _, ch -> ch.id }) { idx, ch ->
                             ProgramsRow(
+                                channel = ch,
                                 programs = programsInWindow(nowNext[ch.id], windowStartMillis, windowEndMillis),
                                 windowStartMillis = windowStartMillis,
                                 pxPerMin = pxPerMin,
+                                stripe = idx % 2 == 1,
                                 onClick = { onChannelSelect(ch) },
                             )
                         }
@@ -241,9 +256,11 @@ fun EpgGrid(
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun ProgramsRow(
+    channel: EnrichedChannel,
     programs: List<IptvProgram>,
     windowStartMillis: Long,
     pxPerMin: Int,
+    stripe: Boolean,
     onClick: () -> Unit,
 ) {
     val totalWidth = LiveDims.EpgHalfHourWidth * 20
@@ -251,19 +268,35 @@ private fun ProgramsRow(
     Box(
         modifier = Modifier
             .width(totalWidth)
-            .height(LiveDims.EpgRowHeight),
+            .height(LiveDims.EpgRowHeight)
+            .background(if (stripe) LiveColors.RowStripe else Color.Transparent),
     ) {
         if (programs.isEmpty()) {
-            // Empty row — still render a full-width placeholder so cursor can tune
-            // without any programs available.
+            // No EPG data for this channel — still render a wide NOW placeholder
+            // pinned to the current slot so the body doesn't look bare and the
+            // user can tune with one click.
+            val nowMin = ((nowMillis - windowStartMillis) / 60_000L).toInt().coerceAtLeast(0)
+            val offset = (nowMin * pxPerMin).dp - 90.dp
+            val width = 180.dp
             Box(
                 modifier = Modifier
-                    .fillMaxSize()
+                    .offset(x = offset.coerceAtLeast(0.dp))
+                    .width(width)
+                    .height(LiveDims.EpgRowHeight)
                     .padding(horizontal = 3.dp, vertical = 6.dp)
                     .clip(RoundedCornerShape(LiveDims.CellRadius))
                     .background(LiveColors.Panel)
-                    .pointerInput(Unit) { detectTapGestures(onTap = { onClick() }) },
-            )
+                    .pointerInput(channel.id) { detectTapGestures(onTap = { onClick() }) }
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                contentAlignment = Alignment.CenterStart,
+            ) {
+                Text(
+                    text = channel.name,
+                    style = LiveType.CellTitle.copy(color = LiveColors.FgDim),
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                )
+            }
         } else {
             programs.forEach { p ->
                 val startMin = ((p.startUtcMillis - windowStartMillis) / 60_000L).toInt().coerceAtLeast(0)

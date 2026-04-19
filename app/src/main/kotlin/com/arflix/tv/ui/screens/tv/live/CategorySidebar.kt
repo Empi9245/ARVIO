@@ -123,7 +123,7 @@ fun CategorySidebar(
                         label = country.label,
                         count = country.count,
                         icon = null,
-                        flagEmoji = country.flagEmoji,
+                        leadingCode = country.id,
                         active = selectedId == country.id,
                         expanded = expanded,
                         hasChildren = country.children.isNotEmpty(),
@@ -242,6 +242,7 @@ private fun SidebarRow(
     expanded: Boolean,
     onClick: () -> Unit,
     flagEmoji: String? = null,
+    leadingCode: String? = null,
     hasChildren: Boolean = false,
     isOpenGroup: Boolean = false,
     indent: androidx.compose.ui.unit.Dp = 0.dp,
@@ -289,6 +290,14 @@ private fun SidebarRow(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             when {
+                leadingCode != null -> Text(
+                    text = leadingCode,
+                    style = LiveType.NumberMono.copy(
+                        color = if (active) LiveColors.Accent else LiveColors.FgMute,
+                        fontSize = 12.sp,
+                    ),
+                    modifier = Modifier.width(26.dp),
+                )
                 flagEmoji != null -> Text(
                     text = flagEmoji,
                     style = LiveType.CatLabel.copy(fontSize = 18.sp),

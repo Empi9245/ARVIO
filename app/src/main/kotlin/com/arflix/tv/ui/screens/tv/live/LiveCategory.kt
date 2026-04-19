@@ -87,6 +87,32 @@ fun countryFlag(code: String?): String {
     }.joinToString("")
 }
 
+/** Human-readable country / language-bucket name. Matches the mockup
+ *  ("NL Netherlands", "US United States", …). */
+private val COUNTRY_NAMES = mapOf(
+    "NL" to "Netherlands", "UK" to "United Kingdom", "GB" to "United Kingdom",
+    "US" to "United States", "DE" to "Germany", "FR" to "France",
+    "IT" to "Italy", "ES" to "Spain", "PT" to "Portugal", "BE" to "Belgium",
+    "TR" to "Turkey", "IN" to "India", "BR" to "Brazil", "PL" to "Poland",
+    "SE" to "Sweden", "DK" to "Denmark", "NO" to "Norway", "FI" to "Finland",
+    "RU" to "Russia", "GR" to "Greece", "RO" to "Romania", "HU" to "Hungary",
+    "CZ" to "Czech Republic", "AT" to "Austria", "CH" to "Switzerland",
+    "IE" to "Ireland", "JP" to "Japan", "KR" to "South Korea", "CN" to "China",
+    "TW" to "Taiwan", "HK" to "Hong Kong", "MX" to "Mexico", "CA" to "Canada",
+    "AU" to "Australia", "NZ" to "New Zealand", "ZA" to "South Africa",
+    "AE" to "UAE", "SA" to "Saudi Arabia", "EG" to "Egypt", "MA" to "Morocco",
+    "UA" to "Ukraine", "BG" to "Bulgaria", "HR" to "Croatia", "RS" to "Serbia",
+    "SK" to "Slovakia", "SI" to "Slovenia", "LT" to "Lithuania",
+    "LV" to "Latvia", "EE" to "Estonia", "IL" to "Israel",
+    // Language buckets
+    "EN" to "English", "JA" to "Japanese", "KO" to "Korean", "ZH" to "Chinese",
+    "AR" to "Arabic", "SV" to "Swedish", "DA" to "Danish", "EL" to "Greek",
+    "CS" to "Czech", "HI" to "Hindi", "HE" to "Hebrew", "FA" to "Persian",
+    "AF" to "Afrikaans",
+)
+
+fun countryName(code: String): String = COUNTRY_NAMES[code.uppercase()] ?: code
+
 /** Parse a genre out of any slice of text (group name, channel name, etc). */
 fun genreFromText(text: String): Genre {
     val t = text.lowercase()
@@ -271,7 +297,7 @@ fun buildCategoryTree(
             }
             LiveCategory(
                 id = code,
-                label = code,
+                label = countryName(code),
                 count = list.size,
                 iconToken = CategoryIcon.Country,
                 flagEmoji = countryFlag(code),
