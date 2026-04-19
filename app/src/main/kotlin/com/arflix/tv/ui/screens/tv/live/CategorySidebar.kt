@@ -1,7 +1,10 @@
 package com.arflix.tv.ui.screens.tv.live
 
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -74,16 +77,23 @@ fun CategorySidebar(
     expanded: Boolean,
     onSelect: (String) -> Unit,
     onOpenSearch: () -> Unit,
+    onFocusEnter: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    val width = if (expanded) LiveDims.SidebarExpanded else LiveDims.SidebarCollapsed
+    val targetWidth = if (expanded) LiveDims.SidebarExpanded else LiveDims.SidebarCollapsed
+    val animatedWidth by animateDpAsState(
+        targetValue = targetWidth,
+        animationSpec = tween(durationMillis = 240),
+        label = "sidebar-width",
+    )
     var expandedCountry by rememberSaveable { mutableStateOf<String?>(null) }
 
     Column(
         modifier = modifier
-            .width(width)
+            .width(animatedWidth)
             .fillMaxHeight()
             .background(LiveColors.PanelDeep)
+            .onFocusChanged { if (it.hasFocus) onFocusEnter() }
             .padding(horizontal = 10.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
@@ -180,6 +190,11 @@ private fun SearchEntry(onClick: () -> Unit, expanded: Boolean) {
             .height(48.dp)
             .clip(RoundedCornerShape(10.dp))
             .background(if (focused) LiveColors.FocusBg else LiveColors.Panel)
+            .border(
+                width = if (focused) 2.dp else 0.dp,
+                color = if (focused) LiveColors.FocusRing else Color.Transparent,
+                shape = RoundedCornerShape(10.dp),
+            )
             .focusable()
             .onFocusChanged { focused = it.isFocused }
             .onKeyEvent { ev ->
@@ -276,6 +291,11 @@ private fun SidebarRow(
                 .padding(start = if (active) 12.dp else 10.dp, end = 12.dp)
                 .clip(RoundedCornerShape(8.dp))
                 .background(bg)
+                .border(
+                    width = if (focused) 2.dp else 0.dp,
+                    color = if (focused) LiveColors.FocusRing else Color.Transparent,
+                    shape = RoundedCornerShape(8.dp),
+                )
                 .focusable()
                 .onFocusChanged { focused = it.isFocused }
                 .onKeyEvent { ev ->

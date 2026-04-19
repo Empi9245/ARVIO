@@ -1,6 +1,7 @@
 package com.arflix.tv.ui.screens.tv.live
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.focusable
@@ -74,6 +75,10 @@ fun ChannelRow(
             .fillMaxWidth()
             .height(LiveDims.EpgRowHeight)
             .background(bg)
+            .border(
+                width = if (focused) 2.dp else 0.dp,
+                color = if (focused) LiveColors.FocusRing else Color.Transparent,
+            )
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = onFavoriteToggle,

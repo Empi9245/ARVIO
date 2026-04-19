@@ -34,11 +34,15 @@ object LiveColors {
     val FgDim  = Color(0xFFB5B6BE)
     val FgMute = Color(0xFF7D7E86)
 
-    // Mockup-true accent: cyan (`#7EC8E3`) not amber. The amber variant is
-    // still available to theme, but the shipped design uses cyan.
-    val Accent    = Color(0xFF7EC8E3)
-    val AccentDim = Color(0xFF4D9BB8)
-    val FocusBg   = Color(0x1A7EC8E3)
+    // Modern dark-blue accent. Less saturated than the prior cyan — reads as
+    // a sophisticated "black-blue" for the TV grid. NOW pill, progress bars
+    // and active indicators use this. Pure white drives focus rings.
+    val Accent    = Color(0xFF4F7FB0)
+    val AccentDim = Color(0xFF355578)
+    val FocusBg   = Color(0x264F7FB0) // 15% alpha for softer row tint
+
+    // Focus ring color — always pure white on TV for maximum clarity.
+    val FocusRing = Color(0xFFFFFFFF)
 
     val LiveRed = Color(0xFFFF3B30)
     val Online  = Color(0xFF4ADE80)

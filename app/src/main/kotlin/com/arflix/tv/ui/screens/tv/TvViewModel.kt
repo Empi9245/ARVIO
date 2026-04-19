@@ -96,6 +96,16 @@ class TvViewModel @Inject constructor(
     private var pendingForcedReload: Boolean = false
     private var periodicEpgJob: Job? = null
 
+    /**
+     * In-memory cache of the live-TV enriched channel list + category tree.
+     * Persists across screen visits for the lifetime of the ViewModel (which
+     * Hilt scopes to the nav backstack entry). Keeps the sub-second first
+     * paint when returning to the TV screen — the costly enrichment of 52k
+     * channels only runs once per session.
+     */
+    @Volatile var cachedEnrichedChannels: Any? = null
+    @Volatile var cachedChannelsSignature: String? = null
+
     init {
         observeConfigAndFavorites()
         viewModelScope.launch {

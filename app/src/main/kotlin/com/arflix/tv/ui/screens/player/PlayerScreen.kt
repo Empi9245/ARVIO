@@ -2457,27 +2457,29 @@ fun PlayerScreen(
             }
         }
 
-        // Skip overlay - shows +10/-10 when seeking without controls
-        // Positioned near bottom (above trackbar area), no background, just text with shadow
+        // Skip overlay — floats near the bottom while the user spams ±10s.
+        // Now sits ~48dp from the bottom (was 120dp, which wasted vertical
+        // space and felt too detached). Time labels flanking the progress
+        // bar show exactly how far along the user is.
         AnimatedVisibility(
             visible = showSkipOverlay,
             enter = fadeIn(androidx.compose.animation.core.tween(150)),
             exit = fadeOut(androidx.compose.animation.core.tween(200)),
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(bottom = 120.dp)
+                .padding(bottom = 48.dp)
         ) {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier
-                    .fillMaxWidth(0.7f)
-                    .background(Color.Black.copy(alpha = 0.45f), RoundedCornerShape(10.dp))
-                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                    .fillMaxWidth(0.72f)
+                    .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(12.dp))
+                    .padding(horizontal = 20.dp, vertical = 14.dp)
             ) {
                 Text(
                     text = if (skipAmount >= 0) "+${skipAmount}s" else "${skipAmount}s",
                     style = ArflixTypography.sectionTitle.copy(
-                        fontSize = 28.sp,
+                        fontSize = 26.sp,
                         fontWeight = FontWeight.Bold,
                         shadow = Shadow(
                             color = Color.Black,
@@ -2495,17 +2497,39 @@ fun PlayerScreen(
                     val previewProgress = (previewPosition.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
 
                     Spacer(modifier = Modifier.height(10.dp))
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(5.dp)
-                            .background(Color.White.copy(alpha = 0.25f), RoundedCornerShape(3.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.fillMaxWidth(),
                     ) {
+                        Text(
+                            text = formatTime(previewPosition),
+                            style = ArflixTypography.caption.copy(
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium,
+                            ),
+                            color = Color.White,
+                        )
                         Box(
                             modifier = Modifier
-                                .fillMaxWidth(previewProgress)
+                                .weight(1f)
                                 .height(5.dp)
-                                .background(Pink, RoundedCornerShape(3.dp))
+                                .background(Color.White.copy(alpha = 0.25f), RoundedCornerShape(3.dp))
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth(previewProgress)
+                                    .height(5.dp)
+                                    .background(Color.White, RoundedCornerShape(3.dp))
+                            )
+                        }
+                        Text(
+                            text = formatTime(duration),
+                            style = ArflixTypography.caption.copy(
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium,
+                            ),
+                            color = Color.White.copy(alpha = 0.75f),
                         )
                     }
                 }

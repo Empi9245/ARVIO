@@ -62,11 +62,12 @@ fun ProgramCell(
         else -> LiveColors.Panel
     }
     val bg = if (focused) LiveColors.PanelRaised else baseBg
-    val border = when {
-        focused -> LiveColors.Accent
-        isNow -> LiveColors.Accent.copy(alpha = 0.35f)
+    val borderColor = when {
+        focused -> LiveColors.FocusRing
+        isNow -> LiveColors.Accent.copy(alpha = 0.45f)
         else -> Color.Transparent
     }
+    val borderWidth = if (focused) 2.dp else 1.dp
     Box(
         modifier = modifier
             .height(LiveDims.EpgRowHeight)
@@ -75,8 +76,8 @@ fun ProgramCell(
             .clip(RoundedCornerShape(LiveDims.CellRadius))
             .background(bg)
             .border(
-                width = if (focused) LiveDims.FocusBorder else 1.dp,
-                color = border,
+                width = borderWidth,
+                color = borderColor,
                 shape = RoundedCornerShape(LiveDims.CellRadius),
             )
             .alpha(if (isPast && !focused) 0.55f else 1f)

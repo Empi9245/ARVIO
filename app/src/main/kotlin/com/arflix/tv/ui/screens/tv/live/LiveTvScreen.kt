@@ -34,6 +34,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
@@ -52,6 +53,9 @@ import com.arflix.tv.data.model.Profile
 import com.arflix.tv.ui.screens.tv.TvUiState
 import com.arflix.tv.ui.screens.tv.TvViewModel
 import com.arflix.tv.network.OkHttpProvider
+import com.arflix.tv.ui.components.AppTopBar
+import com.arflix.tv.ui.components.AppTopBarContentTopInset
+import com.arflix.tv.ui.components.SidebarItem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -83,10 +87,25 @@ fun LiveTvScreen(
     val context = LocalContext.current
 
     // Enrichment runs on a background dispatcher and is published through state
-    // — avoids blocking recomposition for 10k+ playlists.
-    val enrichedState = remember { mutableStateOf<EnrichedChannels>(EnrichedChannels.Empty) }
+    // — avoids blocking recomposition for 10k+ playlists. Result is cached in
+    // the ViewModel so re-visits to the TV page are instant (no 2-3s stall).
+    val enrichedState = remember {
+        mutableStateOf<EnrichedChannels>(
+            (viewModel.cachedEnrichedChannels as? EnrichedChannels) ?: EnrichedChannels.Empty
+        )
+    }
     LaunchedEffect(state.snapshot.channels) {
         val snapshot = state.snapshot.channels
+        if (snapshot.isEmpty()) return@LaunchedEffect
+        // Skip re-enrichment if we already have a cache for the same playlist.
+        val signature = "${snapshot.size}:${snapshot.firstOrNull()?.id}:${snapshot.lastOrNull()?.id}"
+        if (viewModel.cachedChannelsSignature == signature &&
+            viewModel.cachedEnrichedChannels is EnrichedChannels
+        ) {
+            enrichedState.value = viewModel.cachedEnrichedChannels as EnrichedChannels
+            return@LaunchedEffect
+        }
+
         val enriched = withContext(Dispatchers.Default) {
             snapshot.mapIndexed { idx, ch -> ch.enrich(100 + idx) }
         }
@@ -98,7 +117,10 @@ fun LiveTvScreen(
                 recentCount = 0,
             )
         }
-        enrichedState.value = EnrichedChannels(all = enriched, tree = tree)
+        val value = EnrichedChannels(all = enriched, tree = tree)
+        enrichedState.value = value
+        viewModel.cachedEnrichedChannels = value
+        viewModel.cachedChannelsSignature = signature
     }
     // Re-evaluate tree counts when favorites change without re-enriching.
     LaunchedEffect(state.snapshot.favoriteChannels) {
@@ -246,14 +268,22 @@ fun LiveTvScreen(
         }
     }
 
+    // Auto-collapse sidebar whenever focus leaves it. Collapses when the
+    // EPG/mini-player takes focus and expands again on DPAD_LEFT / back.
     BackHandler(enabled = searchOpen) { searchOpen = false }
-    BackHandler(enabled = !searchOpen) { onBack() }
+    BackHandler(enabled = !searchOpen && !sidebarExpanded) {
+        sidebarExpanded = true
+        runCatching { sidebarFocus.requestFocus() }
+    }
+    BackHandler(enabled = !searchOpen && sidebarExpanded) { onBack() }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(LiveColors.Bg)
     ) {
+        // Content area starts below the translucent top bar so it doesn't get
+        // overwritten.
         if (state.isLoading && state.snapshot.channels.isEmpty()) {
             LoadingPane(message = state.loadingMessage, percent = state.loadingPercent)
         } else if (!state.isConfigured && state.snapshot.channels.isEmpty()) {
@@ -263,13 +293,18 @@ fun LiveTvScreen(
                 onAction = onNavigateToSettings,
             )
         } else {
-            Row(modifier = Modifier.fillMaxSize()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(top = AppTopBarContentTopInset),
+            ) {
                 CategorySidebar(
                     tree = enrichedState.value.tree,
                     selectedId = selectedCategoryId,
                     expanded = sidebarExpanded,
                     onSelect = { id -> selectedCategoryId = id },
                     onOpenSearch = { searchOpen = true },
+                    onFocusEnter = { sidebarExpanded = true },
                     modifier = Modifier
                         .fillMaxHeight()
                         .focusRequester(sidebarFocus),
@@ -284,7 +319,8 @@ fun LiveTvScreen(
                         favoriteSet = favSet,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .focusRequester(miniFocus),
+                            .focusRequester(miniFocus)
+                            .onFocusChanged { if (it.hasFocus) sidebarExpanded = false },
                     )
                     EpgGrid(
                         channels = filteredChannels,
@@ -295,11 +331,24 @@ fun LiveTvScreen(
                         favorites = favSet,
                         modifier = Modifier
                             .fillMaxSize()
-                            .focusRequester(epgFocus),
+                            .focusRequester(epgFocus)
+                            .onFocusChanged { if (it.hasFocus) sidebarExpanded = false },
                     )
                 }
             }
         }
+
+        // Translucent top bar — shows profile avatar + nav + clock without
+        // stealing focus from the sidebar/EPG. Sits above the content via
+        // the Box ordering; content below already has top padding so nothing
+        // overlaps.
+        AppTopBar(
+            selectedItem = SidebarItem.TV,
+            isFocused = false,
+            focusedIndex = -1,
+            profile = currentProfile,
+            profileCount = 1,
+        )
 
         AnimatedVisibility(
             visible = searchOpen,

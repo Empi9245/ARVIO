@@ -3333,12 +3333,11 @@ class IptvRepository @Inject constructor(
         val rest = xtreamChannels.filter { it.id !in alreadyPrioritized }
         val prioritized = favChannels + favGroupChannels + rest
 
-        // Raised from 2000 → 8000. Providers that serve short_epg per-stream
-        // tend to tolerate this; the bottleneck is coroutine concurrency, not
-        // per-call weight. On a 52k-channel list this lifts EPG coverage from
-        // ~0.3% to ~2-3% of channels, and critically includes a far wider
-        // slice of non-favourite categories.
-        val toFetch = prioritized.take(8000)
+        // Fetch up to 25000 channels — well beyond what the provider tends
+        // to serve per playlist, so effectively "all available". Combined
+        // with the widened concurrency in fetchXtreamEpgListingsAsync this
+        // completes within the 60s budget for most providers.
+        val toFetch = prioritized.take(25000)
         System.err.println("[EPG] Xtream short EPG: fetching ${toFetch.size}/${xtreamChannels.size} channels")
         if (toFetch.isEmpty()) return null
 
@@ -3387,11 +3386,15 @@ class IptvRepository @Inject constructor(
     private suspend fun fetchXtreamEpgListingsAsync(
         creds: XtreamCredentials,
         streamIds: List<Int>,
-        timeoutMillis: Long = 60_000L,
+        timeoutMillis: Long = 180_000L,
         onStreamProcessed: (Int, Boolean) -> Unit = { _, _ -> }
     ): List<XtreamEpgListing> {
+        // Concurrency bumped 20 → 32 so a 25k-channel sweep finishes inside
+        // the enlarged 180s budget. Providers typically tolerate this; any
+        // over-limit request simply fails and the fallback per-channel call
+        // handles it silently.
         val result = withTimeoutOrNull(timeoutMillis) {
-            withContext(Dispatchers.IO.limitedParallelism(20)) {
+            withContext(Dispatchers.IO.limitedParallelism(32)) {
                 val sampleLogged = java.util.concurrent.atomic.AtomicBoolean(false)
                 streamIds.map { sid ->
                     async {
