@@ -574,6 +574,10 @@ fun DetailsScreen(
                 DetailsContent(
                     item = item,
                     logoUrl = uiState.logoUrl,
+                    primaryStreamingLogoUrl = uiState.streamingServices
+                        .firstOrNull()
+                        ?.logoUrl
+                        ?.takeIf { it.isNotBlank() },
                     episodes = uiState.episodes,
                     totalSeasons = uiState.totalSeasons,
                     currentSeason = uiState.currentSeason,
@@ -934,6 +938,7 @@ private fun handleRight(
 private fun DetailsContent(
     item: MediaItem,
     logoUrl: String?,
+    primaryStreamingLogoUrl: String? = null,
     episodes: List<Episode>,
     totalSeasons: Int,
     currentSeason: Int,
@@ -1102,6 +1107,17 @@ private fun DetailsContent(
                                 color = Color.White.copy(alpha = 0.7f),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        if (!primaryStreamingLogoUrl.isNullOrBlank()) {
+                            Text(text = "|", style = ArflixTypography.caption.copy(fontSize = 12.sp), color = Color.White.copy(alpha = 0.4f), maxLines = 1)
+                            AsyncImage(
+                                model = primaryStreamingLogoUrl,
+                                contentDescription = "Primary streaming provider",
+                                contentScale = ContentScale.Fit,
+                                modifier = Modifier
+                                    .height(14.dp)
+                                    .width(44.dp)
                             )
                         }
                         if (ratingValue > 0f) {
@@ -1566,6 +1582,18 @@ private fun DetailsContent(
                                 shadow = textShadow
                             ),
                             color = Color.White
+                        )
+                    }
+
+                    if (!primaryStreamingLogoUrl.isNullOrBlank()) {
+                        Text(text = "|", style = separatorStyle, color = Color.White.copy(alpha = 0.7f))
+                        AsyncImage(
+                            model = primaryStreamingLogoUrl,
+                            contentDescription = "Primary streaming provider",
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier
+                                .height(18.dp)
+                                .width(56.dp)
                         )
                     }
 
