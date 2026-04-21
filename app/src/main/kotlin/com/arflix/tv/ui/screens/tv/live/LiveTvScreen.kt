@@ -282,11 +282,21 @@ fun LiveTvScreen(
     ) {
         // Content area starts below the translucent top bar so it doesn't get
         // overwritten.
+        // Keep the loading pane up until enrichment has actually produced
+        // channels — avoids the "empty TV page for 10s" gap the user saw.
+        val isEnriching = enrichedState.value === EnrichedChannels.Empty &&
+            state.snapshot.channels.isNotEmpty()
         if (isFullScreen) {
             // Full-screen playback only — no grid rendered so the single
             // PlayerView owns ExoPlayer.
-        } else if (state.isLoading && state.snapshot.channels.isEmpty()) {
-            LoadingPane(message = state.loadingMessage, percent = state.loadingPercent)
+        } else if (
+            state.isLoading && state.snapshot.channels.isEmpty() ||
+            isEnriching
+        ) {
+            LoadingPane(
+                message = state.loadingMessage ?: "Preparing channels…",
+                percent = state.loadingPercent,
+            )
         } else if (!state.isConfigured && state.snapshot.channels.isEmpty()) {
             EmptyStatePane(
                 message = "No IPTV playlist configured.",

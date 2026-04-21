@@ -84,8 +84,17 @@ fun ChannelRow(
                 onClick = onClick,
                 onLongClick = onFavoriteToggle,
             )
+            // Compose's combinedClickable doesn't catch DPAD long-press on
+            // every TV — the key repeats before the long-click threshold
+            // fires. Catch it here explicitly: the first repeat (native
+            // repeatCount == 1) on CENTER / ENTER / MENU triggers favorite
+            // toggle, giving the user the "hold OK" gesture everywhere.
             .onKeyEvent { ev ->
-                if (ev.type == KeyEventType.KeyDown && ev.key == Key.Menu) {
+                val isLongHoldCenter = ev.type == KeyEventType.KeyDown &&
+                    (ev.key == Key.DirectionCenter || ev.key == Key.Enter) &&
+                    ev.nativeKeyEvent.repeatCount == 1
+                val isMenu = ev.type == KeyEventType.KeyDown && ev.key == Key.Menu
+                if (isLongHoldCenter || isMenu) {
                     onFavoriteToggle(); true
                 } else false
             },
@@ -144,20 +153,14 @@ fun ChannelRow(
                     )
                 }
             }
-            Text(
-                text = now?.title ?: "No info",
-                style = LiveType.BodySynopsis.copy(
-                    color = if (now != null) LiveColors.FgDim else LiveColors.FgMute,
-                ),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            // Thin progress line + end-time
+            // Only the thin progress underline stays here — programme info
+            // itself is shown exclusively in the time-aligned grid cells to
+            // the right, not smeared across the channel name column.
             val progress = progressOf(now)
             if (progress != null) {
                 LinearProgressIndicator(
                     progress = { progress },
-                    modifier = Modifier.width(110.dp).height(2.dp),
+                    modifier = Modifier.width(80.dp).height(2.dp),
                     color = LiveColors.Accent,
                     trackColor = LiveColors.Divider,
                 )
