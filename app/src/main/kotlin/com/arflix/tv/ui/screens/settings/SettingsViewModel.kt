@@ -153,6 +153,7 @@ data class SettingsUiState(
     val skipProfileSelection: Boolean = false,
     val clockFormat: String = "24h",
     val qualityFilters: List<QualityFilterConfig> = emptyList(),
+    val qualityFilterPresetLabel: String = "OFF",
     // Toast
     val toastMessage: String? = null,
     val toastType: ToastType = ToastType.INFO
@@ -244,6 +245,42 @@ class SettingsViewModel @Inject constructor(
         RESTORED,
         NO_BACKUP,
         FAILED
+    }
+
+    private enum class QualityFilterPreset(
+        val label: String,
+        val filterId: String?,
+        val regexPattern: String?
+    ) {
+        OFF(label = "OFF", filterId = null, regexPattern = null),
+        HD_1080_PLUS(
+            label = "1080p+",
+            filterId = "preset_quality_1080_plus",
+            regexPattern = "(?:360|480|576|720)p|cam|hdcam|hdts|hdtc|telesync|telecine|ts|tc|screener|scr|sd"
+        ),
+        HD_1080_ONLY(
+            label = "1080p only",
+            filterId = "preset_quality_1080_only",
+            regexPattern = "(?:2160|4k|uhd)|(?:360|480|576|720)p|cam|hdcam|hdts|hdtc|telesync|telecine|ts|tc|screener|scr|sd"
+        ),
+        HD_720_PLUS(
+            label = "720p+",
+            filterId = "preset_quality_720_plus",
+            regexPattern = "(?:360|480|576)p|cam|hdcam|hdts|hdtc|telesync|telecine|ts|tc|screener|scr|sd"
+        ),
+        CUSTOM(label = "CUSTOM", filterId = null, regexPattern = null);
+
+        fun toFilters(): List<QualityFilterConfig> {
+            if (this == OFF || this == CUSTOM || filterId == null || regexPattern == null) return emptyList()
+            return listOf(
+                QualityFilterConfig(
+                    id = filterId,
+                    deviceName = "Preset: $label",
+                    regexPattern = regexPattern,
+                    enabled = true
+                )
+            )
+        }
     }
 
     init {
@@ -390,7 +427,8 @@ class SettingsViewModel @Inject constructor(
                 deviceModeOverride = deviceModeOverride,
                 skipProfileSelection = skipProfileSelection,
                 clockFormat = clockFormat,
-                qualityFilters = qualityFilters
+                qualityFilters = qualityFilters,
+                qualityFilterPresetLabel = detectQualityFilterPreset(qualityFilters).label
             )
         }
     }
@@ -993,6 +1031,20 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun cycleQualityFilterPreset() {
+        viewModelScope.launch {
+            val currentPreset = detectQualityFilterPreset(_uiState.value.qualityFilters)
+            val nextPreset = when (currentPreset) {
+                QualityFilterPreset.OFF,
+                QualityFilterPreset.CUSTOM -> QualityFilterPreset.HD_1080_PLUS
+                QualityFilterPreset.HD_1080_PLUS -> QualityFilterPreset.HD_1080_ONLY
+                QualityFilterPreset.HD_1080_ONLY -> QualityFilterPreset.HD_720_PLUS
+                QualityFilterPreset.HD_720_PLUS -> QualityFilterPreset.OFF
+            }
+            saveQualityFilters(nextPreset.toFilters())
+        }
+    }
+
     fun toggleQualityFilter(filterId: String) {
         viewModelScope.launch {
             val next = _uiState.value.qualityFilters.map { filter ->
@@ -1014,11 +1066,28 @@ class SettingsViewModel @Inject constructor(
             prefs[qualityFiltersKey] = gson.toJson(filters)
         }
         // Device-scoped capability filter: intentionally local and not cloud-synced.
-        _uiState.value = _uiState.value.copy(qualityFilters = filters)
+        _uiState.value = _uiState.value.copy(
+            qualityFilters = filters,
+            qualityFilterPresetLabel = detectQualityFilterPreset(filters).label
+        )
         // Update in-memory cache in StreamRepository to avoid DataStore reads in hot path
         streamRepository.updateQualityFiltersCache(filters)
     }
-    
+
+    private fun detectQualityFilterPreset(filters: List<QualityFilterConfig>): QualityFilterPreset {
+        val enabled = filters.filter { it.enabled && it.regexPattern.isNotBlank() }
+        if (enabled.isEmpty()) return QualityFilterPreset.OFF
+        if (enabled.size != 1) return QualityFilterPreset.CUSTOM
+
+        val single = enabled.first()
+        return QualityFilterPreset.entries.firstOrNull { preset ->
+            preset != QualityFilterPreset.OFF &&
+                preset != QualityFilterPreset.CUSTOM &&
+                preset.filterId == single.id &&
+                preset.regexPattern == single.regexPattern
+        } ?: QualityFilterPreset.CUSTOM
+    }
+
     // ========== Addon Management ==========
     
     fun toggleAddon(addonId: String) {

@@ -258,12 +258,6 @@ fun SettingsScreen(
     var contentLanguagePickerIndex by remember { mutableIntStateOf(0) }
     var showUiModeWarningDialog by remember { mutableStateOf(false) }
     var nextUiMode by remember { mutableStateOf("") }
-    var showQualityFiltersModal by remember { mutableStateOf(false) }
-    var qualityFiltersModalFocusedFilterIndex by remember { mutableIntStateOf(-1) }
-    var qualityFiltersModalFocusedActionIndex by remember { mutableIntStateOf(-1) }
-    var showQualityFilterInput by remember { mutableStateOf(false) }
-    var qualityFilterDeviceName by remember { mutableStateOf("") }
-    var qualityFilterRegex by remember { mutableStateOf("") }
 
     val stremioAddons = remember(uiState.addons) {
         uiState.addons.filter { it.runtimeKind == RuntimeKind.STREMIO }
@@ -285,7 +279,7 @@ fun SettingsScreen(
     }
     val sectionMaxIndex: (String) -> Int = { section ->
         when (section) {
-            "general" -> 16 // 17 rows
+            "general" -> 17 // 18 rows
             "iptv" -> 2 + uiState.iptvPlaylists.size // Add + rows + refresh + clear
             "catalogs" -> uiState.catalogs.size // Add + rows
             "stremio" -> stremioAddons.size // rows + add button
@@ -500,8 +494,6 @@ fun SettingsScreen(
         showDnsProviderPicker ||
         showContentLanguagePicker ||
         showUiModeWarningDialog ||
-        showQualityFiltersModal ||
-        showQualityFilterInput ||
         uiState.showCloudPairDialog ||
         uiState.showCloudEmailPasswordDialog ||
         uiState.showAppUpdateDialog ||
@@ -692,14 +684,14 @@ fun SettingsScreen(
                                                 7 -> viewModel.cycleAutoPlayMinQuality()
                                                 8 -> viewModel.setTrailerAutoPlay(!uiState.trailerAutoPlay)
                                                 9 -> viewModel.cycleFrameRateMatchingMode()
-                                                10 -> viewModel.toggleCardLayoutMode()
-                                                11 -> openUiModeWarningDialog()
-                                                12 -> viewModel.setSkipProfileSelection(!uiState.skipProfileSelection)
-                                                13 -> viewModel.cycleClockFormat()
-                                                14 -> viewModel.setShowBudget(!uiState.showBudget)
-                                                15 -> openDnsProviderPicker()
-                                                16 -> viewModel.cycleVolumeBoost()
-                                                17 -> showQualityFiltersModal = true
+                                                10 -> viewModel.cycleQualityFilterPreset()
+                                                11 -> viewModel.toggleCardLayoutMode()
+                                                12 -> openUiModeWarningDialog()
+                                                13 -> viewModel.setSkipProfileSelection(!uiState.skipProfileSelection)
+                                                14 -> viewModel.cycleClockFormat()
+                                                15 -> viewModel.setShowBudget(!uiState.showBudget)
+                                                16 -> openDnsProviderPicker()
+                                                17 -> viewModel.cycleVolumeBoost()
                                             }
                                         }
                                         "iptv" -> {
@@ -908,8 +900,8 @@ fun SettingsScreen(
                             onShowBudgetToggle = { viewModel.setShowBudget(it) },
                             onVolumeBoostClick = { viewModel.cycleVolumeBoost() },
                             onSubtitleColorClick = { viewModel.cycleSubtitleColor() },
-                            qualityFilterCount = uiState.qualityFilters.count { it.enabled },
-                            onQualityFiltersClick = { showQualityFiltersModal = true }
+                            qualityFilterValue = uiState.qualityFilterPresetLabel,
+                            onQualityFiltersClick = { viewModel.cycleQualityFilterPreset() }
                         )
                         "iptv" -> IptvSettings(
                             playlists = uiState.iptvPlaylists,
@@ -1142,8 +1134,8 @@ fun SettingsScreen(
                             onVolumeBoostClick = { viewModel.cycleVolumeBoost() },
                             onSubtitleSizeClick = { viewModel.cycleSubtitleSize() },
                             onSubtitleColorClick = { viewModel.cycleSubtitleColor() },
-                            qualityFilterCount = uiState.qualityFilters.count { it.enabled },
-                            onQualityFiltersClick = { showQualityFiltersModal = true }
+                            qualityFilterValue = uiState.qualityFilterPresetLabel,
+                            onQualityFiltersClick = { viewModel.cycleQualityFilterPreset() }
                         )
                         "iptv" -> IptvSettings(
                             playlists = uiState.iptvPlaylists,
@@ -1278,62 +1270,6 @@ fun SettingsScreen(
             )
         }
 
-        if (showQualityFiltersModal) {
-            QualityFiltersModal(
-                filters = uiState.qualityFilters,
-                onDismiss = {
-                    showQualityFiltersModal = false
-                    qualityFiltersModalFocusedFilterIndex = -1
-                    qualityFiltersModalFocusedActionIndex = -1
-                },
-                onAdd = {
-                    showQualityFiltersModal = false
-                    showQualityFilterInput = true
-                    qualityFiltersModalFocusedFilterIndex = -1
-                    qualityFiltersModalFocusedActionIndex = -1
-                },
-                onToggle = { viewModel.toggleQualityFilter(it) },
-                onDelete = { viewModel.deleteQualityFilter(it) },
-                focusedFilterIndex = qualityFiltersModalFocusedFilterIndex,
-                onFocusedFilterIndexChange = { qualityFiltersModalFocusedFilterIndex = it },
-                focusedActionIndex = qualityFiltersModalFocusedActionIndex,
-                onFocusedActionIndexChange = { qualityFiltersModalFocusedActionIndex = it }
-            )
-        }
-
-        if (showQualityFilterInput) {
-            InputModal(
-                title = "Add Quality Filter",
-                fields = listOf(
-                    InputField(
-                        label = "Device Name (optional)",
-                        value = qualityFilterDeviceName,
-                        onValueChange = { qualityFilterDeviceName = it }
-                    ),
-                    InputField(
-                        label = "Regex Pattern",
-                        value = qualityFilterRegex,
-                        placeholder = "Example: 4K|2160p",
-                        onValueChange = { qualityFilterRegex = it }
-                    )
-                ),
-                onConfirm = {
-                    if (qualityFilterRegex.isNotBlank() && runCatching { Regex(qualityFilterRegex) }.isSuccess) {
-                        viewModel.addQualityFilter(qualityFilterDeviceName, qualityFilterRegex)
-                        qualityFilterDeviceName = ""
-                        qualityFilterRegex = ""
-                        showQualityFilterInput = false
-                        showQualityFiltersModal = true
-                    }
-                },
-                onDismiss = {
-                    qualityFilterDeviceName = ""
-                    qualityFilterRegex = ""
-                    showQualityFilterInput = false
-                    showQualityFiltersModal = true
-                }
-            )
-        }
 
         if (showCloudstreamRepoInput) {
             InputModal(
@@ -2768,7 +2704,7 @@ private fun GeneralSettings(
     onSubtitleSizeClick: () -> Unit = {},
     onSubtitleColorClick: () -> Unit = {},
     onTrailerAutoPlayToggle: (Boolean) -> Unit = {},
-    qualityFilterCount: Int = 0,
+    qualityFilterValue: String = "OFF",
     onQualityFiltersClick: () -> Unit = {}
 ) {
     Column {
@@ -2885,6 +2821,16 @@ private fun GeneralSettings(
             onClick = onFrameRateMatchingClick,
             modifier = Modifier.settingsFocusSlot(9)
         )
+        Spacer(modifier = Modifier.height(10.dp))
+        SettingsRow(
+            icon = Icons.Default.HighQuality,
+            title = "Quality Regex Filters",
+            subtitle = "Exclude quality tiers on this device",
+            value = qualityFilterValue,
+            isFocused = focusedIndex == 10,
+            onClick = onQualityFiltersClick,
+            modifier = Modifier.settingsFocusSlot(10)
+        )
 
         // ── Interface ──
         Spacer(modifier = Modifier.height(24.dp))
@@ -2900,9 +2846,9 @@ private fun GeneralSettings(
             title = "Card Layout",
             subtitle = "Landscape or poster cards",
             value = cardLayoutMode,
-            isFocused = focusedIndex == 10,
+            isFocused = focusedIndex == 11,
             onClick = onCardLayoutToggle,
-            modifier = Modifier.settingsFocusSlot(10)
+            modifier = Modifier.settingsFocusSlot(11)
         )
         Spacer(modifier = Modifier.height(10.dp))
         SettingsRow(
@@ -2915,18 +2861,18 @@ private fun GeneralSettings(
                 "phone" -> "Phone"
                 else -> "Auto"
             },
-            isFocused = focusedIndex == 11,
+            isFocused = focusedIndex == 12,
             onClick = onDeviceModeClick,
-            modifier = Modifier.settingsFocusSlot(11)
+            modifier = Modifier.settingsFocusSlot(12)
         )
         Spacer(modifier = Modifier.height(10.dp))
         SettingsToggleRow(
             title = "Skip Profile Selection",
             subtitle = "Auto-load last used profile",
             isEnabled = skipProfileSelection,
-            isFocused = focusedIndex == 12,
+            isFocused = focusedIndex == 13,
             onToggle = onSkipProfileSelectionToggle,
-            modifier = Modifier.settingsFocusSlot(12)
+            modifier = Modifier.settingsFocusSlot(13)
         )
         Spacer(modifier = Modifier.height(10.dp))
         SettingsRow(
@@ -2934,9 +2880,9 @@ private fun GeneralSettings(
             title = "Clock Format",
             subtitle = "Choose 12-hour or 24-hour time",
             value = if (clockFormat == "12h") "12-hour" else "24-hour",
-            isFocused = focusedIndex == 13,
+            isFocused = focusedIndex == 14,
             onClick = onClockFormatClick,
-            modifier = Modifier.settingsFocusSlot(13)
+            modifier = Modifier.settingsFocusSlot(14)
         )
         Spacer(modifier = Modifier.height(10.dp))
         // Home hero controls — issue #72. The movie Budget line on the hero banner
@@ -2945,9 +2891,9 @@ private fun GeneralSettings(
             title = "Show Budget on Home",
             subtitle = "Display the movie budget on the home hero banner",
             isEnabled = showBudget,
-            isFocused = focusedIndex == 14,
+            isFocused = focusedIndex == 15,
             onToggle = onShowBudgetToggle,
-            modifier = Modifier.settingsFocusSlot(14)
+            modifier = Modifier.settingsFocusSlot(15)
         )
 
         // ── Network ──
@@ -2964,9 +2910,9 @@ private fun GeneralSettings(
             title = "DNS Provider",
             subtitle = "Resolve API and stream requests",
             value = dnsProvider,
-            isFocused = focusedIndex == 15,
+            isFocused = focusedIndex == 16,
             onClick = onDnsProviderClick,
-            modifier = Modifier.settingsFocusSlot(15)
+            modifier = Modifier.settingsFocusSlot(16)
         )
 
         // ── Audio ──
@@ -2986,19 +2932,9 @@ private fun GeneralSettings(
                 0 -> "Off"
                 else -> "+${volumeBoostDb} dB"
             },
-            isFocused = focusedIndex == 16,
-            onClick = onVolumeBoostClick,
-            modifier = Modifier.settingsFocusSlot(16)
-        )
-
-        Spacer(modifier = Modifier.height(10.dp))
-        SettingsRow(
-            icon = Icons.Default.HighQuality,
-            title = "Quality Regex Filters",
-            subtitle = "Exclude quality tiers on this device",
-            value = if (qualityFilterCount == 0) "OFF" else "$qualityFilterCount ON",
             isFocused = focusedIndex == 17,
-            onClick = onQualityFiltersClick
+            onClick = onVolumeBoostClick,
+            modifier = Modifier.settingsFocusSlot(17)
         )
     }
 }
