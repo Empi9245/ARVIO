@@ -1603,8 +1603,13 @@ class StreamRepository @Inject constructor(
             val totalAddons = prioritizedAddons.size + if (cloudstreamAddons.isNotEmpty()) 1 else 0
             prioritizedAddons.forEach { addon ->
                 launch {
-                    val addonStreams = fetchMovieStreamsFromAddon(addon, imdbId)
-                    val emission = mutex.withLock {
+                    val addonStreams = try {
+                        fetchMovieStreamsFromAddon(addon, imdbId)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "[StreamFetch][Movie] stremio addon ${addon.id} failed", e)
+                        emptyList()
+                    }
+                    mutex.withLock {
                         aggregatedStreams.addAll(addonStreams)
                         completed += 1
                         val deduped = aggregatedStreams
@@ -1622,18 +1627,21 @@ class StreamRepository @Inject constructor(
                         }
                         ProgressiveStreamResult(filtered, emptyList(), completed, totalAddons, completed == totalAddons)
                     }
-                    trySend(emission)
-                    if (emission.isFinal) close()
                 }
             }
             if (cloudstreamAddons.isNotEmpty()) {
                 launch {
-                    val addonStreams = cloudstreamProviderRuntime.resolveMovieStreams(
-                        addons = cloudstreamAddons,
-                        title = title,
-                        year = year
-                    )
-                    val emission = mutex.withLock {
+                    val addonStreams = try {
+                        cloudstreamProviderRuntime.resolveMovieStreams(
+                            addons = cloudstreamAddons,
+                            title = title,
+                            year = year
+                        )
+                    } catch (e: Exception) {
+                        Log.e(TAG, "[StreamFetch][Movie] cloudstream runtime failed", e)
+                        emptyList()
+                    }
+                    mutex.withLock {
                         aggregatedStreams.addAll(addonStreams)
                         completed += 1
                         val deduped = aggregatedStreams
@@ -1651,8 +1659,6 @@ class StreamRepository @Inject constructor(
                         }
                         ProgressiveStreamResult(filtered, emptyList(), completed, totalAddons, completed == totalAddons)
                     }
-                    trySend(emission)
-                    if (emission.isFinal) close()
                 }
             }
         }
@@ -1929,19 +1935,24 @@ class StreamRepository @Inject constructor(
             val totalAddons = prioritizedAddons.size + if (cloudstreamAddons.isNotEmpty()) 1 else 0
             prioritizedAddons.forEach { addon ->
                 launch {
-                    val addonStreams = fetchEpisodeStreamsFromAddon(
-                        addon = addon,
-                        imdbId = imdbId,
-                        season = season,
-                        episode = episode,
-                        tmdbId = tmdbId,
-                        tvdbId = tvdbId,
-                        genreIds = genreIds,
-                        originalLanguage = originalLanguage,
-                        title = title,
-                        airDate = airDate
-                    )
-                    val emission = mutex.withLock {
+                    val addonStreams = try {
+                        fetchEpisodeStreamsFromAddon(
+                            addon = addon,
+                            imdbId = imdbId,
+                            season = season,
+                            episode = episode,
+                            tmdbId = tmdbId,
+                            tvdbId = tvdbId,
+                            genreIds = genreIds,
+                            originalLanguage = originalLanguage,
+                            title = title,
+                            airDate = airDate
+                        )
+                    } catch (e: Exception) {
+                        Log.e(TAG, "[StreamFetch][Episode] stremio addon ${addon.id} failed", e)
+                        emptyList()
+                    }
+                    mutex.withLock {
                         aggregatedStreams.addAll(addonStreams)
                         completed += 1
                         val deduped = aggregatedStreams
@@ -1959,21 +1970,24 @@ class StreamRepository @Inject constructor(
                         }
                         ProgressiveStreamResult(filtered, emptyList(), completed, totalAddons, completed == totalAddons)
                     }
-                    trySend(emission)
-                    if (emission.isFinal) close()
                 }
             }
             if (cloudstreamAddons.isNotEmpty()) {
                 launch {
-                    val addonStreams = cloudstreamProviderRuntime.resolveEpisodeStreams(
-                        addons = cloudstreamAddons,
-                        title = title,
-                        year = null,
-                        season = season,
-                        episode = episode,
-                        airDate = airDate
-                    )
-                    val emission = mutex.withLock {
+                    val addonStreams = try {
+                        cloudstreamProviderRuntime.resolveEpisodeStreams(
+                            addons = cloudstreamAddons,
+                            title = title,
+                            year = null,
+                            season = season,
+                            episode = episode,
+                            airDate = airDate
+                        )
+                    } catch (e: Exception) {
+                        Log.e(TAG, "[StreamFetch][Episode] cloudstream runtime failed", e)
+                        emptyList()
+                    }
+                    mutex.withLock {
                         aggregatedStreams.addAll(addonStreams)
                         completed += 1
                         val deduped = aggregatedStreams
@@ -1991,8 +2005,6 @@ class StreamRepository @Inject constructor(
                         }
                         ProgressiveStreamResult(filtered, emptyList(), completed, totalAddons, completed == totalAddons)
                     }
-                    trySend(emission)
-                    if (emission.isFinal) close()
                 }
             }
         }

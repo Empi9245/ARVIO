@@ -80,7 +80,9 @@ class CloudstreamProviderRuntime @Inject constructor(
             ?: return@resolveAcrossAddons emptyList()
         val dataUrl = loadResponseToDataUrl(load)
             ?: return@resolveAcrossAddons emptyList()
-        extractLinksFromApi(api, dataUrl, addon)
+        val links = extractLinksFromApi(api, dataUrl, addon)
+        Log.d(TAG, "resolveMovieStreams returned ${links.size} stream(s) for ${addon.name}")
+        links
     }
 
     suspend fun resolveEpisodeStreams(
@@ -104,7 +106,9 @@ class CloudstreamProviderRuntime @Inject constructor(
             }
             else -> null
         } ?: return@resolveAcrossAddons emptyList()
-        extractLinksFromApi(api, target.data, addon)
+        val links = extractLinksFromApi(api, target.data, addon)
+        Log.d(TAG, "resolveEpisodeStreams returned ${links.size} stream(s) for ${addon.name}")
+        links
     }
 
     private suspend fun resolveAcrossAddons(
@@ -139,17 +143,42 @@ class CloudstreamProviderRuntime @Inject constructor(
         data: String,
         addon: Addon
     ): List<StreamSource> {
-        val links = mutableListOf<ExtractorLink>()
+        val rawLinks = mutableListOf<ExtractorLink>()
+        val finalLinks = mutableListOf<ExtractorLink>()
+
         val ok = runCatchingTimeout(LINKS_TIMEOUT_MS, "loadLinks") {
             api.loadLinks(
                 data = data,
                 isCasting = false,
                 subtitleCallback = { /* subtitles integration is phase 2 */ },
-                callback = { link -> synchronized(links) { links.add(link) } }
+                callback = { link -> synchronized(rawLinks) { rawLinks.add(link) } }
             )
         } ?: return emptyList()
-        if (!ok && links.isEmpty()) return emptyList()
-        return links.map { it.toStreamSource(addon) }
+
+        if (!ok && rawLinks.isEmpty()) return emptyList()
+
+        // Phase 2: Extract direct video urls from the links using ExtractorApi
+        rawLinks.forEach { rawLink ->
+            val extracted = try {
+                runCatchingTimeout(LINKS_TIMEOUT_MS, "loadExtractor") {
+                    com.lagradost.cloudstream3.utils.loadExtractor(
+                        url = rawLink.url,
+                        referer = rawLink.referer,
+                        subtitleCallback = { },
+                        callback = { extractedLink ->
+                            synchronized(finalLinks) { finalLinks.add(extractedLink) }
+                        }
+                    )
+                } ?: false
+            } catch (e: Exception) { false }
+
+            if (!extracted) {
+                // Extractor didn't handle it, add the raw link directly
+                synchronized(finalLinks) { finalLinks.add(rawLink) }
+            }
+        }
+
+        return finalLinks.map { it.toStreamSource(addon) }
     }
 
     /**
@@ -185,6 +214,9 @@ class CloudstreamProviderRuntime @Inject constructor(
 
     private fun loadResponseToDataUrl(response: LoadResponse): String? = when (response) {
         is MovieLoadResponse -> response.dataUrl.takeIf { it.isNotBlank() }
+        is TvSeriesLoadResponse -> response.episodes.firstOrNull()?.data?.takeIf { it.isNotBlank() }
+        is AnimeLoadResponse -> response.episodes.values.flatten().firstOrNull()?.data?.takeIf { it.isNotBlank() }
+        is com.lagradost.cloudstream3.LiveStreamLoadResponse -> response.dataUrl.takeIf { it.isNotBlank() }
         else -> null
     }
 

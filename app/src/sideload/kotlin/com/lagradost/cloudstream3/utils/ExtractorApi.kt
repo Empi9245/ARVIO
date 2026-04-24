@@ -264,15 +264,15 @@ fun Long.toUs(): Long {
  * use this.
  * */
 data class ExtractorLinkPlayList(
-    override val source: String,
-    override val name: String,
+    override var source: String,
+    override var name: String,
     val playlist: List<PlayListItem>,
-    override val referer: String,
-    override val quality: Int,
-    override val headers: Map<String, String> = mapOf(),
+    override var referer: String,
+    override var quality: Int,
+    override var headers: Map<String, String> = mapOf(),
     /** Used for getExtractorVerifierJob() */
-    override val extractorData: String? = null,
-    override val type: ExtractorLinkType,
+    override var extractorData: String? = null,
+    override var type: ExtractorLinkType,
 ) : ExtractorLink(
     source = source,
     name = name,
@@ -368,15 +368,15 @@ val WIDEVINE_UUID = UUID(-0x121074568629b532L, -0x5c37d8232ae2de13L)
 val PLAYREADY_UUID = UUID(-0x65fb0f8667bfbd7aL, -0x546d19a41f77a06bL)
 
 open class DrmExtractorLink private constructor(
-    override val source: String,
-    override val name: String,
-    override val url: String,
-    override val referer: String,
-    override val quality: Int,
-    override val headers: Map<String, String> = mapOf(),
+    override var source: String,
+    override var name: String,
+    override var url: String,
+    override var referer: String,
+    override var quality: Int,
+    override var headers: Map<String, String> = mapOf(),
     /** Used for getExtractorVerifierJob() */
-    override val extractorData: String? = null,
-    override val type: ExtractorLinkType,
+    override var extractorData: String? = null,
+    override var type: ExtractorLinkType,
     open val kid : String,
     open val key : String,
     open val uuid : UUID,
@@ -420,15 +420,15 @@ open class DrmExtractorLink private constructor(
 }
 
 open class ExtractorLink constructor(
-    open val source: String,
-    open val name: String,
-    override val url: String,
-    override val referer: String,
-    open val quality: Int,
-    override val headers: Map<String, String> = mapOf(),
+    open var source: String,
+    open var name: String,
+    override var url: String,
+    override var referer: String,
+    open var quality: Int,
+    override var headers: Map<String, String> = mapOf(),
     /** Used for getExtractorVerifierJob() */
-    open val extractorData: String? = null,
-    open val type: ExtractorLinkType,
+    open var extractorData: String? = null,
+    open var type: ExtractorLinkType,
 ) : IDownloadableMinimum {
     val isM3u8: Boolean get() = type == ExtractorLinkType.M3U8
     val isDash: Boolean get() = type == ExtractorLinkType.DASH
@@ -526,6 +526,27 @@ open class ExtractorLink constructor(
     override fun toString(): String {
         return "ExtractorLink(name=$name, url=$url, referer=$referer, type=$type)"
     }
+}
+
+suspend fun newExtractorLink(
+    source: String,
+    name: String,
+    url: String,
+    type: ExtractorLinkType = ExtractorLinkType.VIDEO,
+    initializer: suspend ExtractorLink.() -> Unit = {}
+): ExtractorLink {
+    val link = ExtractorLink(
+        source = source,
+        name = name,
+        url = url,
+        referer = "",
+        quality = Qualities.Unknown.value,
+        type = type,
+        headers = mapOf(),
+        extractorData = null
+    )
+    link.initializer()
+    return link
 }
 
 /**

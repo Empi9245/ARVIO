@@ -813,6 +813,7 @@ interface SearchResponse {
     var posterHeaders: Map<String, String>?
     var id: Int?
     var quality: SearchQuality?
+    var score: Score?
 }
 
 fun MainAPI.newMovieSearchResponse(
@@ -903,6 +904,7 @@ data class AnimeSearchResponse(
     override var id: Int? = null,
     override var quality: SearchQuality? = null,
     override var posterHeaders: Map<String, String>? = null,
+    override var score: Score? = null,
 ) : SearchResponse
 
 fun AnimeSearchResponse.addDubStatus(status: DubStatus, episodes: Int? = null) {
@@ -957,6 +959,7 @@ data class TorrentSearchResponse(
     override var id: Int? = null,
     override var quality: SearchQuality? = null,
     override var posterHeaders: Map<String, String>? = null,
+    override var score: Score? = null,
 ) : SearchResponse
 
 data class MovieSearchResponse(
@@ -970,6 +973,7 @@ data class MovieSearchResponse(
     override var id: Int? = null,
     override var quality: SearchQuality? = null,
     override var posterHeaders: Map<String, String>? = null,
+    override var score: Score? = null,
 ) : SearchResponse
 
 data class LiveSearchResponse(
@@ -983,6 +987,7 @@ data class LiveSearchResponse(
     override var quality: SearchQuality? = null,
     override var posterHeaders: Map<String, String>? = null,
     val lang: String? = null,
+    override var score: Score? = null,
 ) : SearchResponse
 
 data class TvSeriesSearchResponse(
@@ -997,6 +1002,7 @@ data class TvSeriesSearchResponse(
     override var id: Int? = null,
     override var quality: SearchQuality? = null,
     override var posterHeaders: Map<String, String>? = null,
+    override var score: Score? = null,
 ) : SearchResponse
 
 data class TrailerData(
