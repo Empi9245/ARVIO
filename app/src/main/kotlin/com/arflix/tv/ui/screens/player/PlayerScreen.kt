@@ -3135,7 +3135,7 @@ private fun SubtitleMenu(
                                 )
                             }
 
-                            itemsIndexed(subtitles) { index, subtitle ->
+                            itemsIndexed(subtitles, key = { _, subtitle -> subtitle.id }) { index, subtitle ->
                                 // Use actual track label as main text, full language name as secondary
                                 val trackLabel = subtitle.label.ifBlank { subtitle.lang }
                                 val languageInfo = getFullLanguageName(subtitle.lang)
@@ -3170,7 +3170,7 @@ private fun SubtitleMenu(
                                     )
                                 }
                             } else {
-                                itemsIndexed(audioTracks) { index, track ->
+                                itemsIndexed(audioTracks, key = { _, track -> track.id }) { index, track ->
                                     // Use track label if available, otherwise full language name
                                     val languageName = getFullLanguageName(track.language)
                                     val trackLabel = track.label?.takeIf { it.isNotBlank() } ?: languageName
@@ -3353,7 +3353,7 @@ private fun SubtitleMenu(
                             )
                         }
 
-                        itemsIndexed(subtitles) { index, sub ->
+                        itemsIndexed(subtitles, key = { _, sub -> sub.id }) { index, sub ->
                             val trackLabel = sub.label.ifBlank { sub.lang }
                             val languageInfo = getFullLanguageName(sub.lang)
                             val description = if (trackLabel.lowercase() != languageInfo.lowercase() &&
@@ -3389,7 +3389,7 @@ private fun SubtitleMenu(
                                 )
                             }
                         } else {
-                            itemsIndexed(audioTracks) { index, track ->
+                            itemsIndexed(audioTracks, key = { _, track -> track.id }) { index, track ->
                                 val languageName = getFullLanguageName(track.language)
                                 val trackLabel = track.label?.takeIf { it.isNotBlank() } ?: languageName
                                 val codecInfo = detectAudioCodecLabel(track.codec, trackLabel)
