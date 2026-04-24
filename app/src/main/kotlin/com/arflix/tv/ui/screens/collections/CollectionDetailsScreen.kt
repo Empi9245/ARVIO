@@ -632,7 +632,10 @@ private fun CollectionItemsGrid(
     topContentPadding: androidx.compose.ui.unit.Dp
 ) {
     val cardContentType = if (usePosterCards) "poster_card" else "landscape_card"
-    LaunchedEffect(gridState, items.size) {
+    // Collect scroll position without restarting on page-load-size changes —
+    // items.size used to live in the key, which relaunched the snapshotFlow on
+    // every page append and caused a stutter frame during scroll.
+    LaunchedEffect(gridState) {
         androidx.compose.runtime.snapshotFlow {
             val layout = gridState.layoutInfo
             val last = layout.visibleItemsInfo.lastOrNull()?.index ?: 0

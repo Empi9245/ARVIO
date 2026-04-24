@@ -2152,12 +2152,27 @@ class TraktRepository @Inject constructor(
         val items = mutableListOf<MediaItem>()
 
         try {
-            val watchlist = traktApi.getWatchlist(auth, clientId)
+            val raw = traktApi.getWatchlist(auth, clientId)
+
+            // Sort newest-first by listed_at (when the user added the item).
+            // Trakt's default sort is user "rank" which does NOT match "added date".
+            val watchlist = raw.sortedByDescending { it.listedAt }
 
             for (item in watchlist) {
                 when (item.type) {
                     "movie" -> {
-                        val tmdbId = item.movie?.ids?.tmdb ?: continue
+                        val imdbId = item.movie?.ids?.imdb?.trim()?.takeIf { it.isNotEmpty() }
+                        // Prefer IMDB ID resolution — Trakt's stored tmdb mapping is
+                        // occasionally stale/wrong (e.g. an old "Luther" pointing at
+                        // a different show). IMDB IDs are canonical.
+                        val resolvedTmdbId: Int? = imdbId?.let { id ->
+                            runCatching {
+                                tmdbApi.findByExternalId(id, Constants.TMDB_API_KEY).movieResults
+                                    .firstOrNull()?.id?.takeIf { it > 0 }
+                            }.getOrNull()
+                        } ?: item.movie?.ids?.tmdb
+
+                        val tmdbId = resolvedTmdbId ?: continue
                         try {
                             val details = tmdbApi.getMovieDetails(tmdbId, Constants.TMDB_API_KEY)
                             items.add(
@@ -2177,7 +2192,15 @@ class TraktRepository @Inject constructor(
                         } catch (e: Exception) { }
                     }
                     "show" -> {
-                        val tmdbId = item.show?.ids?.tmdb ?: continue
+                        val imdbId = item.show?.ids?.imdb?.trim()?.takeIf { it.isNotEmpty() }
+                        val resolvedTmdbId: Int? = imdbId?.let { id ->
+                            runCatching {
+                                tmdbApi.findByExternalId(id, Constants.TMDB_API_KEY).tvResults
+                                    .firstOrNull()?.id?.takeIf { it > 0 }
+                            }.getOrNull()
+                        } ?: item.show?.ids?.tmdb
+
+                        val tmdbId = resolvedTmdbId ?: continue
                         try {
                             val details = tmdbApi.getTvDetails(tmdbId, Constants.TMDB_API_KEY)
                             items.add(

@@ -2635,8 +2635,8 @@ private fun GeneralSettings(
         )
         Spacer(modifier = Modifier.height(10.dp))
         SettingsToggleRow(
-            title = "Auto-Play Single Source",
-            subtitle = "Skip source picker with one source",
+            title = "Autoplay",
+            subtitle = "Off opens the source picker on Play",
             isEnabled = autoPlaySingleSource,
             isFocused = focusedIndex == 6,
             onToggle = onAutoPlaySingleSourceToggle,
@@ -3532,7 +3532,7 @@ private fun AddonRow(
     onDelete: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val canToggle = !(addon.id == "opensubtitles" && addon.type == com.arflix.tv.data.model.AddonType.SUBTITLE)
+    val canToggle = true
     val isToggleFocused = canToggle && isFocused && focusedAction == 0
     val isDeleteFocused = canDelete && isFocused && focusedAction == 1
     val isEnabled = addon.isEnabled

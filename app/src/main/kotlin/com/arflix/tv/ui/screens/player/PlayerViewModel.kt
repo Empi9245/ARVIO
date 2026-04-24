@@ -411,10 +411,14 @@ class PlayerViewModel @Inject constructor(
                 }
 
                 // Collect progressive emissions, updating the UI as sources arrive.
-                // If the first emission is already a cache hit (isFinal on first emit),
-                // pick immediately — no collection window needed.
-                // Otherwise wait up to AUTOPLAY_COLLECTION_WINDOW_MS for more addons.
-                val AUTOPLAY_COLLECTION_WINDOW_MS = 3_500L
+                // Press-to-play tiers (quality vs. instant-startup):
+                //   - Cache hit on first emission → pick immediately.
+                //   - A *cached* (debrid-ready) stream arrives → pick immediately.
+                //   - Otherwise wait AUTOPLAY_QUALITY_WINDOW_MS for more streams to
+                //     arrive, then pick the highest-quality/largest one we've seen.
+                //   - Hard cap AUTOPLAY_COLLECTION_WINDOW_MS even if still loading.
+                val AUTOPLAY_COLLECTION_WINDOW_MS = 2_000L
+                val AUTOPLAY_QUALITY_WINDOW_MS = 900L
                 val collectionStartMs = System.currentTimeMillis()
                 var autoplaySelected = false
                 var lastMergedStreams: List<StreamSource> = emptyList()
@@ -469,8 +473,14 @@ class PlayerViewModel @Inject constructor(
                     isFirstEmission = false
 
                     val elapsedMs = System.currentTimeMillis() - collectionStartMs
-                    val shouldSelectNow = !autoplaySelected && mergedStreams.isNotEmpty() &&
-                        (cacheHit || progressive.isFinal || elapsedMs >= AUTOPLAY_COLLECTION_WINDOW_MS)
+                    val hasCachedStream = mergedStreams.any { it.behaviorHints?.cached == true }
+                    val shouldSelectNow = !autoplaySelected && mergedStreams.isNotEmpty() && (
+                        cacheHit ||
+                        progressive.isFinal ||
+                        hasCachedStream ||                                  // cached debrid = instant
+                        elapsedMs >= AUTOPLAY_QUALITY_WINDOW_MS ||          // short wait lets best quality arrive
+                        elapsedMs >= AUTOPLAY_COLLECTION_WINDOW_MS
+                    )
 
                     if (shouldSelectNow) {
                         autoplaySelected = true
@@ -753,27 +763,34 @@ class PlayerViewModel @Inject constructor(
             }
         }.lowercase()
 
-        var score = qualityScore(stream.quality) * 100
+        // Quality is the PRIMARY signal — 4K beats 1080p beats 720p regardless of size.
+        var score = qualityScore(stream.quality) * 1_000
 
+        // Within the same quality tier, prefer LARGER files (better bitrate/encode)
+        // up to a stability ceiling. Beyond ~45GB we start penalizing because
+        // those are usually season packs or overkill remuxes that stall on TV.
         val sizeBytes = parseSize(stream.size)
         score += when {
-            sizeBytes <= 0L -> 30
-            sizeBytes <= 8L * 1024 * 1024 * 1024 -> 80
-            sizeBytes <= 15L * 1024 * 1024 * 1024 -> 55
-            sizeBytes <= 25L * 1024 * 1024 * 1024 -> 20
-            sizeBytes <= 40L * 1024 * 1024 * 1024 -> -10
-            else -> -90
+            sizeBytes <= 0L -> 40                                       // unknown size
+            sizeBytes <= 2L * 1024 * 1024 * 1024 -> 20                  // tiny / possibly re-encoded low
+            sizeBytes <= 8L * 1024 * 1024 * 1024 -> 100
+            sizeBytes <= 15L * 1024 * 1024 * 1024 -> 180                // sweet spot for 1080p
+            sizeBytes <= 25L * 1024 * 1024 * 1024 -> 220                // high-bitrate 1080p / good 4K
+            sizeBytes <= 45L * 1024 * 1024 * 1024 -> 180                // big but playable
+            sizeBytes <= 70L * 1024 * 1024 * 1024 -> 80
+            else -> -120                                                // likely season pack
         }
 
-        if (text.contains("remux")) score -= 120
-        if (text.contains("dolby vision") || text.contains(" dovi") || text.contains(" dv ")) score -= 120
-        if (text.contains("cam") || text.contains("hdcam") || text.contains("telesync")) score -= 300
-        if (text.contains("web-dl") || text.contains("webrip")) score += 45
-        if (text.contains("x264") || text.contains("h264")) score += 15
-        if (stream.behaviorHints?.cached == true || text.contains(" rd+")) score += 220
-        if (stream.behaviorHints?.notWebReady == true) score -= 260
-        if (!stream.url.isNullOrBlank() && stream.url.startsWith("http", ignoreCase = true)) score += 80
-        if (stream.url?.startsWith("magnet:", ignoreCase = true) == true) score -= 500
+        if (text.contains("cam") || text.contains("hdcam") || text.contains("telesync")) score -= 600
+        if (text.contains("web-dl") || text.contains("webrip")) score += 50
+        if (text.contains("bluray") || text.contains("blu-ray")) score += 60
+        if (text.contains("remux")) score += 30   // remux is top quality; allow with slight bonus
+        if (text.contains("x265") || text.contains("hevc") || text.contains("h265")) score += 30
+        if (text.contains("x264") || text.contains("h264")) score += 20
+        if (stream.behaviorHints?.cached == true || text.contains(" rd+")) score += 400  // cached/debrid = instant playback
+        if (stream.behaviorHints?.notWebReady == true) score -= 300
+        if (!stream.url.isNullOrBlank() && stream.url.startsWith("http", ignoreCase = true)) score += 100
+        if (stream.url?.startsWith("magnet:", ignoreCase = true) == true) score -= 800
         score += streamRepository.getAddonHealthBias(stream.addonId)
 
         return score
@@ -893,12 +910,13 @@ class PlayerViewModel @Inject constructor(
     ): StreamSource? {
         if (streams.isEmpty()) return null
 
-        val maxSizeBytes = 20L * 1024 * 1024 * 1024 // 20GB - anything larger is likely a season pack
+        // Only exclude truly obvious season packs. Real 4K releases frequently
+        // hit 40-60GB, so a 20GB cutoff was excluding high-quality sources.
+        val maxSizeBytes = 70L * 1024 * 1024 * 1024
 
-        // Step 1: Filter out season packs (>20GB) when possible.
         val candidates = streams.filter {
             val size = parseSize(it.size)
-            size == 0L || size < maxSizeBytes // 0 = unknown size, keep those
+            size == 0L || size < maxSizeBytes
         }
         val pool = if (candidates.isNotEmpty()) candidates else streams
 

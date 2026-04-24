@@ -243,13 +243,16 @@ class StreamRepository @Inject constructor(
     }
 
     private fun canonicalOpenSubtitles(addon: Addon? = null): Addon {
+        // Preserve the user's enabled/disabled choice. The addon is always kept installed
+        // so the toggle remains visible, but users can disable it to turn OpenSubtitles off.
+        val preservedEnabled = addon?.isEnabled ?: true
         return (addon ?: Addon(
             id = "opensubtitles",
             name = "OpenSubtitles v3",
             version = "1.0.0",
             description = "Subtitles from OpenSubtitles",
             isInstalled = true,
-            isEnabled = true,
+            isEnabled = preservedEnabled,
             type = AddonType.SUBTITLE,
             url = openSubtitlesUrl,
             transportUrl = openSubtitlesUrl
@@ -259,7 +262,7 @@ class StreamRepository @Inject constructor(
             version = addon?.version ?: "1.0.0",
             description = "Subtitles from OpenSubtitles",
             isInstalled = true,
-            isEnabled = true,
+            isEnabled = preservedEnabled,
             type = AddonType.SUBTITLE,
             url = openSubtitlesUrl,
             transportUrl = openSubtitlesUrl
@@ -282,7 +285,6 @@ class StreamRepository @Inject constructor(
     }
 
     suspend fun toggleAddon(addonId: String) {
-        if (addonId == "opensubtitles") return
         val addons = installedAddons.first().toMutableList()
         val index = addons.indexOfFirst { it.id == addonId }
         if (index >= 0) {

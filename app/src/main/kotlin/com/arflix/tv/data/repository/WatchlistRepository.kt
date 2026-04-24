@@ -225,6 +225,62 @@ class WatchlistRepository @Inject constructor(
     }
 
     /**
+     * Reorder the local watchlist to match Trakt's newest-first list.
+     * Adds missing Trakt items, keeps local-only items at the end, and writes
+     * the resulting order to DataStore + in-memory cache.
+     */
+    suspend fun syncFromTraktOrder(traktItems: List<MediaItem>) = withContext(Dispatchers.IO) {
+        if (traktItems.isEmpty()) return@withContext
+
+        val existing = loadWatchlistRaw()
+        val existingByKey = existing.associateBy { "${it.mediaType}:${it.tmdbId}" }
+
+        val ordered = mutableListOf<LocalWatchlistItem>()
+        val seen = mutableSetOf<String>()
+
+        // 1. Put Trakt items first, in Trakt order (already newest-first).
+        for (item in traktItems) {
+            val typeStr = if (item.mediaType == MediaType.TV) "tv" else "movie"
+            val key = "$typeStr:${item.id}"
+            seen.add(key)
+            val local = existingByKey[key]
+            ordered.add(
+                local?.copy(
+                    title = item.title.ifBlank { local.title },
+                    posterPath = item.image.ifBlank { local.posterPath },
+                    backdropPath = item.backdrop ?: local.backdropPath
+                ) ?: LocalWatchlistItem(
+                    tmdbId = item.id,
+                    mediaType = typeStr,
+                    title = item.title,
+                    posterPath = item.image,
+                    backdropPath = item.backdrop,
+                    addedAt = System.currentTimeMillis()
+                )
+            )
+        }
+
+        // 2. Append any local-only items at the end (preserve original relative order).
+        for (local in existing) {
+            val key = "${local.mediaType}:${local.tmdbId}"
+            if (key !in seen) ordered.add(local)
+        }
+
+        saveWatchlist(ordered)
+
+        // Invalidate enriched cache so the UI picks up the new order on next refresh.
+        cacheMutex.withLock {
+            itemsCache.clear()
+            keyCache.clear()
+            ordered.forEach { raw ->
+                val type = if (raw.mediaType == "tv") MediaType.TV else MediaType.MOVIE
+                keyCache.add(cacheKey(type, raw.tmdbId))
+            }
+            cacheLoaded = true
+        }
+    }
+
+    /**
      * Clear all caches (call on profile switch)
      */
     fun clearWatchlistCache() {

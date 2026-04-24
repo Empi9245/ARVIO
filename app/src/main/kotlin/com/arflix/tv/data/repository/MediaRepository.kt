@@ -203,8 +203,6 @@ class MediaRepository @Inject constructor(
             return cached
         }
 
-        val refs = LinkedHashSet<Pair<MediaType, Int>>()
-        cached?.forEach { refs.add(it) }
         val targetCount = requiredCount.coerceAtLeast(1)
         // SERVICE and GENRE rails page through TMDB/addon catalogs on demand,
         // so let the per-source budget grow with the user's scroll position
@@ -212,27 +210,56 @@ class MediaRepository @Inject constructor(
         // other fixed groups keep the small cap.
         val unlimitedGroup = catalog.collectionGroup == CollectionGroupKind.SERVICE ||
             catalog.collectionGroup == CollectionGroupKind.GENRE
-        catalog.collectionSources.forEach { source ->
-            val remaining = (targetCount - refs.size).coerceAtLeast(1)
-            val sourceBudget = if (unlimitedGroup) {
+
+        // Resolve all sources in parallel so a slow/failed source never blocks the
+        // others — this alone fixes "empty" genre collections where one source 404s.
+        val sourceBudgets = catalog.collectionSources.map { source ->
+            if (unlimitedGroup) {
                 (targetCount + 20).coerceAtLeast(40)
             } else when (source.kind) {
-                CollectionSourceKind.ADDON_CATALOG -> (remaining + 12).coerceAtLeast(24).coerceAtMost(120)
-                CollectionSourceKind.MDBLIST_PUBLIC -> (remaining + 8).coerceAtLeast(24).coerceAtMost(96)
-                else -> (remaining + 8).coerceAtLeast(24).coerceAtMost(72)
-            }
-            val sourceRefs = runCatching {
-                resolveCollectionSourceRefs(
-                    source,
-                    offset = 0,
-                    limit = sourceBudget
-                )
-            }.getOrDefault(emptyList())
-            sourceRefs.forEach { refs.add(it) }
-            if (refs.size >= targetCount) {
-                return@forEach
+                CollectionSourceKind.ADDON_CATALOG -> (targetCount + 12).coerceAtLeast(24).coerceAtMost(120)
+                CollectionSourceKind.MDBLIST_PUBLIC -> (targetCount + 8).coerceAtLeast(24).coerceAtMost(96)
+                else -> (targetCount + 8).coerceAtLeast(24).coerceAtMost(72)
             }
         }
+        val perSourceRefs: List<List<Pair<MediaType, Int>>> = coroutineScope {
+            catalog.collectionSources.mapIndexed { index, source ->
+                async {
+                    runCatching {
+                        resolveCollectionSourceRefs(
+                            source,
+                            offset = 0,
+                            limit = sourceBudgets[index]
+                        )
+                    }.getOrDefault(emptyList())
+                }
+            }.map { it.await() }
+        }
+
+        val refs = LinkedHashSet<Pair<MediaType, Int>>()
+        cached?.forEach { refs.add(it) }
+
+        // For GENRE collections, interleave movie and series refs so the
+        // first page always shows a mix rather than "all movies, then TV".
+        if (catalog.collectionGroup == CollectionGroupKind.GENRE) {
+            val movieQueue = ArrayDeque<Pair<MediaType, Int>>()
+            val tvQueue = ArrayDeque<Pair<MediaType, Int>>()
+            perSourceRefs.flatten().forEach { ref ->
+                if (ref.first == MediaType.MOVIE) movieQueue.addLast(ref) else tvQueue.addLast(ref)
+            }
+            while ((movieQueue.isNotEmpty() || tvQueue.isNotEmpty()) && refs.size < targetCount) {
+                if (movieQueue.isNotEmpty()) refs.add(movieQueue.removeFirst())
+                if (tvQueue.isNotEmpty() && refs.size < targetCount) refs.add(tvQueue.removeFirst())
+            }
+            // Drain any remaining so pagination beyond the first page still has items.
+            movieQueue.forEach { refs.add(it) }
+            tvQueue.forEach { refs.add(it) }
+        } else {
+            perSourceRefs.forEach { sourceRefs ->
+                sourceRefs.forEach { refs.add(it) }
+            }
+        }
+
         val resolved = refs.toList()
         if (resolved.isNotEmpty()) {
             collectionRefsCache[cacheKey] = CacheEntry(resolved, System.currentTimeMillis())

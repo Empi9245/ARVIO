@@ -174,25 +174,17 @@ class WatchlistViewModel @Inject constructor(
 
     private suspend fun syncTraktWatchlistSuspend() {
         try {
-            val traktItems = traktRepository.getWatchlist()  // newest-first from Trakt
+            val traktItems = traktRepository.getWatchlist()  // newest-first by listed_at
             if (traktItems.isEmpty()) return
 
-            // Insert missing items oldest-first so that after all prepends the
-            // final in-memory order matches Trakt's newest-first order.
-            var addedNew = false
-            for (item in traktItems.asReversed()) {
-                val inLocal = watchlistRepository.isInWatchlist(item.mediaType, item.id)
-                if (!inLocal) {
-                    watchlistRepository.addToWatchlist(item.mediaType, item.id, item)
-                    addedNew = true
-                }
-            }
+            // Reorder local to match Trakt newest-first, preserving local-only
+            // items at the end. This corrects both the "wrong order" and "out of
+            // sync after the first fetch" cases.
+            watchlistRepository.syncFromTraktOrder(traktItems)
 
-            if (addedNew) {
-                val items = watchlistRepository.refreshWatchlistItems()
-                _uiState.value = _uiState.value.copy(items = items, isLoading = false)
-                runCatching { cloudSyncRepository.pushToCloud() }
-            }
+            val items = watchlistRepository.refreshWatchlistItems()
+            _uiState.value = _uiState.value.copy(items = items, isLoading = false)
+            runCatching { cloudSyncRepository.pushToCloud() }
         } catch (_: Exception) {
             // Trakt sync is best-effort, don't show errors
         }

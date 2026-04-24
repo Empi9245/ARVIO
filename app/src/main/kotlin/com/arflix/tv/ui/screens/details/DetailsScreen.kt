@@ -468,14 +468,12 @@ fun DetailsScreen(
                                                 uiState.playPositionMs
                                             } else null
 
-                                            if (uiState.autoPlaySingleSource && !uiState.imdbId.isNullOrBlank()) {
-                                                pendingAutoPlayRequest = PendingAutoPlayRequest(
-                                                    season = season,
-                                                    episode = episode,
-                                                    startPositionMs = startPositionMs
-                                                )
+                                            if (!uiState.autoPlaySingleSource) {
+                                                // Autoplay OFF → open the source picker; never auto-play.
+                                                showStreamSelector = true
                                                 viewModel.loadStreams(uiState.imdbId, season, episode)
                                             } else {
+                                                // Autoplay ON → go straight to the player; PlayerScreen auto-picks.
                                                 onNavigateToPlayer(
                                                     mediaType,
                                                     mediaId,
@@ -630,14 +628,12 @@ fun DetailsScreen(
                                     uiState.playPositionMs
                                 } else null
 
-                                if (uiState.autoPlaySingleSource && !uiState.imdbId.isNullOrBlank()) {
-                                    pendingAutoPlayRequest = PendingAutoPlayRequest(
-                                        season = season,
-                                        episode = episode,
-                                        startPositionMs = startPositionMs
-                                    )
+                                if (!uiState.autoPlaySingleSource) {
+                                    // Autoplay OFF → open the source picker; never auto-play.
+                                    showStreamSelector = true
                                     viewModel.loadStreams(uiState.imdbId, season, episode)
                                 } else {
+                                    // Autoplay ON → go straight to the player; PlayerScreen auto-picks.
                                     onNavigateToPlayer(
                                         mediaType, mediaId, season, episode,
                                         uiState.imdbId, null, null, null, startPositionMs
