@@ -188,6 +188,16 @@ class WatchlistRepository @Inject constructor(
             return@withContext emptyList()
         }
 
+        val instantItems = rawItems.map { it.toBasicMediaItem() }
+        cacheMutex.withLock {
+            keyCache.clear()
+            instantItems.forEach { item ->
+                keyCache.add(cacheKey(item.mediaType, item.id))
+            }
+            _watchlistItems.value = instantItems
+            cacheLoaded = true
+        }
+
         // Enrich items with TMDB data in parallel
         val enrichedItems = coroutineScope {
             rawItems.map { item ->
@@ -277,6 +287,7 @@ class WatchlistRepository @Inject constructor(
                 val type = if (raw.mediaType == "tv") MediaType.TV else MediaType.MOVIE
                 keyCache.add(cacheKey(type, raw.tmdbId))
             }
+            _watchlistItems.value = ordered.map { it.toBasicMediaItem() }
             cacheLoaded = true
         }
     }
@@ -404,5 +415,19 @@ class WatchlistRepository @Inject constructor(
         val hours = runtime / 60
         val mins = runtime % 60
         return if (hours > 0) "${hours}h ${mins}m" else "${mins}m"
+    }
+
+    private fun LocalWatchlistItem.toBasicMediaItem(): MediaItem {
+        val type = if (mediaType == "tv") MediaType.TV else MediaType.MOVIE
+        return MediaItem(
+            id = tmdbId,
+            title = title,
+            subtitle = if (type == MediaType.TV) "TV Series" else "Movie",
+            overview = "",
+            year = "",
+            mediaType = type,
+            image = posterPath.orEmpty(),
+            backdrop = backdropPath
+        )
     }
 }

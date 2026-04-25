@@ -2160,7 +2160,7 @@ class TraktRepository @Inject constructor(
                 watchlist.map { item ->
                     async {
                         semaphore.withPermit {
-                            hydrateWatchlistItem(item)
+                            mapWatchlistItemFast(item)
                         }
                     }
                 }.awaitAll().filterNotNull()
@@ -2223,6 +2223,62 @@ class TraktRepository @Inject constructor(
         }
 
         return all
+    }
+
+    private suspend fun mapWatchlistItemFast(item: TraktWatchlistItem): MediaItem? {
+        return when (item.type) {
+            "movie" -> item.movie?.let { movie ->
+                val tmdbId = resolveWatchlistMovieTmdbId(movie) ?: return null
+                MediaItem(
+                    id = tmdbId,
+                    title = movie.title,
+                    subtitle = "Movie",
+                    overview = "",
+                    year = movie.year?.toString().orEmpty(),
+                    mediaType = MediaType.MOVIE,
+                    image = "",
+                    backdrop = null
+                )
+            }
+            "show" -> item.show?.let { show ->
+                val tmdbId = resolveWatchlistShowTmdbId(show) ?: return null
+                MediaItem(
+                    id = tmdbId,
+                    title = show.title,
+                    subtitle = "TV Series",
+                    overview = "",
+                    year = show.year?.toString().orEmpty(),
+                    mediaType = MediaType.TV,
+                    image = "",
+                    backdrop = null
+                )
+            }
+            else -> null
+        }
+    }
+
+    private suspend fun resolveWatchlistMovieTmdbId(movie: TraktMovieInfo): Int? {
+        val imdbId = movie.ids.imdb?.trim()?.takeIf { it.isNotEmpty() }
+        imdbId?.let { id ->
+            runCatching {
+                tmdbApi.findByExternalId(id, Constants.TMDB_API_KEY).movieResults
+                    .firstOrNull()?.id?.takeIf { it > 0 }
+            }.getOrNull()?.let { return it }
+        }
+        movie.ids.tmdb?.takeIf { it > 0 }?.let { return it }
+        return searchTmdbWatchlistMatch(movie.title, movie.year, MediaType.MOVIE)
+    }
+
+    private suspend fun resolveWatchlistShowTmdbId(show: TraktShowInfo): Int? {
+        val imdbId = show.ids.imdb?.trim()?.takeIf { it.isNotEmpty() }
+        imdbId?.let { id ->
+            runCatching {
+                tmdbApi.findByExternalId(id, Constants.TMDB_API_KEY).tvResults
+                    .firstOrNull()?.id?.takeIf { it > 0 }
+            }.getOrNull()?.let { return it }
+        }
+        show.ids.tmdb?.takeIf { it > 0 }?.let { return it }
+        return searchTmdbWatchlistMatch(show.title, show.year, MediaType.TV)
     }
 
     private fun watchlistIdentity(item: TraktWatchlistItem): String {
