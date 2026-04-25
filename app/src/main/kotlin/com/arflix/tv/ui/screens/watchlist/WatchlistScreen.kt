@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -42,6 +43,7 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -291,8 +293,8 @@ fun WatchlistScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(top = if (isMobile) 16.dp else AppTopBarContentTopInset)
-                .padding(start = 24.dp, top = 24.dp, end = 48.dp)
+                .padding(top = if (isMobile) 0.dp else AppTopBarContentTopInset)
+                .padding(start = 24.dp, top = if (isMobile) 16.dp else 24.dp, end = 48.dp)
         ) {
                 Row(
                     modifier = Modifier

@@ -2129,25 +2129,26 @@ private fun MobileSettingsMainPage(
     ) {
         item {
             MobileSettingsCategory(title = "LANGUAGES") {
-                SettingsRow(
+                MobileSettingsRow(
                     icon = Icons.Default.Language,
                     title = "Content Language",
                     value = TMDB_LANGUAGES.firstOrNull { it.first == uiState.contentLanguage }?.second ?: uiState.contentLanguage,
                     isFocused = false,
                     onClick = openContentLanguagePicker
                 )
-                SettingsRow(
+                MobileSettingsRow(
                     icon = Icons.Default.Subtitles,
                     title = "Default Subtitle",
                     value = uiState.defaultSubtitle,
                     isFocused = false,
                     onClick = openSubtitlePicker
                 )
-                SettingsRow(
+                MobileSettingsRow(
                     icon = Icons.Default.VolumeUp,
                     title = "Default Audio",
                     value = uiState.defaultAudioLanguage,
                     isFocused = false,
+                    showDivider = false,
                     onClick = openAudioLanguagePicker
                 )
             }
@@ -2163,18 +2164,23 @@ private fun MobileSettingsMainPage(
                     "Catalogs" to Icons.Default.Widgets,
                     "IPTV" to Icons.Default.LiveTv
                 )
-                categories.forEach { (name, icon) ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onNavigate(name) }
-                            .padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(imageVector = icon, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(24.dp))
-                        Spacer(modifier = Modifier.width(16.dp))
-                        Text(text = name, style = ArflixTypography.body, color = TextPrimary, modifier = Modifier.weight(1f))
-                        Icon(imageVector = Icons.Default.ChevronRight, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(20.dp))
+                categories.forEachIndexed { index, (name, icon) ->
+                    Column {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onNavigate(name) }
+                                .padding(horizontal = 16.dp, vertical = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(imageVector = icon, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(24.dp))
+                            Spacer(modifier = Modifier.width(16.dp))
+                            Text(text = name, style = ArflixTypography.body, color = TextPrimary, modifier = Modifier.weight(1f))
+                            Icon(imageVector = Icons.Default.ChevronRight, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(20.dp))
+                        }
+                        if (index < categories.lastIndex) {
+                            Box(modifier = Modifier.fillMaxWidth().height(1.dp).padding(horizontal = 16.dp).background(Color.White.copy(alpha = 0.05f)))
+                        }
                     }
                 }
             }
@@ -2183,7 +2189,7 @@ private fun MobileSettingsMainPage(
         item {
             MobileSettingsCategory(title = "USER INFO & ACCOUNT") {
                 if (uiState.isLoggedIn) {
-                    SettingsRow(
+                    MobileSettingsRow(
                         icon = Icons.Default.Person,
                         title = "Cloud Account",
                         subtitle = uiState.accountEmail ?: "",
@@ -2191,7 +2197,7 @@ private fun MobileSettingsMainPage(
                         isFocused = false,
                         onClick = { viewModel.forceCloudSyncNow() }
                     )
-                    SettingsRow(
+                    MobileSettingsRow(
                         icon = Icons.Default.SwitchAccount,
                         title = "Switch Profile",
                         value = "",
@@ -2199,7 +2205,7 @@ private fun MobileSettingsMainPage(
                         onClick = onSwitchProfile
                     )
                 } else {
-                    SettingsRow(
+                    MobileSettingsRow(
                         icon = Icons.Default.Person,
                         title = "Cloud Account",
                         value = "Sign In",
@@ -2207,19 +2213,20 @@ private fun MobileSettingsMainPage(
                         onClick = { viewModel.openCloudEmailPasswordDialog() }
                     )
                 }
-                SettingsRow(
+                MobileSettingsRow(
                     icon = Icons.Default.Movie,
                     title = "Trakt Account",
                     value = if (uiState.isTraktAuthenticated) "Disconnect" else "Connect",
                     isFocused = false,
                     onClick = { if (uiState.isTraktAuthenticated) viewModel.disconnectTrakt() else viewModel.startTraktAuth() }
                 )
-                SettingsRow(
+                MobileSettingsRow(
                     icon = Icons.Default.SystemUpdate,
                     title = "App Version",
                     subtitle = "V${BuildConfig.VERSION_NAME}",
                     value = if (uiState.isAppUpdateAvailable) "Update Available" else "Check Updates",
                     isFocused = false,
+                    showDivider = false,
                     onClick = { viewModel.checkForAppUpdates(force = true, showNoUpdateFeedback = true) }
                 )
             }
@@ -2254,114 +2261,119 @@ private fun MobileSettingsSubPage(
         when (page) {
             "Playback & Controls" -> {
                 MobileSettingsCategory(title = "PLAYBACK") {
-                    SettingsRow(
+                    MobileSettingsRow(
                         icon = Icons.Default.PlayArrow,
                         title = "Auto Play Next Episode",
                         value = if (uiState.autoPlayNext) "On" else "Off",
                         isFocused = false,
                         onClick = { viewModel.setAutoPlayNext(!uiState.autoPlayNext) }
                     )
-                    SettingsRow(
+                    MobileSettingsRow(
                         icon = Icons.Default.PlayArrow,
                         title = "Auto Play Single Source",
                         value = if (uiState.autoPlaySingleSource) "On" else "Off",
                         isFocused = false,
                         onClick = { viewModel.setAutoPlaySingleSource(!uiState.autoPlaySingleSource) }
                     )
-                    SettingsRow(
+                    MobileSettingsRow(
                         icon = Icons.Default.HighQuality,
                         title = "Auto Play Min Quality",
                         value = uiState.autoPlayMinQuality,
                         isFocused = false,
                         onClick = { viewModel.cycleAutoPlayMinQuality() }
                     )
-                    SettingsRow(
+                    MobileSettingsRow(
                         icon = Icons.Default.Movie,
                         title = "Trailer Auto Play",
                         value = if (uiState.trailerAutoPlay) "On" else "Off",
                         isFocused = false,
                         onClick = { viewModel.setTrailerAutoPlay(!uiState.trailerAutoPlay) }
                     )
-                    SettingsRow(
+                    MobileSettingsRow(
                         icon = Icons.Default.Settings,
                         title = "Frame Rate Matching",
                         value = uiState.frameRateMatchingMode,
                         isFocused = false,
+                        showDivider = false,
                         onClick = { viewModel.cycleFrameRateMatchingMode() }
                     )
                 }
                 MobileSettingsCategory(title = "CONTROLS") {
-                    SettingsRow(
+                    MobileSettingsRow(
                         icon = Icons.Default.Person,
                         title = "Skip Profile Selection",
                         value = if (uiState.skipProfileSelection) "On" else "Off",
                         isFocused = false,
                         onClick = { viewModel.setSkipProfileSelection(!uiState.skipProfileSelection) }
                     )
-                    SettingsRow(
+                    MobileSettingsRow(
                         icon = Icons.Default.Language,
                         title = "DNS Provider",
                         value = uiState.dnsProvider,
                         isFocused = false,
+                        showDivider = false,
                         onClick = openDnsProviderPicker
                     )
                 }
             }
             "Audio & Subtitles" -> {
                 MobileSettingsCategory(title = "SUBTITLES") {
-                    SettingsRow(
+                    MobileSettingsRow(
                         icon = Icons.Default.Subtitles,
                         title = "Subtitle Size",
                         value = uiState.subtitleSize,
                         isFocused = false,
                         onClick = { viewModel.cycleSubtitleSize() }
                     )
-                    SettingsRow(
+                    MobileSettingsRow(
                         icon = Icons.Default.Subtitles,
                         title = "Subtitle Color",
                         value = uiState.subtitleColor,
                         isFocused = false,
+                        showDivider = false,
                         onClick = { viewModel.cycleSubtitleColor() }
                     )
                 }
                 MobileSettingsCategory(title = "AUDIO") {
-                    SettingsRow(
+                    MobileSettingsRow(
                         icon = Icons.Default.VolumeUp,
                         title = "Volume Boost",
                         value = if (uiState.volumeBoostDb > 0) "+${uiState.volumeBoostDb} dB" else "Off",
                         isFocused = false,
+                        showDivider = false,
                         onClick = { viewModel.cycleVolumeBoost() }
                     )
                 }
             }
             "Appearance" -> {
                 MobileSettingsCategory(title = "APPEARANCE") {
-                    SettingsRow(
+                    MobileSettingsRow(
                         icon = Icons.Default.Palette,
                         title = "UI Mode",
                         value = uiState.deviceModeOverride.replaceFirstChar { it.uppercase() },
                         isFocused = false,
                         onClick = openUiModeWarningDialog
                     )
-                    SettingsRow(
+                    MobileSettingsRow(
                         icon = Icons.Default.Widgets,
                         title = "Card Layout Mode",
                         value = uiState.cardLayoutMode,
                         isFocused = false,
                         onClick = { viewModel.toggleCardLayoutMode() }
                     )
-                    SettingsRow(
+                    MobileSettingsRow(
                         icon = Icons.Default.Schedule,
                         title = "Clock Format",
                         value = uiState.clockFormat,
                         isFocused = false,
                         onClick = { viewModel.cycleClockFormat() }
                     )
-                    SettingsRow(
+                    MobileSettingsRow(
                         icon = Icons.Default.Movie,
                         title = "Show Budget",
                         value = if (uiState.showBudget) "On" else "Off",
                         isFocused = false,
+                        showDivider = false,
                         onClick = { viewModel.setShowBudget(!uiState.showBudget) }
                     )
                 }
@@ -2469,9 +2481,72 @@ private fun MobileSettingsCategory(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(12.dp))
-                .background(Color.White.copy(alpha = 0.05f))
+                .background(BackgroundElevated)
         ) {
             content()
+        }
+    }
+}
+
+@Composable
+private fun MobileSettingsRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String = "",
+    value: String,
+    isFocused: Boolean = false,
+    showDivider: Boolean = true,
+    onClick: () -> Unit
+) {
+    Column {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onClick() }
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = TextSecondary,
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.width(16.dp))
+                Column {
+                    Text(
+                        text = title,
+                        style = ArflixTypography.body,
+                        color = TextPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    if (subtitle.isNotEmpty()) {
+                        Text(
+                            text = subtitle,
+                            style = ArflixTypography.caption,
+                            color = TextSecondary,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+            if (value.isNotEmpty()) {
+                Spacer(modifier = Modifier.width(16.dp))
+                Text(
+                    text = value,
+                    style = ArflixTypography.caption.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Medium),
+                    color = TextSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+        if (showDivider) {
+            Box(modifier = Modifier.fillMaxWidth().height(1.dp).padding(horizontal = 16.dp).background(Color.White.copy(alpha = 0.05f)))
         }
     }
 }
