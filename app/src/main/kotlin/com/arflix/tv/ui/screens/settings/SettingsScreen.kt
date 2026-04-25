@@ -3637,10 +3637,10 @@ private fun StremioAddonsSettings(
 ) {
     Column {
         Text(
-            text = "Addons",
-            style = ArflixTypography.sectionTitle,
-            color = TextPrimary,
-            modifier = Modifier.padding(bottom = 24.dp)
+            text = "STREMIO ADDONS",
+            style = ArflixTypography.caption.copy(fontSize = 12.sp, letterSpacing = 1.sp),
+            color = TextSecondary,
+            modifier = Modifier.padding(bottom = 10.dp)
         )
 
         if (addons.isEmpty()) {
@@ -3720,9 +3720,9 @@ private fun CloudstreamSettings(
     val enabledPluginCount = remember(plugins) { plugins.count { it.isEnabled } }
     Column {
         Text(
-            text = "Cloudstream",
-            style = ArflixTypography.sectionTitle,
-            color = TextPrimary,
+            text = "CLOUDSTREAM",
+            style = ArflixTypography.caption.copy(fontSize = 12.sp, letterSpacing = 1.sp),
+            color = TextSecondary,
             modifier = Modifier.padding(bottom = 10.dp)
         )
 
@@ -3757,14 +3757,17 @@ private fun CloudstreamSettings(
                 color = TextSecondary
             )
         } else {
-            if (plugins.isNotEmpty()) {
+            val extensions = plugins.filter { it.repoUrl.isNullOrBlank() }
+            val repoPlugins = plugins.filter { !it.repoUrl.isNullOrBlank() }
+
+            if (extensions.isNotEmpty()) {
                 Text(
-                    text = "Installed Plugins",
+                    text = "Extensions",
                     style = ArflixTypography.caption,
                     color = TextSecondary,
                     modifier = Modifier.padding(bottom = 10.dp)
                 )
-                plugins.forEachIndexed { index, plugin ->
+                extensions.forEachIndexed { index, plugin ->
                     CloudstreamInstalledPluginRow(
                         addon = plugin,
                         isFocused = focusedIndex == index,
@@ -3773,7 +3776,33 @@ private fun CloudstreamSettings(
                         onDelete = { onRemovePlugin(plugin.id) },
                         modifier = Modifier.settingsFocusSlot(index)
                     )
-                    if (index < plugins.size - 1) {
+                    if (index < extensions.size - 1) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                    }
+                }
+            }
+
+            if (repoPlugins.isNotEmpty()) {
+                if (extensions.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(18.dp))
+                }
+                Text(
+                    text = "Installed Plugins",
+                    style = ArflixTypography.caption,
+                    color = TextSecondary,
+                    modifier = Modifier.padding(bottom = 10.dp)
+                )
+                repoPlugins.forEachIndexed { index, plugin ->
+                    val rowIndex = extensions.size + index
+                    CloudstreamInstalledPluginRow(
+                        addon = plugin,
+                        isFocused = focusedIndex == rowIndex,
+                        focusedAction = if (focusedIndex == rowIndex) focusedActionIndex else -1,
+                        onToggle = { onTogglePlugin(plugin.id) },
+                        onDelete = { onRemovePlugin(plugin.id) },
+                        modifier = Modifier.settingsFocusSlot(rowIndex)
+                    )
+                    if (index < repoPlugins.size - 1) {
                         Spacer(modifier = Modifier.height(12.dp))
                     }
                 }
