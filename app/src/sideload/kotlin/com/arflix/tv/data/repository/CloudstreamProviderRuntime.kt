@@ -157,23 +157,29 @@ class CloudstreamProviderRuntime @Inject constructor(
 
         if (!ok && rawLinks.isEmpty()) return emptyList()
 
-        // Phase 2: Extract direct video urls from the links using ExtractorApi
+        // Phase 2: Extract direct video urls from the links using ExtractorApi.
+        // Track the count before/after each call so that if an extractor matches the URL
+        // but fails internally (emitting zero links), the original rawLink is still
+        // preserved — loadExtractor() returns true on a URL-pattern match, even when
+        // the extractor itself emits nothing.
         rawLinks.forEach { rawLink ->
-            val extracted = try {
-                runCatchingTimeout(LINKS_TIMEOUT_MS, "loadExtractor") {
-                    com.lagradost.cloudstream3.utils.loadExtractor(
-                        url = rawLink.url,
-                        referer = rawLink.referer,
-                        subtitleCallback = { },
-                        callback = { extractedLink ->
-                            synchronized(finalLinks) { finalLinks.add(extractedLink) }
-                        }
-                    )
-                } ?: false
-            } catch (e: Exception) { false }
+            val before = synchronized(finalLinks) { finalLinks.size }
 
-            if (!extracted) {
-                // Extractor didn't handle it, add the raw link directly
+            val handled = runCatchingTimeout(LINKS_TIMEOUT_MS, "loadExtractor") {
+                com.lagradost.cloudstream3.utils.loadExtractor(
+                    url = rawLink.url,
+                    referer = rawLink.referer,
+                    subtitleCallback = { },
+                    callback = { extractedLink ->
+                        synchronized(finalLinks) { finalLinks.add(extractedLink) }
+                    }
+                )
+            } ?: false
+
+            val emitted = synchronized(finalLinks) { finalLinks.size > before }
+            if (!handled || !emitted) {
+                // Either no extractor matched, or the extractor matched but produced
+                // nothing — fall back to the original playable raw link.
                 synchronized(finalLinks) { finalLinks.add(rawLink) }
             }
         }

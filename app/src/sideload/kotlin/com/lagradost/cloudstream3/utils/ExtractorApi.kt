@@ -234,6 +234,65 @@ import com.lagradost.cloudstream3.extractors.FlaswishCom
 import com.lagradost.cloudstream3.extractors.SfastwishCom
 import com.lagradost.cloudstream3.extractors.Vtbe
 import com.lagradost.cloudstream3.extractors.WishembedPro
+// Newly added extractors
+import com.lagradost.cloudstream3.extractors.HubCloud
+import com.lagradost.cloudstream3.extractors.Videa
+import com.lagradost.cloudstream3.extractors.GUpload
+import com.lagradost.cloudstream3.extractors.VkExtractor
+import com.lagradost.cloudstream3.extractors.Luluvdoo
+import com.lagradost.cloudstream3.extractors.Lulustream1
+import com.lagradost.cloudstream3.extractors.Lulustream2
+import com.lagradost.cloudstream3.extractors.LuluStream
+import com.lagradost.cloudstream3.extractors.VidStack
+import com.lagradost.cloudstream3.extractors.Server1uns
+import com.lagradost.cloudstream3.extractors.StreamEmbed
+import com.lagradost.cloudstream3.extractors.InternetArchive
+import com.lagradost.cloudstream3.extractors.ByseSX
+import com.lagradost.cloudstream3.extractors.Bysezejataos
+import com.lagradost.cloudstream3.extractors.ByseBuho
+import com.lagradost.cloudstream3.extractors.ByseVepoin
+import com.lagradost.cloudstream3.extractors.ByseQekaho
+import com.lagradost.cloudstream3.extractors.VidHidePro
+import com.lagradost.cloudstream3.extractors.Ryderjet
+import com.lagradost.cloudstream3.extractors.VidHideHub
+import com.lagradost.cloudstream3.extractors.VidHidePro1
+import com.lagradost.cloudstream3.extractors.VidHidePro2
+import com.lagradost.cloudstream3.extractors.VidHidePro3
+import com.lagradost.cloudstream3.extractors.VidHidePro4
+import com.lagradost.cloudstream3.extractors.VidHidePro5
+import com.lagradost.cloudstream3.extractors.VidHidePro6
+import com.lagradost.cloudstream3.extractors.Smoothpre
+import com.lagradost.cloudstream3.extractors.Dhtpre
+import com.lagradost.cloudstream3.extractors.Peytonepre
+import com.lagradost.cloudstream3.extractors.HgplayCDN
+import com.lagradost.cloudstream3.extractors.Habetar
+import com.lagradost.cloudstream3.extractors.Yuguaab
+import com.lagradost.cloudstream3.extractors.Guxhag
+import com.lagradost.cloudstream3.extractors.Auvexiug
+import com.lagradost.cloudstream3.extractors.Xenolyzb
+import com.lagradost.cloudstream3.extractors.Haxloppd
+import com.lagradost.cloudstream3.extractors.Cavanhabg
+import com.lagradost.cloudstream3.extractors.Dumbalag
+import com.lagradost.cloudstream3.extractors.Uasopt
+import com.lagradost.cloudstream3.extractors.Dhcplay
+import com.lagradost.cloudstream3.extractors.HglinkTo
+import com.lagradost.cloudstream3.extractors.SecvideoOnline
+import com.lagradost.cloudstream3.extractors.FsstOnline
+import com.lagradost.cloudstream3.extractors.CsstOnline
+import com.lagradost.cloudstream3.extractors.DsstOnline
+import com.lagradost.cloudstream3.extractors.GDMirrorbot
+import com.lagradost.cloudstream3.extractors.Techinmind
+import com.lagradost.cloudstream3.extractors.Filegram
+import com.lagradost.cloudstream3.extractors.GamoVideo
+import com.lagradost.cloudstream3.extractors.StreamSilk
+import com.lagradost.cloudstream3.extractors.Up4Stream
+import com.lagradost.cloudstream3.extractors.Up4FunTop
+import com.lagradost.cloudstream3.extractors.VinovoTo
+import com.lagradost.cloudstream3.extractors.VinovoSi
+import com.lagradost.cloudstream3.extractors.Vidoza
+import com.lagradost.cloudstream3.extractors.Videzz
+import com.lagradost.cloudstream3.extractors.Vidsonic
+import com.lagradost.cloudstream3.extractors.CloudMailRu
 import com.lagradost.cloudstream3.mvvm.logError
 import com.lagradost.cloudstream3.mvvm.normalSafeApiCall
 import kotlinx.coroutines.delay
@@ -945,7 +1004,89 @@ val extractorApis: MutableList<ExtractorApi> = arrayListOf(
     Yipsu(),
     MetaGnathTuggers(),
     Geodailymotion(),
-    
+
+    // Newly registered extractors
+    HubCloud(),
+    Videa(),
+    GUpload(),
+    VkExtractor(),
+
+    // LuluStream variants
+    Luluvdoo(),
+    Lulustream1(),
+    Lulustream2(),
+    LuluStream(),
+
+    // VidStack variants
+    VidStack(),
+    Server1uns(),
+
+    StreamEmbed(),
+    InternetArchive(),
+
+    // ByseSX variants
+    ByseSX(),
+    Bysezejataos(),
+    ByseBuho(),
+    ByseVepoin(),
+    ByseQekaho(),
+
+    // VidHidePro variants
+    VidHidePro(),
+    Ryderjet(),
+    VidHideHub(),
+    VidHidePro1(),
+    VidHidePro2(),
+    VidHidePro3(),
+    VidHidePro4(),
+    VidHidePro5(),
+    VidHidePro6(),
+    Smoothpre(),
+    Dhtpre(),
+    Peytonepre(),
+
+    // CineMMRedirect / VidHidePro mirror variants
+    HgplayCDN(),
+    Habetar(),
+    Yuguaab(),
+    Guxhag(),
+    Auvexiug(),
+    Xenolyzb(),
+    Haxloppd(),
+    Cavanhabg(),
+    Dumbalag(),
+    Uasopt(),
+    Dhcplay(),
+    HglinkTo(),
+
+    // SecvideoOnline variants
+    SecvideoOnline(),
+    FsstOnline(),
+    CsstOnline(),
+    DsstOnline(),
+
+    // GDMirrorbot variants
+    GDMirrorbot(),
+    Techinmind(),
+
+    Filegram(),
+    GamoVideo(),
+    StreamSilk(),
+
+    // Up4Stream variants
+    Up4Stream(),
+    Up4FunTop(),
+
+    // Vinovo variants
+    VinovoTo(),
+    VinovoSi(),
+
+    // Vidoza variants
+    Vidoza(),
+    Videzz(),
+
+    Vidsonic(),
+    CloudMailRu(),
 )
 
 
