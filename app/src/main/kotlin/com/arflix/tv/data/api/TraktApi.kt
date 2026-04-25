@@ -350,7 +350,8 @@ interface TraktApi {
         @Header("trakt-api-key") clientId: String,
         @Header("trakt-api-version") version: String = "2",
         @Query("type") type: String = "show",
-        @Query("limit") limit: Int = 100
+        @Query("limit") limit: Int = 100,
+        @Query("page") page: Int? = null
     ): List<TraktHiddenItem>
 
     // ========== Anime (Custom Lists) ==========

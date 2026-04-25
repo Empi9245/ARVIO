@@ -1083,6 +1083,22 @@ class TraktRepository @Inject constructor(
         return all
     }
 
+    private suspend fun getAllHiddenProgressShows(auth: String): List<TraktHiddenItem> {
+        val all = mutableListOf<TraktHiddenItem>()
+        var page = 1
+        val limit = 100
+
+        while (true) {
+            val pageItems = traktApi.getHiddenProgressShows(auth, clientId, page = page, limit = limit)
+            if (pageItems.isEmpty()) break
+            all.addAll(pageItems)
+            if (pageItems.size < limit) break
+            page++
+        }
+
+        return all
+    }
+
     /**
      * Get items to continue watching - Uses Trakt paused playback directly for accuracy and speed.
      * For profiles without Trakt, falls back to local Continue Watching storage.
@@ -1151,7 +1167,7 @@ class TraktRepository @Inject constructor(
             val hiddenShowsDeferred = async {
                 try {
                     traktCallWithAuthRetry("hidden progress shows") { currentAuth ->
-                        traktApi.getHiddenProgressShows(currentAuth, clientId)
+                        getAllHiddenProgressShows(currentAuth)
                     }
                 } catch (e: Exception) {
                     System.err.println("TraktRepo:getCW: getHiddenShows failed: ${e.message}")
@@ -1161,6 +1177,11 @@ class TraktRepository @Inject constructor(
             val playbackDeferred = async {
                 traktCallWithAuthRetry("playback progress") { currentAuth ->
                     getAllPlaybackProgress(currentAuth)
+                }
+            }
+            val watchedShowsDeferred = async {
+                traktCallWithAuthRetry("watched shows") { currentAuth ->
+                    traktApi.getWatchedShows(currentAuth, clientId)
                 }
             }
 
@@ -1197,6 +1218,7 @@ class TraktRepository @Inject constructor(
                             )
                         )
                         processedKeys.add(key)
+                        processedKeys.add("${MediaType.MOVIE}:$tmdbId")
                         continue
                     }
 
@@ -1232,9 +1254,92 @@ class TraktRepository @Inject constructor(
                         )
                     )
                     processedKeys.add(key)
+                    processedKeys.add("${MediaType.TV}:$tmdbId")
                 }
             } catch (e: Exception) {
                 System.err.println("TraktRepo:getCW: playback progress failed: ${e.message}")
+            }
+
+            try {
+                val includeSpecials = context.settingsDataStore.data.first()[includeSpecialsKey()] ?: false
+                val watchedShows = watchedShowsDeferred.await()
+                    .asSequence()
+                    .filter { watched ->
+                        val show = watched.show
+                        val traktId = show.ids.trakt
+                        val tmdbId = show.ids.tmdb
+                        tmdbId != null && traktId != null && traktId !in hiddenTraktIds
+                    }
+                    .sortedByDescending { it.lastWatchedAt ?: "" }
+                    .take(Constants.MAX_PROGRESS_ENTRIES.coerceAtLeast(Constants.MAX_CONTINUE_WATCHING * 3))
+                    .toList()
+
+                val semaphore = Semaphore(10)
+                val watchedProgressCandidates = watchedShows.map { watched ->
+                    async {
+                        semaphore.withPermit {
+                            val show = watched.show
+                            val traktId = show.ids.trakt ?: return@withPermit null
+                            val tmdbId = show.ids.tmdb ?: return@withPermit null
+                            val progress = try {
+                                traktCallWithAuthRetry("show progress") { currentAuth ->
+                                    traktApi.getShowProgress(
+                                        currentAuth,
+                                        clientId,
+                                        "2",
+                                        traktId.toString(),
+                                        hidden = "false",
+                                        specials = includeSpecials.toString(),
+                                        countSpecials = includeSpecials.toString()
+                                    )
+                                }
+                            } catch (e: Exception) {
+                                System.err.println("TraktRepo:getCW: show progress failed for ${show.title}: ${e.message}")
+                                return@withPermit null
+                            }
+
+                            val nextEpisode = progress.nextEpisode ?: return@withPermit null
+                            if (progress.aired <= 0 || progress.completed >= progress.aired) return@withPermit null
+                            if (!includeSpecials && nextEpisode.season == 0) return@withPermit null
+
+                            val exactKey = "${MediaType.TV}:$tmdbId:${nextEpisode.season}:${nextEpisode.number}"
+                            val showKey = "${MediaType.TV}:$tmdbId"
+                            if (exactKey in processedKeys || showKey in processedKeys) return@withPermit null
+
+                            val completionPercent = ((progress.completed.toFloat() / progress.aired.toFloat()) * 100f)
+                                .toInt()
+                                .coerceIn(0, 99)
+                            ContinueWatchingCandidate(
+                                item = ContinueWatchingItem(
+                                    id = tmdbId,
+                                    title = show.title,
+                                    mediaType = MediaType.TV,
+                                    progress = completionPercent,
+                                    resumePositionSeconds = 0L,
+                                    durationSeconds = 0L,
+                                    season = nextEpisode.season,
+                                    episode = nextEpisode.number,
+                                    episodeTitle = nextEpisode.title,
+                                    year = show.year?.toString() ?: "",
+                                    isUpNext = true
+                                ),
+                                lastActivityAt = progress.lastWatchedAt ?: watched.lastWatchedAt ?: ""
+                            )
+                        }
+                    }
+                }.awaitAll().filterNotNull()
+
+                watchedProgressCandidates.forEach { candidate ->
+                    val exactKey = "${candidate.item.mediaType}:${candidate.item.id}:${candidate.item.season}:${candidate.item.episode}"
+                    val showKey = "${candidate.item.mediaType}:${candidate.item.id}"
+                    if (exactKey !in processedKeys && showKey !in processedKeys) {
+                        candidates.add(candidate)
+                        processedKeys.add(exactKey)
+                        processedKeys.add(showKey)
+                    }
+                }
+            } catch (e: Exception) {
+                System.err.println("TraktRepo:getCW: watched progress failed: ${e.message}")
             }
 
             // 3. Hydrate with TMDB Details (Parallel)
