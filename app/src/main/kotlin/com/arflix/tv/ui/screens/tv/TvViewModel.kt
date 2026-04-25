@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -68,6 +69,8 @@ class TvViewModel @Inject constructor(
     private var startupGuideWarmupKey: String? = null
     private var fullEpgWarmupJob: Job? = null
     private var lastFullEpgWarmupKey: String? = null
+    private var preparedContentJob: Job? = null
+    private var preparedContentRevision: Long = 0L
 
     /**
      * In-memory cache of the live-TV enriched channel list + category tree.
@@ -354,7 +357,11 @@ class TvViewModel @Inject constructor(
     }
 
     private suspend fun refreshGuideFromCache() {
-        val channelIds = _uiState.value.snapshot.channels.asSequence().map { it.id }.toSet()
+        val state = _uiState.value
+        val channelIds = buildPriorityEpgChannelIds(
+            state = state,
+            maxChannels = if (state.snapshot.channels.size > 10_000) 1_800 else 3_200
+        )
         if (channelIds.isEmpty()) return
         val updated = withContext(Dispatchers.Default) {
             iptvRepository.reDeriveCachedNowNext(channelIds)
@@ -395,7 +402,12 @@ class TvViewModel @Inject constructor(
         val state = _uiState.value
         val channels = state.snapshot.channels
         if (channels.isEmpty()) return
-        val missingCount = channels.count { channel -> !hasProgramData(state.snapshot.nowNext[channel.id]) }
+        val warmChannelIds = buildPriorityEpgChannelIds(
+            state = state,
+            maxChannels = if (channels.size > 10_000) 1_600 else 3_200
+        )
+        if (warmChannelIds.isEmpty()) return
+        val missingCount = warmChannelIds.count { id -> !hasProgramData(state.snapshot.nowNext[id]) }
         if (missingCount == 0) return
 
         val warmupKey = buildString {
@@ -403,19 +415,21 @@ class TvViewModel @Inject constructor(
             append('|')
             append(channels.size)
             append('|')
-            append(channels.firstOrNull()?.id.orEmpty())
+            append(warmChannelIds.size)
             append('|')
-            append(channels.lastOrNull()?.id.orEmpty())
+            append(warmChannelIds.firstOrNull().orEmpty())
+            append('|')
+            append(warmChannelIds.lastOrNull().orEmpty())
         }
         if (warmupKey == lastFullEpgWarmupKey) return
         lastFullEpgWarmupKey = warmupKey
 
         fullEpgWarmupJob?.cancel()
         fullEpgWarmupJob = viewModelScope.launch(Dispatchers.IO) {
-            val channelIds = channels.asSequence().map { it.id }.toCollection(LinkedHashSet())
-            System.err.println("[EPG-Full] warming guide for ${channelIds.size} channels, missing=$missingCount")
+            delay(if (channels.size > 10_000) 4_000L else 1_500L)
+            System.err.println("[EPG-Warm] warming priority guide for ${warmChannelIds.size} channels, missing=$missingCount")
             val refreshed = runCatching {
-                iptvRepository.refreshEpgForChannels(channelIds, maxChannels = 0)
+                iptvRepository.refreshEpgForChannels(warmChannelIds, maxChannels = warmChannelIds.size)
             }.getOrNull()
 
             if (!refreshed.isNullOrEmpty()) {
@@ -425,32 +439,6 @@ class TvViewModel @Inject constructor(
                         snapshot = current.snapshot.copy(
                             nowNext = current.snapshot.nowNext.toMutableMap().apply { putAll(refreshed) }
                         )
-                    )
-                )
-            }
-
-            val afterRefresh = _uiState.value
-            val stillMissing = afterRefresh.snapshot.channels.count { channel ->
-                !hasProgramData(afterRefresh.snapshot.nowNext[channel.id])
-            }
-            if (stillMissing == 0 || !refreshed.isNullOrEmpty()) return@launch
-
-            val broadSnapshot = runCatching {
-                iptvRepository.loadSnapshot(
-                    forcePlaylistReload = false,
-                    forceEpgReload = true,
-                    allowNetworkEpgFetch = true
-                )
-            }.getOrNull() ?: return@launch
-
-            if (broadSnapshot.nowNext.isNotEmpty()) {
-                setUiState(
-                    _uiState.value.copy(
-                        snapshot = broadSnapshot,
-                        isLoading = false,
-                        loadingMessage = null,
-                        loadingPercent = 0,
-                        error = null
                     )
                 )
             }
@@ -624,14 +612,33 @@ class TvViewModel @Inject constructor(
 
     private fun setUiState(nextState: TvUiState) {
         val previous = _uiState.value
-        _uiState.value = if (canReusePreparedContent(previous, nextState)) {
-            nextState.copy(
+        if (canReusePreparedContent(previous, nextState)) {
+            _uiState.value = nextState.copy(
                 channelLookup = previous.channelLookup,
                 groups = previous.groups,
                 channelsByGroup = previous.channelsByGroup
             )
         } else {
-            setPreparedContent(nextState)
+            val revision = ++preparedContentRevision
+            preparedContentJob?.cancel()
+            _uiState.value = nextState.copy(
+                channelLookup = previous.channelLookup,
+                groups = previous.groups,
+                channelsByGroup = previous.channelsByGroup
+            )
+            preparedContentJob = viewModelScope.launch(Dispatchers.Default) {
+                val prepared = setPreparedContent(nextState)
+                withContext(Dispatchers.Main.immediate) {
+                    if (revision == preparedContentRevision) {
+                        val latest = _uiState.value
+                        _uiState.value = latest.copy(
+                            channelLookup = prepared.channelLookup,
+                            groups = prepared.groups,
+                            channelsByGroup = prepared.channelsByGroup
+                        )
+                    }
+                }
+            }
         }
     }
 
@@ -721,6 +728,38 @@ private fun buildStartupWarmGroups(state: TvUiState): List<String> {
     return (favoritesFirst + sessionGroup + favoriteGroups + netherlandsGroups + fallbackGroups)
         .distinct()
         .take(16)
+}
+
+private fun buildPriorityEpgChannelIds(
+    state: TvUiState,
+    maxChannels: Int
+): LinkedHashSet<String> {
+    if (maxChannels <= 0 || state.channelsByGroup.isEmpty()) return LinkedHashSet()
+    val selectedGroups = buildStartupWarmGroups(state)
+    val result = LinkedHashSet<String>(maxChannels)
+    selectedGroups.forEachIndexed { index, groupName ->
+        if (result.size >= maxChannels) return@forEachIndexed
+        val perGroupLimit = when {
+            groupName == FAVORITES_GROUP_NAME -> 520
+            index == 0 -> 420
+            groupName.isPriorityStartupGroup() -> 280
+            else -> 120
+        }
+        state.channelsByGroup[groupName].orEmpty()
+            .asSequence()
+            .take(perGroupLimit)
+            .forEach { channel ->
+                if (result.size < maxChannels) {
+                    result.add(channel.id)
+                }
+            }
+    }
+    if (result.isEmpty()) {
+        state.snapshot.channels.asSequence()
+            .take(maxChannels)
+            .forEach { result.add(it.id) }
+    }
+    return result
 }
 
 private fun setPreparedContent(state: TvUiState): TvUiState {

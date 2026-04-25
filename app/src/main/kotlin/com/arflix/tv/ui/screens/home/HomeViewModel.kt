@@ -638,7 +638,7 @@ class HomeViewModel @Inject constructor(
         }.getOrDefault(emptyList())
     }
     // IO concurrency for network requests (logo fetches, catalog loads, etc.)
-    private val networkParallelism = if (isLowRamDevice) 2 else 4
+    private val networkParallelism = if (isLowRamDevice) 1 else 2
     private val networkDispatcher = Dispatchers.IO.limitedParallelism(networkParallelism)
     private var lastContinueWatchingItems: List<MediaItem> = emptyList()
     private var lastContinueWatchingUpdateMs: Long = 0L
@@ -675,7 +675,7 @@ class HomeViewModel @Inject constructor(
     private var activeRuntimeProfileId: String? = null
     private val HERO_DEBOUNCE_MS = 80L // Short debounce; focus idle is handled in HomeScreen
     private val startupCreatedAtMs = SystemClock.elapsedRealtime()
-    private val startupSettleMs = if (isLowRamDevice) 2_200L else 1_400L
+    private val startupSettleMs = if (isLowRamDevice) 5_000L else 4_000L
 
     // Phase 6.2-6.3: Fast scroll detection
     private var lastFocusChangeTime = 0L
@@ -683,7 +683,7 @@ class HomeViewModel @Inject constructor(
     private val FAST_SCROLL_THRESHOLD_MS = 650L  // Under 650ms = fast scrolling
     private val FAST_SCROLL_DEBOUNCE_MS = 620L   // Higher debounce during fast scroll
 
-    private val FOCUS_PREFETCH_COALESCE_MS = if (isLowRamDevice) 70L else 45L
+    private val FOCUS_PREFETCH_COALESCE_MS = if (isLowRamDevice) 180L else 120L
 
     private val logoPreloadWidth = if (isLowRamDevice) 260 else 300
     private val logoPreloadHeight = if (isLowRamDevice) 60 else 70
@@ -695,18 +695,18 @@ class HomeViewModel @Inject constructor(
         .coerceAtLeast(1)
     private val backdropPreloadWidth = cardBackdropWidth
     private val backdropPreloadHeight = cardBackdropHeight
-    private val initialLogoPrefetchRows = if (isLowRamDevice) 1 else 2
-    private val initialLogoPrefetchItemsPerRow = if (isLowRamDevice) 3 else 4
+    private val initialLogoPrefetchRows = 1
+    private val initialLogoPrefetchItemsPerRow = if (isLowRamDevice) 1 else 2
     // Prefetch enough backdrops to fill the first visible row on the home screen
     // (typically 6-8 cards on a TV). Was 2, which left the majority of the first
     // row unpreloaded on cold start, causing visible black -> image pop-in.
-    private val initialBackdropPrefetchItems = if (isLowRamDevice) 2 else 3
+    private val initialBackdropPrefetchItems = 1
     private val incrementalLogoPrefetchItems = if (isLowRamDevice) 4 else 6
     private val prioritizedLogoPrefetchItems = if (isLowRamDevice) 5 else 7
     private val incrementalBackdropPrefetchItems = 1
-    private val initialCategoryItemCap = if (isLowRamDevice) 12 else 16
-    private val categoryPageSize = if (isLowRamDevice) 12 else 16
-    private val initialMdblistCatalogCount = if (isLowRamDevice) 2 else 3
+    private val initialCategoryItemCap = if (isLowRamDevice) 8 else 10
+    private val categoryPageSize = if (isLowRamDevice) 8 else 10
+    private val initialMdblistCatalogCount = 1
     private val nearEndThreshold = 4
 
     // Track current focus for ahead-of-focus preloading
@@ -734,9 +734,9 @@ class HomeViewModel @Inject constructor(
     @Volatile
     private var pendingLogoPublishPriority: Boolean = false
     private var lastLogoCachePublishMs: Long = 0L
-    private val LOGO_CACHE_PUBLISH_THROTTLE_MS = if (isLowRamDevice) 400L else 180L
-    private val LOGO_CACHE_IDLE_REQUIRED_MS = if (isLowRamDevice) 350L else 200L
-    private val LOGO_CACHE_FAST_SCROLL_IDLE_MS = if (isLowRamDevice) 180L else 100L
+    private val LOGO_CACHE_PUBLISH_THROTTLE_MS = if (isLowRamDevice) 650L else 420L
+    private val LOGO_CACHE_IDLE_REQUIRED_MS = if (isLowRamDevice) 520L else 360L
+    private val LOGO_CACHE_FAST_SCROLL_IDLE_MS = if (isLowRamDevice) 320L else 220L
 
     private fun getCachedLogo(key: String): String? = synchronized(logoCacheLock) {
         logoCache[key]
@@ -756,13 +756,13 @@ class HomeViewModel @Inject constructor(
 
     private fun scheduleInitialHomeLoad() {
         viewModelScope.launch {
-            delay(if (isLowRamDevice) 220L else 140L)
+            delay(if (isLowRamDevice) 1_000L else 800L)
             if (
                 usedPreloadedData ||
                 _uiState.value.categories.isNotEmpty() ||
                 _uiState.value.heroItem != null
             ) {
-                delayUntilStartupSettled()
+                delayUntilStartupSettled(extraDelayMs = 700L)
             }
             loadHomeData()
         }
@@ -774,11 +774,11 @@ class HomeViewModel @Inject constructor(
     ) {
         if (logoUrls.isEmpty() && backdropUrls.isEmpty()) return
         viewModelScope.launch(networkDispatcher) {
-            delayUntilStartupSettled(160L)
+            delayUntilStartupSettled(1_200L)
             if (logoUrls.isNotEmpty()) {
                 preloadLogoImages(
                     logoUrls,
-                    batchLimit = if (isLowRamDevice) 4 else 6
+                    batchLimit = if (isLowRamDevice) 2 else 3
                 )
             }
             if (backdropUrls.isNotEmpty()) {
@@ -790,7 +790,7 @@ class HomeViewModel @Inject constructor(
     private fun scheduleStartupHeroHydration(item: MediaItem) {
         heroDetailsJob?.cancel()
         heroDetailsJob = viewModelScope.launch(networkDispatcher) {
-            delayUntilStartupSettled(120L)
+            delayUntilStartupSettled(900L)
             val currentHero = _uiState.value.heroItem
             if (currentHero?.id == item.id && currentHero.mediaType == item.mediaType) {
                 hydrateHeroDetailsIfNeeded(item)
@@ -1219,8 +1219,11 @@ class HomeViewModel @Inject constructor(
                 System.err.println("HomeVM: IPTV warmup failed: ${e.message}")
             }
         }
-        // Periodically refresh EPG data for Favorite TV row on home screen
-        startEpgRefreshTimer()
+        // Periodically refresh EPG data for Favorite TV row after Home settles.
+        viewModelScope.launch {
+            delay(if (isLowRamDevice) 18_000L else 14_000L)
+            startEpgRefreshTimer()
+        }
         viewModelScope.launch {
             catalogRepository.observeCatalogs()
                 .map { catalogs ->
@@ -2043,6 +2046,7 @@ class HomeViewModel @Inject constructor(
             val baseById = baseCategories.associateBy { it.id }
 
             val loadedById = java.util.concurrent.ConcurrentHashMap<String, Category>()
+            var lastCustomCatalogPublishMs = 0L
             fun publishMerged() {
                 val latestState = _uiState.value
                 val currentCategories = latestState.categories.toMutableList()
@@ -2105,9 +2109,18 @@ class HomeViewModel @Inject constructor(
                 if (!anyChange) return
                 _uiState.value = latestState.copy(categories = currentCategories)
             }
-            withContext(Dispatchers.Main.immediate) {
-                publishMerged()
+            suspend fun publishMergedThrottled(force: Boolean = false) {
+                if (!force) {
+                    val elapsed = SystemClock.elapsedRealtime() - lastCustomCatalogPublishMs
+                    val waitMs = (450L - elapsed).coerceAtLeast(0L)
+                    if (waitMs > 0L) delay(waitMs)
+                }
+                withContext(Dispatchers.Main.immediate) {
+                    publishMerged()
+                    lastCustomCatalogPublishMs = SystemClock.elapsedRealtime()
+                }
             }
+            publishMergedThrottled(force = true)
 
             // Load custom catalogs in parallel (up to 3 concurrently) for faster appearance
             val catalogSemaphore = kotlinx.coroutines.sync.Semaphore(if (isLowRamDevice) 2 else 3)
@@ -2142,10 +2155,9 @@ class HomeViewModel @Inject constructor(
                                 hasMore = firstPage.hasMore
                             )
                         }
-                        // Publish as each catalog completes so rows appear incrementally
-                        withContext(Dispatchers.Main.immediate) {
-                            publishMerged()
-                        }
+                        // Coalesce incremental row inserts so catalog arrivals do
+                        // not repeatedly relayout Home while the user is scrolling.
+                        publishMergedThrottled()
                     }
                 }
             }

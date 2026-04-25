@@ -308,6 +308,12 @@ fun TvScreen(
     val safeGroupIndex = groupIndex.coerceIn(0, (groups.size - 1).coerceAtLeast(0))
     val selectedGroup = groups.getOrNull(safeGroupIndex).orEmpty()
     val channels = uiState.channelsByGroup[selectedGroup].orEmpty()
+    val selectedGroupChannelIds = remember(selectedGroup, channels) {
+        channels.map { it.id }
+    }
+    val channelIndexById = remember(channels) {
+        channels.mapIndexed { index, channel -> channel.id to index }.toMap()
+    }
     val safeChannelIndex = channelIndex.coerceIn(0, (channels.size - 1).coerceAtLeast(0))
     val startupGroupName = remember(groups, uiState.channelsByGroup) {
         preferredStartupGroup(groups, uiState.channelsByGroup).orEmpty()
@@ -317,6 +323,7 @@ fun TvScreen(
     // A stale selectedChannelId (e.g. after group changes) can otherwise override
     // the playing channel and make the UI look like clicking one channel opens another.
     val playingChannel = playingChannelId?.let { uiState.channelLookup[it] } ?: selectedChannel
+    val latestEpgAnchorChannelId by rememberUpdatedState(playingChannelId ?: selectedChannelId)
 
     // Auto-select channel when navigated from Home "Favorite TV" row.
     // If initialStreamUrl was provided, playback already started instantly —
@@ -476,11 +483,12 @@ fun TvScreen(
             groupIndex = 1
         }
     }
-    LaunchedEffect(selectedGroup, channels.size, selectedChannelId, playingChannelId) {
+    LaunchedEffect(selectedGroup, selectedGroupChannelIds) {
         if (selectedGroup.isBlank() || channels.isEmpty()) return@LaunchedEffect
+        delay(260L)
         viewModel.prefetchVisibleCategoryEpg(
-            channelIds = channels.map { it.id },
-            selectedChannelId = playingChannelId ?: selectedChannelId,
+            channelIds = selectedGroupChannelIds,
+            selectedChannelId = latestEpgAnchorChannelId,
             eagerLimit = if (selectedGroup.isPriorityGuideGroup()) minOf(channels.size, 480) else minOf(channels.size, 140),
             backgroundLimit = if (selectedGroup.isPriorityGuideGroup()) minOf(channels.size, 1200) else minOf(channels.size, 420)
         )
@@ -764,7 +772,7 @@ fun TvScreen(
                             Key.DirectionUp -> {
                                 // Switch to next channel (up = next in list)
                                 if (channels.isNotEmpty()) {
-                                    val currentIdx = channels.indexOfFirst { it.id == playingChannelId }
+                                    val currentIdx = playingChannelId?.let { channelIndexById[it] } ?: -1
                                     val nextIdx = if (currentIdx < 0) 0 else (currentIdx + 1) % channels.size
                                     val nextChannel = channels[nextIdx]
                                     channelIndex = nextIdx
@@ -779,7 +787,7 @@ fun TvScreen(
                             Key.DirectionDown -> {
                                 // Switch to previous channel (down = previous in list)
                                 if (channels.isNotEmpty()) {
-                                    val currentIdx = channels.indexOfFirst { it.id == playingChannelId }
+                                    val currentIdx = playingChannelId?.let { channelIndexById[it] } ?: -1
                                     val prevIdx = if (currentIdx <= 0) channels.lastIndex else currentIdx - 1
                                     val prevChannel = channels[prevIdx]
                                     channelIndex = prevIdx
@@ -1343,7 +1351,7 @@ fun TvScreen(
                                     IconButton(
                                         onClick = {
                                             if (channels.isNotEmpty()) {
-                                                val currentIdx = channels.indexOfFirst { it.id == playingChannelId }
+                                                val currentIdx = playingChannelId?.let { channelIndexById[it] } ?: -1
                                                 val prevIdx = if (currentIdx <= 0) channels.lastIndex else currentIdx - 1
                                                 val prevChannel = channels[prevIdx]
                                                 channelIndex = prevIdx
@@ -1366,7 +1374,7 @@ fun TvScreen(
                                     IconButton(
                                         onClick = {
                                             if (channels.isNotEmpty()) {
-                                                val currentIdx = channels.indexOfFirst { it.id == playingChannelId }
+                                                val currentIdx = playingChannelId?.let { channelIndexById[it] } ?: -1
                                                 val nextIdx = if (currentIdx < 0) 0 else (currentIdx + 1) % channels.size
                                                 val nextChannel = channels[nextIdx]
                                                 channelIndex = nextIdx

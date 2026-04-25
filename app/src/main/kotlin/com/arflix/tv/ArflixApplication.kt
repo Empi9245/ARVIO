@@ -36,6 +36,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
@@ -93,15 +94,17 @@ class ArflixApplication : Application(), Configuration.Provider, ImageLoaderFact
         // Initialize active profile asynchronously to avoid blocking cold start.
         // Wire realtime push notification
         cloudSyncRepository.onPushCompleted = { realtimeSyncManager.markPush() }
-        cloudSyncCoordinator.start()
 
         appScope.launch {
             runCatching { profileManager.initialize() }
             // Preload watchlist cache in background for instant display
             runCatching { watchlistRepository.getWatchlistItems() }
+            delay(2_500L)
+            cloudSyncCoordinator.start()
             if (!authRepository.getCurrentUserId().isNullOrBlank()) {
-                // Pull cloud state shortly after startup for faster cross-device sync.
-                delay(3_000L)
+                // Let first render/navigation settle before cloud restore and
+                // WebSocket work compete with image decode and Compose lists.
+                delay(20_000L)
                 runCatching { cloudSyncRepository.pullFromCloud() }
                 // Start realtime WebSocket listener for instant cross-device sync
                 realtimeSyncManager.start()
@@ -110,10 +113,13 @@ class ArflixApplication : Application(), Configuration.Provider, ImageLoaderFact
 
         // Observe auth state: start realtime on login, stop on logout
         appScope.launch {
-            authRepository.authState.collect { state ->
+            authRepository.authState.collectLatest { state ->
                 if (state is AuthState.Authenticated) {
-                    cloudSyncCoordinator.start()
-                    realtimeSyncManager.start()
+                    delay(20_000L)
+                    if (!authRepository.getCurrentUserId().isNullOrBlank()) {
+                        cloudSyncCoordinator.start()
+                        realtimeSyncManager.start()
+                    }
                 } else {
                     realtimeSyncManager.stop()
                     cloudSyncCoordinator.stop()
@@ -130,13 +136,13 @@ class ArflixApplication : Application(), Configuration.Provider, ImageLoaderFact
             .okHttpClient(OkHttpProvider.coilClient)
             .memoryCache {
                 MemoryCache.Builder(this)
-                    .maxSizePercent(if (isTvDevice) 0.08 else 0.14)
+                    .maxSizePercent(if (isTvDevice) 0.11 else 0.14)
                     .build()
             }
             .diskCache {
                 DiskCache.Builder()
                     .directory(cacheDir.resolve("image_cache"))
-                    .maxSizeBytes(if (isTvDevice) 64L * 1024L * 1024L else 96L * 1024L * 1024L)
+                    .maxSizeBytes(if (isTvDevice) 128L * 1024L * 1024L else 96L * 1024L * 1024L)
                     .build()
             }
             .crossfade(false)
