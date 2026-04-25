@@ -243,6 +243,21 @@ fun IptvChannel.enrich(number: Int): EnrichedChannel {
 // Category tree (spec §5)
 // ─────────────────────────────────────────────────────────────────────────
 
+fun IptvChannel.enrichForFastStartup(number: Int): EnrichedChannel {
+    val brand = brandForGenre(Genre.General)
+    return EnrichedChannel(
+        source = this,
+        number = number,
+        country = null,
+        genre = Genre.General,
+        quality = Quality.SD,
+        lang = "EN",
+        brandBg = brand.bg,
+        brandFg = brand.fg,
+        isAdult = isAdultGroup(group, name),
+    )
+}
+
 data class LiveCategory(
     val id: String,
     val label: String,
@@ -602,6 +617,38 @@ fun buildInitialCategoryChannels(
     limit: Int,
 ): List<EnrichedChannel> {
     if (channels.isEmpty() || limit <= 0) return emptyList()
+    if (categoryId == "all") {
+        return buildList(limit.coerceAtMost(channels.size)) {
+            channels.forEachIndexed { index, channel ->
+                if (!isAdultGroup(channel.group, channel.name)) {
+                    add(channel.enrichForFastStartup(100 + index))
+                    if (size >= limit) return@buildList
+                }
+            }
+        }
+    }
+    if (categoryId == "fav") {
+        return buildList(limit.coerceAtMost(favorites.size)) {
+            channels.forEachIndexed { index, channel ->
+                if (channel.id in favorites && !isAdultGroup(channel.group, channel.name)) {
+                    add(channel.enrichForFastStartup(100 + index))
+                    if (size >= limit) return@buildList
+                }
+            }
+        }
+    }
+    if (categoryId == "recent") {
+        val indexById = channels.withIndex().associate { (index, channel) -> channel.id to (index to channel) }
+        return buildList(limit.coerceAtMost(recents.size)) {
+            recents.toList().asReversed().forEach { id ->
+                val (index, channel) = indexById[id] ?: return@forEach
+                if (!isAdultGroup(channel.group, channel.name)) {
+                    add(channel.enrichForFastStartup(100 + index))
+                    if (size >= limit) return@buildList
+                }
+            }
+        }
+    }
     val matcher = rawCategoryMatcher(categoryId, favorites, recents)
     return buildList(limit.coerceAtMost(channels.size)) {
         channels.forEachIndexed { index, channel ->

@@ -158,7 +158,6 @@ fun LiveTvScreen(
         }
     }
     var selectedCategoryId by rememberSaveable { mutableStateOf("all") }
-    val initialChannelRenderLimit = if (isTouchDevice) 480 else 1200
     val recents = remember { mutableStateOf<LinkedHashSet<String>>(LinkedHashSet()) }
     val favSet = remember(state.snapshot.favoriteChannels) { state.snapshot.favoriteChannels.toSet() }
     var seededRecentSessionChannel by rememberSaveable { mutableStateOf(false) }
@@ -198,7 +197,7 @@ fun LiveTvScreen(
                 categoryId = selectedCategoryId,
                 favorites = favSet,
                 recents = recents.value,
-                limit = initialChannelRenderLimit,
+                limit = snapshot.size,
             )
         }
         val initialIndex = withContext(Dispatchers.Default) { buildCategoryIndex(initialChannels) }
