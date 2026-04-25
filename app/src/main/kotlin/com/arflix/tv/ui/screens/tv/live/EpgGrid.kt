@@ -86,6 +86,7 @@ fun EpgGrid(
     selectedChannelId: String?,
     focusSelectedChannelSignal: Int,
     onChannelSelect: (EnrichedChannel) -> Unit,
+    onChannelFocused: (EnrichedChannel) -> Unit = {},
     onChannelFavoriteToggle: (String) -> Unit,
     favorites: Set<String>,
     compact: Boolean = false,
@@ -305,6 +306,7 @@ fun EpgGrid(
                             isFavorite = ch.id in favorites,
                             stripe = idx % 2 == 1,
                             onClick = { onChannelSelect(ch) },
+                            onFocused = { onChannelFocused(ch) },
                             onFavoriteToggle = { onChannelFavoriteToggle(ch.id) },
                             rowHeight = rowHeight,
                             modifier = if (ch.id == selectedChannelId) {
@@ -360,6 +362,7 @@ fun EpgGrid(
                                 isActive = ch.id == selectedChannelId,
                                 rowHeight = rowHeight,
                                 onClick = { onChannelSelect(ch) },
+                                onFocused = { onChannelFocused(ch) },
                             )
                         }
                     }
@@ -390,6 +393,7 @@ private fun ProgramsRow(
     isActive: Boolean,
     rowHeight: Dp,
     onClick: () -> Unit,
+    onFocused: () -> Unit,
 ) {
     val nowMillis = clockTickMillis
     Box(
@@ -420,6 +424,8 @@ private fun ProgramsRow(
                     isPast = placement.isPast,
                     isFocusTarget = placement.isNow,
                     onClick = onClick,
+                    onFocused = onFocused,
+                    rowHeight = rowHeight,
                     modifier = Modifier.offset(x = offset),
                 )
             }

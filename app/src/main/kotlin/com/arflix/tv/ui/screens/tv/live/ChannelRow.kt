@@ -66,6 +66,7 @@ fun ChannelRow(
     stripe: Boolean = false,
     onClick: () -> Unit,
     onFavoriteToggle: () -> Unit,
+    onFocused: () -> Unit = {},
     rowHeight: androidx.compose.ui.unit.Dp = LiveDims.EpgRowHeight,
     modifier: Modifier = Modifier,
 ) {
@@ -95,7 +96,10 @@ fun ChannelRow(
                 scaleX = animatedScale
                 scaleY = animatedScale
             }
-            .onFocusChanged { focused = it.isFocused }
+            .onFocusChanged {
+                focused = it.isFocused
+                if (it.isFocused) onFocused()
+            }
             .border(
                 width = animatedBorderWidth,
                 color = if (focused) LiveColors.FocusRing else Color.Transparent,

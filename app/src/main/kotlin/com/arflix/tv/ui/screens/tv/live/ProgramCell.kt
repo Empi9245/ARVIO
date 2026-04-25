@@ -59,6 +59,8 @@ fun ProgramCell(
     isPast: Boolean,
     isFocusTarget: Boolean,
     onClick: () -> Unit,
+    onFocused: () -> Unit = {},
+    rowHeight: androidx.compose.ui.unit.Dp = LiveDims.EpgRowHeight,
     modifier: Modifier = Modifier,
 ) {
     var focused by remember { mutableStateOf(false) }
@@ -89,7 +91,7 @@ fun ProgramCell(
     )
     Box(
         modifier = modifier
-            .height(LiveDims.EpgRowHeight)
+            .height(rowHeight)
             .width(width)
             // Outer gutter was 3dp×2 + inner 10dp×2 = 26dp of horizontal
             // overhead. On a 60dp min-width block that left only ~34dp for
@@ -100,7 +102,10 @@ fun ProgramCell(
                 scaleX = scale
                 scaleY = scale
             }
-            .onFocusChanged { focused = it.isFocused }
+            .onFocusChanged {
+                focused = it.isFocused
+                if (it.isFocused) onFocused()
+            }
             .border(
                 width = borderWidth,
                 color = borderColor,

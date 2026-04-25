@@ -148,6 +148,8 @@ class IptvRepository @Inject constructor(
 
     @Volatile
     private var cachedEpgAt: Long = 0L
+    @Volatile
+    private var lastEpgCachePersistAt: Long = 0L
 
     @Volatile
     private var preferredDerivedEpgUrl: String? = null
@@ -1226,7 +1228,10 @@ class IptvRepository @Inject constructor(
             // Merge into cache (in-place, no copy)
             cachedNowNext.putAll(freshNowNext)
             cachedEpgAt = System.currentTimeMillis()
-            persistCurrentCacheSnapshot(config, cachedEpgAt)
+            if (cachedEpgAt - lastEpgCachePersistAt > 30_000L) {
+                lastEpgCachePersistAt = cachedEpgAt
+                persistCurrentCacheSnapshot(config, cachedEpgAt)
+            }
 
             System.err.println("[EPG-Refresh] Updated ${freshNowNext.size} channels in cache")
             freshNowNext
