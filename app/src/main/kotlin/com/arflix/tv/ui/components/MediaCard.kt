@@ -76,6 +76,8 @@ fun MediaCard(
     focusImageUrl: String? = null,
     enableFocusedImageSwap: Boolean = true,
     animateFocus: Boolean = true,
+    showLogoImage: Boolean = true,
+    raiseOnFocus: Boolean = true,
     showProgress: Boolean = false,
     showTitle: Boolean = true,
     titleMaxLines: Int = 1,
@@ -152,14 +154,15 @@ fun MediaCard(
             .build()
     }
     // Performance: Removed context/density from keys
-    val logoRequest = remember(logoImageUrl) {
+    val effectiveLogoImageUrl = logoImageUrl.takeIf { showLogoImage }
+    val logoRequest = remember(effectiveLogoImageUrl) {
         val logoWidthPx = with(density) { 220.dp.roundToPx() }.coerceAtLeast(1)
         val logoHeightPx = with(density) { 64.dp.roundToPx() }.coerceAtLeast(1)
-        if (logoImageUrl.isNullOrBlank()) {
+        if (effectiveLogoImageUrl.isNullOrBlank()) {
             null
         } else {
             ImageRequest.Builder(context)
-                .data(logoImageUrl)
+                .data(effectiveLogoImageUrl)
                 .size(logoWidthPx, logoHeightPx)
                 .precision(Precision.INEXACT)
                 .allowHardware(true)
@@ -171,7 +174,7 @@ fun MediaCard(
     Column(
         modifier = modifier
             .width(width)
-            .zIndex(if (visualFocused) 1f else 0f)
+            .zIndex(if (visualFocused && raiseOnFocus) 1f else 0f)
     ) {
         ArvioFocusableSurface(
             modifier = Modifier
@@ -181,7 +184,7 @@ fun MediaCard(
             backgroundColor = ArvioSkin.colors.surface,
             outlineColor = ArvioSkin.colors.focusOutline,
             outlineWidth = jumpBorderWidth,
-            focusedScale = 1.07f,
+            focusedScale = 1.045f,
             pressedScale = 0.97f,
             focusedTransformOriginX = 0.5f,
             animateFocus = animateFocus,

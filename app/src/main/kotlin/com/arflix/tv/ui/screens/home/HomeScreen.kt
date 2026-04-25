@@ -513,9 +513,7 @@ fun HomeScreen(
     val backdropSize = remember(configuration, density) {
         val widthPx = with(density) { configuration.screenWidthDp.dp.roundToPx() }
         val heightPx = with(density) { configuration.screenHeightDp.dp.roundToPx() }
-        val maxWidth = if (isMobile) 3840 else 1280
-        val maxHeight = if (isMobile) 2160 else 720
-        widthPx.coerceAtMost(maxWidth).coerceAtLeast(1) to heightPx.coerceAtMost(maxHeight).coerceAtLeast(1)
+        widthPx.coerceAtLeast(1) to heightPx.coerceAtLeast(1)
     }
     val backdropGradient = remember {
         Brush.linearGradient(
@@ -702,7 +700,7 @@ fun HomeScreen(
     // Keyed on the focused collection id so re-entering the card after
     // moving elsewhere replays it.
     var collectionVideoFinishedId by remember { mutableStateOf<Int?>(null) }
-    val heroVideoAllowed = isMobile
+    val heroVideoAllowed = true
     val serviceHeroVideoUrl = displayHeroItem
         ?.takeIf { heroVideoAllowed && isHeroCollection && collectionVideoFinishedId != it.id }
         ?.let { viewModel.getCollectionHeroVideoUrl(it) }
@@ -2594,7 +2592,11 @@ private fun TvHomeRowsLayer(
                     deltaPx = deltaPx,
                     durationMillis = if (jumpDistance == 1) 190 else 220
                 )
-                if (listState.firstVisibleItemIndex != targetIndex || listState.firstVisibleItemScrollOffset != 0) {
+                if (!recentUserNav && (
+                    listState.firstVisibleItemIndex != targetIndex ||
+                        listState.firstVisibleItemScrollOffset != 0
+                    )
+                ) {
                     listState.scrollToItem(index = targetIndex, scrollOffset = 0)
                 }
             } else {
@@ -2835,14 +2837,6 @@ private fun ContentRow(
         (totalItems - itemsPerPage.coerceAtLeast(1)).coerceAtLeast(0)
     }
     val isScrollable = totalItems > itemsPerPage
-    // Performance: Remove maxFirstIndex from remember keys since it's derived
-    val scrollTargetIndex by remember(focusedItemIndex, isCurrentRow, totalItems) {
-        derivedStateOf {
-            if (!isCurrentRow || focusedItemIndex < 0) return@derivedStateOf -1
-            if (totalItems == 0) return@derivedStateOf -1
-            focusedItemIndex.coerceAtMost(maxFirstIndex)
-        }
-    }
     val itemSpanPx = remember(density, itemWidth, itemSpacing) {
         with(density) { (itemWidth + itemSpacing).toPx().coerceAtLeast(1f) }
     }
@@ -2895,12 +2889,24 @@ private fun ContentRow(
         }
         activeFocusedItemKey = desiredKey
     }
-    LaunchedEffect(scrollTargetIndex, isCurrentRow, focusedItemIndex) {
-        if (!isCurrentRow || scrollTargetIndex < 0) return@LaunchedEffect
+    LaunchedEffect(isCurrentRow, focusedItemIndex, totalItems, itemsPerPage) {
+        if (!isCurrentRow || focusedItemIndex < 0 || totalItems == 0) return@LaunchedEffect
 
-        // Calculate extra offset for items at the end of the list (past maxFirstIndex)
-        // This ensures the last items remain fully visible when focused
-        val extraOffset = if (focusedItemIndex > maxFirstIndex) {
+        val visibleCapacity = itemsPerPage.coerceAtLeast(1)
+        val currentFirstIndex = rowState.firstVisibleItemIndex.coerceAtMost(maxFirstIndex)
+        val currentFirstOffset = rowState.firstVisibleItemScrollOffset
+        val leadingComfort = if (visibleCapacity >= 4) 1 else 0
+        val trailingComfort = if (visibleCapacity >= 4) 2 else 1
+        val scrollTargetIndex = when {
+            !isScrollable || lastScrollIndex == -1 -> focusedItemIndex.coerceAtMost(maxFirstIndex)
+            focusedItemIndex < currentFirstIndex + leadingComfort ->
+                (focusedItemIndex - leadingComfort).coerceAtLeast(0)
+            focusedItemIndex > currentFirstIndex + visibleCapacity - 1 - trailingComfort ->
+                (focusedItemIndex - visibleCapacity + 1 + trailingComfort).coerceAtLeast(0)
+            else -> currentFirstIndex
+        }.coerceAtMost(maxFirstIndex)
+
+        val extraOffset = if (scrollTargetIndex == maxFirstIndex && focusedItemIndex > maxFirstIndex) {
             ((focusedItemIndex - maxFirstIndex) * itemSpanPx).toInt()
         } else {
             0
@@ -2915,8 +2921,6 @@ private fun ContentRow(
             return@LaunchedEffect
         }
 
-        val currentFirstIndex = rowState.firstVisibleItemIndex
-        val currentFirstOffset = rowState.firstVisibleItemScrollOffset
         val currentLastIndex = rowState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: currentFirstIndex
         val targetOutsideViewport = focusedItemIndex < currentFirstIndex || focusedItemIndex > currentLastIndex
         val jumpDistance = kotlin.math.abs(scrollTargetIndex - currentFirstIndex)
@@ -2938,8 +2942,10 @@ private fun ContentRow(
                 }
             )
             if (
-                rowState.firstVisibleItemIndex != scrollTargetIndex ||
-                kotlin.math.abs(rowState.firstVisibleItemScrollOffset - extraOffset) > 2
+                !isFastScrolling && (
+                    rowState.firstVisibleItemIndex != scrollTargetIndex ||
+                        kotlin.math.abs(rowState.firstVisibleItemScrollOffset - extraOffset) > 6
+                    )
             ) {
                 rowState.scrollToItem(index = scrollTargetIndex, scrollOffset = extraOffset)
             }
@@ -3009,6 +3015,8 @@ private fun ContentRow(
                             width = itemWidth,
                             isLandscape = !effectivePosterMode,
                             logoImageUrl = cardLogoUrl,
+                            showLogoImage = !isFastScrolling || itemIsFocused,
+                            raiseOnFocus = !isFastScrolling,
                             showProgress = false,
                             showTitle = isCollectionRow && !item.collectionHideTitle,
                             isFocusedOverride = itemIsFocused,
@@ -3037,6 +3045,8 @@ private fun ContentRow(
                         width = itemWidth,
                         isLandscape = !effectivePosterMode,
                         logoImageUrl = cardLogoUrl,
+                        showLogoImage = !isFastScrolling || itemIsFocused,
+                        raiseOnFocus = !isFastScrolling,
                         showProgress = isContinueWatching,
                         showTitle = isCollectionRow && !item.collectionHideTitle,
                         isFocusedOverride = itemIsFocused,
