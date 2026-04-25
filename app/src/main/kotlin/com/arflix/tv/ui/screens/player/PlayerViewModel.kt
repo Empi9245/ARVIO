@@ -410,10 +410,14 @@ class PlayerViewModel @Inject constructor(
                     )
                 }
 
-                // Collect progressive emissions. Autoplay starts on the first
-                // usable batch while the source list keeps filling in the background.
+                // Collect progressive emissions. Wait a very short window so
+                // cached/debrid-ready sources can arrive before autoplay picks.
+                val AUTOPLAY_COLLECTION_WINDOW_MS = 1_200L
+                val AUTOPLAY_QUALITY_WINDOW_MS = 700L
+                val collectionStartMs = System.currentTimeMillis()
                 var autoplaySelected = false
                 var lastMergedStreams: List<StreamSource> = emptyList()
+                var isFirstEmission = true
 
                 progressiveFlow.collect { progressive ->
                     val allStreams = progressive.streams
@@ -458,7 +462,22 @@ class PlayerViewModel @Inject constructor(
                         streamLoadPhase = phaseLabel
                     )
 
-                    val shouldSelectNow = !autoplaySelected && mergedStreams.isNotEmpty()
+                    val cacheHit = isFirstEmission && progressive.isFinal && mergedStreams.isNotEmpty()
+                    isFirstEmission = false
+
+                    val elapsedMs = System.currentTimeMillis() - collectionStartMs
+                    val hasCachedReadyStream = mergedStreams.any { stream ->
+                        stream.behaviorHints?.cached == true &&
+                            stream.behaviorHints.notWebReady != true &&
+                            !stream.url.isNullOrBlank()
+                    }
+                    val shouldSelectNow = !autoplaySelected && mergedStreams.isNotEmpty() && (
+                        cacheHit ||
+                            progressive.isFinal ||
+                            hasCachedReadyStream ||
+                            elapsedMs >= AUTOPLAY_QUALITY_WINDOW_MS ||
+                            elapsedMs >= AUTOPLAY_COLLECTION_WINDOW_MS
+                        )
 
                     if (shouldSelectNow) {
                         autoplaySelected = true
@@ -742,7 +761,7 @@ class PlayerViewModel @Inject constructor(
         }.lowercase()
 
         // Quality is the PRIMARY signal — 4K beats 1080p beats 720p regardless of size.
-        var score = qualityScore(stream.quality) * 1_000
+        var score = qualityScore(stream.quality) * 700
 
         // Within the same quality tier, prefer LARGER files (better bitrate/encode)
         // up to a stability ceiling. Beyond ~45GB we start penalizing because
@@ -753,20 +772,21 @@ class PlayerViewModel @Inject constructor(
             sizeBytes <= 2L * 1024 * 1024 * 1024 -> 20                  // tiny / possibly re-encoded low
             sizeBytes <= 8L * 1024 * 1024 * 1024 -> 100
             sizeBytes <= 15L * 1024 * 1024 * 1024 -> 180                // sweet spot for 1080p
-            sizeBytes <= 25L * 1024 * 1024 * 1024 -> 220                // high-bitrate 1080p / good 4K
-            sizeBytes <= 45L * 1024 * 1024 * 1024 -> 180                // big but playable
-            sizeBytes <= 70L * 1024 * 1024 * 1024 -> 80
-            else -> -120                                                // likely season pack
+            sizeBytes <= 25L * 1024 * 1024 * 1024 -> 160                // high-bitrate 1080p / good 4K
+            sizeBytes <= 45L * 1024 * 1024 * 1024 -> 40                 // big but still reasonable
+            sizeBytes <= 70L * 1024 * 1024 * 1024 -> -220               // avoid for autoplay
+            else -> -600                                                // likely slow/remux/pack
         }
 
         if (text.contains("cam") || text.contains("hdcam") || text.contains("telesync")) score -= 600
         if (text.contains("web-dl") || text.contains("webrip")) score += 50
         if (text.contains("bluray") || text.contains("blu-ray")) score += 60
-        if (text.contains("remux")) score += 30   // remux is top quality; allow with slight bonus
-        if (text.contains("x265") || text.contains("hevc") || text.contains("h265")) score += 30
+        if (text.contains("remux")) score -= 120
+        if (text.contains("dolby vision") || text.contains(" dovi") || text.contains(" dv ")) score -= 180
+        if (text.contains("x265") || text.contains("hevc") || text.contains("h265")) score += 10
         if (text.contains("x264") || text.contains("h264")) score += 20
-        if (stream.behaviorHints?.cached == true || text.contains(" rd+")) score += 400  // cached/debrid = instant playback
-        if (stream.behaviorHints?.notWebReady == true) score -= 300
+        if (stream.behaviorHints?.cached == true || text.contains(" rd+")) score += 500
+        if (stream.behaviorHints?.notWebReady == true) score -= 700
         if (!stream.url.isNullOrBlank() && stream.url.startsWith("http", ignoreCase = true)) score += 100
         if (stream.url?.startsWith("magnet:", ignoreCase = true) == true) score -= 800
         score += streamRepository.getAddonHealthBias(stream.addonId)
@@ -888,9 +908,9 @@ class PlayerViewModel @Inject constructor(
     ): StreamSource? {
         if (streams.isEmpty()) return null
 
-        // Only exclude truly obvious season packs. Real 4K releases frequently
-        // hit 40-60GB, so a 20GB cutoff was excluding high-quality sources.
-        val maxSizeBytes = 70L * 1024 * 1024 * 1024
+        // Autoplay should prefer sources that start quickly. Very large
+        // remuxes remain selectable manually from the source list.
+        val maxSizeBytes = 45L * 1024 * 1024 * 1024
 
         val candidates = streams.filter {
             val size = parseSize(it.size)

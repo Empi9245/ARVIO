@@ -319,7 +319,7 @@ fun PlayerScreen(
     var midPlaybackRecoveryAttempts by remember { mutableIntStateOf(0) }
     var blackVideoRecoveryStage by remember { mutableIntStateOf(0) } // 0=none, 1=HEVC forced, 2=AVC forced
     var blackVideoReadySinceMs by remember { mutableStateOf<Long?>(null) }
-    val heavyStartupMaxRetries = 6
+    val heavyStartupMaxRetries = 1
     var rebufferRecoverAttempted by remember { mutableStateOf(false) }
     var longRebufferCount by remember { mutableIntStateOf(0) }
     var autoAdvanceAttempts by remember { mutableIntStateOf(0) }
@@ -416,9 +416,9 @@ fun PlayerScreen(
             .followSslRedirects(true)
             .retryOnConnectionFailure(true)
             .dns(OkHttpProvider.dns)
-            .connectTimeout(8, TimeUnit.SECONDS)
+            .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(180, TimeUnit.SECONDS)
-            .writeTimeout(15, TimeUnit.SECONDS)
+            .writeTimeout(20, TimeUnit.SECONDS)
             .build()
     }
     val httpDataSourceFactory = remember(playbackHttpClient) {
@@ -460,10 +460,10 @@ fun PlayerScreen(
     val exoPlayer = remember {
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
-                8_000,     // minBufferMs
+                12_000,    // minBufferMs
                 45_000,    // maxBufferMs
-                250,       // bufferForPlaybackMs
-                1_500      // bufferForPlaybackAfterRebufferMs
+                500,       // bufferForPlaybackMs
+                2_000      // bufferForPlaybackAfterRebufferMs
             )
             .setTargetBufferBytes(80 * 1024 * 1024)   // 80 MB hard cap
             .setPrioritizeTimeOverSizeThresholds(false) // byte cap is authoritative
@@ -1210,10 +1210,15 @@ fun PlayerScreen(
                         }
                     }
                 }
-                val hardTimeoutMs = (initialBufferingTimeoutMs + if (isHeavyStartupSource) 45_000L else 20_000L)
-                    .coerceAtMost(180_000L)
+                val hardTimeoutMs = (initialBufferingTimeoutMs + if (isHeavyStartupSource) 12_000L else 8_000L)
+                    .coerceAtMost(45_000L)
                 if (!startupHardFailureReported && startupBufferDuration > hardTimeoutMs) {
-                    if (!startupSameSourceRefreshAttempted) {
+                    if (allowStartupSourceFallback &&
+                        !userSelectedSourceManually &&
+                        tryAdvanceToNextStream()
+                    ) {
+                        // auto advanced to a fallback stream
+                    } else if (!startupSameSourceRefreshAttempted) {
                         startupSameSourceRefreshAttempted = true
                         uiState.selectedStream?.let { viewModel.selectStream(it) }
                     } else {
@@ -3695,7 +3700,7 @@ private fun estimateInitialStartupTimeoutMs(
     stream: StreamSource?,
     isManualSelection: Boolean
 ): Long {
-    var timeoutMs = if (isManualSelection) 40_000L else 18_000L
+    var timeoutMs = if (isManualSelection) 25_000L else 10_000L
     if (stream == null) return timeoutMs
 
     val haystack = buildString {
@@ -3713,22 +3718,22 @@ private fun estimateInitialStartupTimeoutMs(
     val sizeBytes = parseSizeToBytes(stream.size)
 
     if (haystack.contains("4k") || haystack.contains("2160")) {
-        timeoutMs = timeoutMs.coerceAtLeast(70_000L)
+        timeoutMs = timeoutMs.coerceAtLeast(18_000L)
     }
     if (haystack.contains("remux") || haystack.contains("dolby vision") || haystack.contains(" dovi")) {
-        timeoutMs = timeoutMs.coerceAtLeast(80_000L)
+        timeoutMs = timeoutMs.coerceAtLeast(22_000L)
     }
 
     timeoutMs = when {
-        sizeBytes >= 60L * 1024 * 1024 * 1024 -> timeoutMs.coerceAtLeast(180_000L)
-        sizeBytes >= 40L * 1024 * 1024 * 1024 -> timeoutMs.coerceAtLeast(150_000L)
-        sizeBytes >= 30L * 1024 * 1024 * 1024 -> timeoutMs.coerceAtLeast(120_000L)
-        sizeBytes >= 20L * 1024 * 1024 * 1024 -> timeoutMs.coerceAtLeast(90_000L)
-        sizeBytes >= 10L * 1024 * 1024 * 1024 -> timeoutMs.coerceAtLeast(60_000L)
+        sizeBytes >= 60L * 1024 * 1024 * 1024 -> timeoutMs.coerceAtLeast(30_000L)
+        sizeBytes >= 40L * 1024 * 1024 * 1024 -> timeoutMs.coerceAtLeast(25_000L)
+        sizeBytes >= 30L * 1024 * 1024 * 1024 -> timeoutMs.coerceAtLeast(22_000L)
+        sizeBytes >= 20L * 1024 * 1024 * 1024 -> timeoutMs.coerceAtLeast(18_000L)
+        sizeBytes >= 10L * 1024 * 1024 * 1024 -> timeoutMs.coerceAtLeast(14_000L)
         else -> timeoutMs
     }
 
-    return timeoutMs.coerceAtMost(200_000L)
+    return timeoutMs.coerceAtMost(if (isManualSelection) 35_000L else 30_000L)
 }
 
 private fun playbackErrorMessageFor(
