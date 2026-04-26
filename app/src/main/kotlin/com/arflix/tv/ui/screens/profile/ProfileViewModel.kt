@@ -382,6 +382,7 @@ class ProfileViewModel @Inject constructor(
             }
         } else {
             // PIN incorrect - show error message in dialog
+            _uiState.value = _uiState.value.copy(pinError = "")
             _uiState.value = _uiState.value.copy(
                 pinError = "Incorrect PIN. Please try again."
             )

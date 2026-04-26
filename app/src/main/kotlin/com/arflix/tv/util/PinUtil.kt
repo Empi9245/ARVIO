@@ -27,12 +27,12 @@ object PinUtil {
      */
     fun hashPin(pin: String): String {
         if (!isValidPin(pin)) throw IllegalArgumentException("Invalid PIN")
-        
+
         val salt = ByteArray(SALT_LENGTH).also { Random.nextBytes(it) }
         val saltedPin = salt + pin.toByteArray(Charsets.UTF_8)
         val digest = MessageDigest.getInstance("SHA-256")
         val hash = digest.digest(saltedPin)
-        
+
         val saltB64 = Base64.getEncoder().encodeToString(salt)
         val hashB64 = Base64.getEncoder().encodeToString(hash)
         return "$saltB64\$$hashB64"
@@ -43,18 +43,18 @@ object PinUtil {
      */
     fun verifyPin(inputPin: String, storedHashedPin: String?): Boolean {
         if (storedHashedPin == null || !isValidPin(inputPin)) return false
-        
+
         return try {
             val parts = storedHashedPin.split("$")
             if (parts.size != 2) return false
-            
+
             val salt = Base64.getDecoder().decode(parts[0])
             val storedHash = Base64.getDecoder().decode(parts[1])
-            
+
             val saltedPin = salt + inputPin.toByteArray(Charsets.UTF_8)
             val digest = MessageDigest.getInstance("SHA-256")
             val inputHash = digest.digest(saltedPin)
-            
+
             inputHash.contentEquals(storedHash)
         } catch (e: Exception) {
             false

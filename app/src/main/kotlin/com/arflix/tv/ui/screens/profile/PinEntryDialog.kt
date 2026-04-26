@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -55,6 +56,10 @@ fun PinEntryDialog(
     var confirmPin by remember { mutableStateOf("") }
     var isConfirmingSetup by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf(pinError) }
+
+    LaunchedEffect(pinError) {
+        errorMessage = pinError
+    }
 
     Dialog(
         onDismissRequest = onDismiss,
