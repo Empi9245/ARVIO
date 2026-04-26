@@ -95,6 +95,9 @@ class TraktRepository @Inject constructor(
     private val USER_ID_KEY = stringPreferencesKey("user_id")
     private val clientId = Constants.TRAKT_CLIENT_ID
     private val clientSecret = Constants.TRAKT_CLIENT_SECRET
+    private val LEGACY_ACCESS_TOKEN_KEY = stringPreferencesKey("trakt_access_token")
+    private val LEGACY_REFRESH_TOKEN_KEY = stringPreferencesKey("trakt_refresh_token")
+    private val LEGACY_EXPIRES_AT_KEY = longPreferencesKey("trakt_expires_at")
 
     // Profile-scoped preference keys - each profile has its own Trakt connection
     private fun accessTokenKey() = profileManager.profileStringKey("trakt_access_token")
@@ -114,7 +117,7 @@ class TraktRepository @Inject constructor(
         val expiresAt: Long?
     )
 
-    private var attemptedProfileTokenLoad = false
+    private var attemptedProfileTokenLoadForProfileId: String? = null
     @Volatile private var cachedContinueWatching: List<ContinueWatchingItem> = emptyList()
     @Volatile private var cachedContinueWatchingProfileId: String? = null
     @Volatile private var continueWatchingFetching = false
@@ -175,8 +178,13 @@ class TraktRepository @Inject constructor(
     }
 
     suspend fun refreshTokenIfNeeded(): String? {
-        val prefs = context.traktDataStore.data.first()
-        val accessToken = prefs[accessTokenKey()] ?: return null
+        var prefs = context.traktDataStore.data.first()
+        var accessToken = prefs[accessTokenKey()]
+        if (accessToken == null) {
+            accessToken = migrateLegacyTokenToCurrentProfile(prefs)
+            if (accessToken == null) return null
+            prefs = context.traktDataStore.data.first()
+        }
         val refreshToken = prefs[refreshTokenKey()]
         val expiresAt = prefs[expiresAtKey()]
 
@@ -208,6 +216,27 @@ class TraktRepository @Inject constructor(
             // can try loading a fresh token from Supabase profile.
             null
         }
+    }
+
+    private suspend fun migrateLegacyTokenToCurrentProfile(prefs: Preferences): String? {
+        val legacyAccessToken = prefs[LEGACY_ACCESS_TOKEN_KEY]?.takeIf { it.isNotBlank() } ?: return null
+        val legacyRefreshToken = prefs[LEGACY_REFRESH_TOKEN_KEY]?.takeIf { it.isNotBlank() }
+        val legacyExpiresAt = prefs[LEGACY_EXPIRES_AT_KEY]
+
+        context.traktDataStore.edit { mutablePrefs ->
+            mutablePrefs[accessTokenKey()] = legacyAccessToken
+            if (legacyRefreshToken != null) {
+                mutablePrefs[refreshTokenKey()] = legacyRefreshToken
+            }
+            if (legacyExpiresAt != null) {
+                mutablePrefs[expiresAtKey()] = legacyExpiresAt
+            }
+            mutablePrefs.remove(LEGACY_ACCESS_TOKEN_KEY)
+            mutablePrefs.remove(LEGACY_REFRESH_TOKEN_KEY)
+            mutablePrefs.remove(LEGACY_EXPIRES_AT_KEY)
+        }
+
+        return legacyAccessToken
     }
 
     private suspend fun saveToken(token: TraktToken) {
@@ -264,14 +293,22 @@ class TraktRepository @Inject constructor(
 
         try {
             val accessToken = traktToken["access_token"]?.toString()?.trim('"') ?: return
-            val refreshToken = traktToken["refresh_token"]?.toString()?.trim('"') ?: return
-            val expiresIn = traktToken["expires_in"]?.toString()?.toLongOrNull() ?: 7776000L
-            val createdAt = traktToken["created_at"]?.toString()?.toLongOrNull() ?: (System.currentTimeMillis() / 1000)
+            val refreshToken = traktToken["refresh_token"]?.toString()?.trim('"')?.takeIf { it.isNotBlank() && it != "null" }
+            val expiresIn = traktToken["expires_in"]?.toString()?.toLongOrNull()
+            val createdAt = traktToken["created_at"]?.toString()?.toLongOrNull()
 
             context.traktDataStore.edit { prefs ->
                 prefs[accessTokenKey()] = accessToken
-                prefs[refreshTokenKey()] = refreshToken
-                prefs[expiresAtKey()] = createdAt + expiresIn
+                if (refreshToken != null) {
+                    prefs[refreshTokenKey()] = refreshToken
+                } else {
+                    prefs.remove(refreshTokenKey())
+                }
+                if (createdAt != null && expiresIn != null) {
+                    prefs[expiresAtKey()] = createdAt + expiresIn
+                } else {
+                    prefs.remove(expiresAtKey())
+                }
             }
 
         } catch (e: Exception) {
@@ -428,14 +465,19 @@ class TraktRepository @Inject constructor(
     }
 
     private suspend fun getAuthHeader(): String? {
-        val token = refreshTokenIfNeeded()
-        if (token != null) {
-            return "Bearer $token"
-        }
+        val profileId = profileManager.getProfileIdSync()
+        loadProfileTokenFromSupabaseIfNeeded(profileId)
+        val token = refreshTokenIfNeeded() ?: return null
+        return "Bearer $token"
+    }
 
-        // Fallback: load Trakt tokens from Supabase profile if available
-        if (!attemptedProfileTokenLoad) {
-            attemptedProfileTokenLoad = true
+    private suspend fun loadProfileTokenFromSupabaseIfNeeded(profileId: String) {
+        // Load Trakt tokens from Supabase profile if available.
+        // This must be tracked per profile; startup can touch Trakt before the
+        // active profile cache is initialized, and a failed default-profile
+        // attempt must not block the selected profile from loading its token.
+        if (attemptedProfileTokenLoadForProfileId != profileId) {
+            attemptedProfileTokenLoadForProfileId = profileId
             try {
                 val userId = context.traktDataStore.data.first()[USER_ID_KEY]
                     ?: context.authDataStore.data.first()[USER_ID_KEY]
@@ -461,9 +503,6 @@ class TraktRepository @Inject constructor(
                 }
             } catch (_: Exception) {}
         }
-
-        val refreshed = refreshTokenIfNeeded() ?: return null
-        return "Bearer $refreshed"
     }
 
     // ========== Watched History ==========
@@ -1690,7 +1729,7 @@ class TraktRepository @Inject constructor(
         lastScrobbleTime = 0L
 
         // Token load flag (force fresh token check for new profile)
-        attemptedProfileTokenLoad = false
+        attemptedProfileTokenLoadForProfileId = null
     }
 
     /**
@@ -2226,8 +2265,13 @@ class TraktRepository @Inject constructor(
     // ========== Watchlist ==========
 
     suspend fun getWatchlist(): List<MediaItem> {
-        val auth = getAuthHeader() ?: return emptyList()
-        return getWatchlistFromTrakt(auth)
+        return getWatchlistWithAuthState().second
+    }
+
+    suspend fun getWatchlistWithAuthState(): Pair<Boolean, List<MediaItem>> {
+        val auth = getAuthHeader() ?: return false to emptyList()
+        val items = getWatchlistFromTrakt(auth)
+        return true to items
     }
 
     private suspend fun getWatchlistFromTrakt(auth: String): List<MediaItem> {

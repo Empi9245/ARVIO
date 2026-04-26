@@ -142,9 +142,16 @@ class ProfileViewModel @Inject constructor(
                     profileRepository.setActiveProfile(profile.id)
                 }
 
-                // Push current state before switching, then pull cloud state for the new profile.
+                // Pull cloud state for the selected profile before pushing so
+                // a stale TV cache cannot overwrite newer phone/cloud tokens
+                // or watchlist state during profile selection.
                 viewModelScope.launch(Dispatchers.IO) {
+                    runCatching { cloudSyncRepository.pullFromCloud() }
+                    if (profileRepository.getActiveProfileId() != profile.id) return@launch
                     runCatching { cloudSyncRepository.pushToCloud() }
+                }
+
+                viewModelScope.launch(Dispatchers.IO) {
                     delay(1_000L)
                     if (profileRepository.getActiveProfileId() != profile.id) return@launch
                     runCatching { cloudSyncRepository.pullFromCloud() }

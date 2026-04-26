@@ -202,12 +202,8 @@ fun ProfileSelectionScreen(
                                 if (uiState.isManageMode) {
                                     viewModel.showEditDialog(profile)
                                 } else {
-                                    if (uiState.activeProfile?.id == profile.id) {
-                                        onProfileSelected()
-                                    } else {
-                                        navigateTriggered = true
-                                        viewModel.selectProfile(profile)
-                                    }
+                                    navigateTriggered = true
+                                    viewModel.selectProfile(profile)
                                 }
                             },
                             onFocus = { viewModel.preloadForProfile(profile) },
@@ -246,12 +242,8 @@ fun ProfileSelectionScreen(
                                 if (uiState.isManageMode) {
                                     viewModel.showEditDialog(profile)
                                 } else {
-                                    if (uiState.activeProfile?.id == profile.id) {
-                                        onProfileSelected()
-                                    } else {
-                                        navigateTriggered = true
-                                        viewModel.selectProfile(profile)
-                                    }
+                                    navigateTriggered = true
+                                    viewModel.selectProfile(profile)
                                 }
                             },
                             onFocus = { viewModel.preloadForProfile(profile) },

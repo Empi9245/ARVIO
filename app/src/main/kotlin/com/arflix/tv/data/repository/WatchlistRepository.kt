@@ -242,8 +242,6 @@ class WatchlistRepository @Inject constructor(
      * after Trakt has the correct IDs.
      */
     suspend fun syncFromTraktOrder(traktItems: List<MediaItem>) = withContext(Dispatchers.IO) {
-        if (traktItems.isEmpty()) return@withContext
-
         val existing = loadWatchlistRaw()
         val existingByKey = existing.associateBy { "${it.mediaType}:${it.tmdbId}" }
 
@@ -335,7 +333,8 @@ class WatchlistRepository @Inject constructor(
                 MutableList::class.java,
                 LocalWatchlistItem::class.java
             ).type
-            gson.fromJson(json, type) ?: emptyList()
+            (gson.fromJson<List<LocalWatchlistItem>>(json, type) ?: emptyList())
+                .sortedByDescending { it.addedAt }
         } catch (_: Exception) {
             emptyList()
         }
