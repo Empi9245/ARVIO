@@ -1,23 +1,19 @@
 package com.arflix.tv.ui.screens.watchlist
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Bookmark
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -70,7 +66,6 @@ import com.arflix.tv.ui.focus.arvioDpadFocusGroup
 import com.arflix.tv.ui.theme.ArflixTypography
 import com.arflix.tv.ui.theme.BackgroundDark
 import com.arflix.tv.ui.theme.Pink
-import com.arflix.tv.ui.theme.TextPrimary
 import com.arflix.tv.ui.theme.TextSecondary
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -292,31 +287,8 @@ fun WatchlistScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(top = if (isMobile) 0.dp else AppTopBarContentTopInset)
-                .padding(start = 24.dp, top = if (isMobile) 16.dp else 24.dp, end = 48.dp)
+                .padding(start = 24.dp, top = if (isMobile) 16.dp else 4.dp, end = 48.dp)
         ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 24.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.ArrowBack,
-                        contentDescription = "Back",
-                        tint = TextPrimary,
-                        modifier = Modifier
-                            .clickable { onBack() }
-                            .padding(end = 16.dp)
-                            .size(28.dp)
-                    )
-                    Text(
-                        text = "Watchlist",
-                        style = ArflixTypography.heroTitle.copy(fontSize = 24.sp),
-                        color = TextPrimary,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-                
                 when {
                     uiState.isLoading -> {
                         Box(
@@ -362,7 +334,7 @@ fun WatchlistScreen(
                         TvLazyVerticalGrid(
                             columns = TvGridCells.Fixed(gridColumns),
                             state = gridState,
-                            contentPadding = PaddingValues(top = 8.dp, bottom = 48.dp),
+                            contentPadding = PaddingValues(top = 0.dp, bottom = 48.dp),
                             horizontalArrangement = Arrangement.spacedBy(16.dp),
                             verticalArrangement = Arrangement.spacedBy(24.dp),
                             modifier = Modifier

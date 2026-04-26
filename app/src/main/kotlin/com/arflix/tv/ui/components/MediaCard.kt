@@ -83,6 +83,7 @@ fun MediaCard(
     titleMaxLines: Int = 1,
     subtitleMaxLines: Int = 1,
     isFocusedOverride: Boolean = false,
+    focusedScale: Float = 1.045f,
     enableSystemFocus: Boolean = true,
     onFocused: () -> Unit = {},
     onClick: () -> Unit = {},
@@ -150,7 +151,8 @@ fun MediaCard(
             .data(rawImageUrl)
             .size(widthPx, heightPx)
             .precision(Precision.INEXACT)
-            .allowHardware(true)
+            .allowHardware(false)
+            .crossfade(false)
             .build()
     }
     // Performance: Removed context/density from keys
@@ -165,8 +167,8 @@ fun MediaCard(
                 .data(effectiveLogoImageUrl)
                 .size(logoWidthPx, logoHeightPx)
                 .precision(Precision.INEXACT)
-                .allowHardware(true)
-                // Uses global crossfade(200) from ImageLoader
+                .allowHardware(false)
+                .crossfade(false)
                 .build()
         }
     }
@@ -184,7 +186,7 @@ fun MediaCard(
             backgroundColor = ArvioSkin.colors.surface,
             outlineColor = ArvioSkin.colors.focusOutline,
             outlineWidth = jumpBorderWidth,
-            focusedScale = 1.045f,
+            focusedScale = focusedScale,
             pressedScale = 0.97f,
             focusedTransformOriginX = 0.5f,
             animateFocus = animateFocus,
@@ -483,8 +485,8 @@ fun PosterCard(
             .data(posterUrl)
             .size(widthPx, heightPx)
             .precision(Precision.INEXACT)
-            .allowHardware(true)
-            // Uses global crossfade(200) from ImageLoader
+            .allowHardware(false)
+            .crossfade(false)
             .build()
     }
 

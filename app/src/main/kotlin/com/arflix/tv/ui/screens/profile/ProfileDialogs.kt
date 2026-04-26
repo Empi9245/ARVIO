@@ -300,7 +300,11 @@ private fun ProfileDialogContent(
                                                 event.action == KeyEvent.ACTION_UP
                                         if (isDoneAction || isEnterKey) {
                                             hideKeyboard(this)
-                                            runCatching { confirmButtonFocusRequester.requestFocus() }
+                                            if (this.text?.toString()?.isNotBlank() == true) {
+                                                onConfirm()
+                                            } else {
+                                                runCatching { confirmButtonFocusRequester.requestFocus() }
+                                            }
                                             true
                                         } else false
                                     }

@@ -85,8 +85,8 @@ android {
 
     buildTypes {
         release {
-            // Stability first: keep release unminified to avoid R8 runtime regressions.
-            isMinifyEnabled = false
+            // Full release optimization for TV smoothness.
+            isMinifyEnabled = true
             isShrinkResources = false
             // Use release signing if configured, otherwise fall back to debug
             val releaseSigningConfig = signingConfigs.findByName("release")

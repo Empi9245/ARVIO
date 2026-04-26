@@ -1566,10 +1566,10 @@ private fun DetailsContent(
                 val inCinemaColor = Color(0xFF8AD5FF)
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Box(
-                        modifier = Modifier.height(70.dp),
+                        modifier = Modifier.height(62.dp),
                         contentAlignment = Alignment.CenterStart
                     ) {
                         if (logoUrl != null) {
@@ -1579,8 +1579,8 @@ private fun DetailsContent(
                                 contentScale = ContentScale.Fit,
                                 alignment = Alignment.CenterStart,
                                 modifier = Modifier
-                                    .height(70.dp)
-                                    .width(300.dp)
+                                    .height(62.dp)
+                                    .width(280.dp)
                             )
                         } else {
                             Text(
@@ -1616,7 +1616,7 @@ private fun DetailsContent(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(6.dp))
 
                 val genreText = genres.take(2).joinToString(" / ").ifEmpty {
                     if (item.mediaType == MediaType.TV) "TV Series" else "Movie"
@@ -1627,21 +1627,21 @@ private fun DetailsContent(
                 val rating = item.imdbRating.ifEmpty { item.tmdbRating }
                 val ratingValue = parseRatingValue(rating)
                 val budgetText = budget?.trim()?.takeIf { it.isNotEmpty() && item.mediaType == MediaType.MOVIE }
-                val overviewMaxHeight = if (isCompactHeight) 62.dp else 66.dp
+                val overviewMaxHeight = if (isCompactHeight) 50.dp else 52.dp
 
                 val separatorStyle = ArflixTypography.caption.copy(
-                    fontSize = 14.sp,
+                    fontSize = 13.sp,
                     shadow = textShadow
                 )
 
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
                         text = genreText,
                         style = ArflixTypography.caption.copy(
-                            fontSize = 14.sp,
+                            fontSize = 13.sp,
                             fontWeight = FontWeight.Bold,
                             shadow = textShadow
                         ),
@@ -1653,7 +1653,7 @@ private fun DetailsContent(
                         Text(
                             text = displayDate,
                             style = ArflixTypography.caption.copy(
-                                fontSize = 14.sp,
+                                fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,
                                 shadow = textShadow
                             ),
@@ -1666,7 +1666,7 @@ private fun DetailsContent(
                         Text(
                             text = item.duration,
                             style = ArflixTypography.caption.copy(
-                                fontSize = 14.sp,
+                                fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,
                                 shadow = textShadow
                             ),
@@ -1681,16 +1681,16 @@ private fun DetailsContent(
                             horizontalArrangement = Arrangement.spacedBy(4.dp),
                             modifier = Modifier
                                 .background(Color(0xFFF5C518), RoundedCornerShape(3.dp))
-                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                .padding(horizontal = 5.dp, vertical = 1.dp)
                         ) {
                             Text(
                                 text = "IMDb",
-                                style = ArflixTypography.caption.copy(fontSize = 9.sp, fontWeight = FontWeight.Black),
+                                style = ArflixTypography.caption.copy(fontSize = 8.sp, fontWeight = FontWeight.Black),
                                 color = Color.Black
                             )
                             Text(
                                 text = rating,
-                                style = ArflixTypography.caption.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold),
+                                style = ArflixTypography.caption.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold),
                                 color = Color.Black
                             )
                         }
@@ -1704,16 +1704,16 @@ private fun DetailsContent(
                             horizontalArrangement = Arrangement.spacedBy(4.dp),
                             modifier = Modifier
                                 .background(Color(0xFF2E51A2), RoundedCornerShape(3.dp))
-                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                .padding(horizontal = 5.dp, vertical = 1.dp)
                         ) {
                             Text(
                                 text = "MAL",
-                                style = ArflixTypography.caption.copy(fontSize = 9.sp, fontWeight = FontWeight.Black),
+                                style = ArflixTypography.caption.copy(fontSize = 8.sp, fontWeight = FontWeight.Black),
                                 color = Color.White
                             )
                             Text(
                                 text = String.format("%.1f", malScore),
-                                style = ArflixTypography.caption.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold),
+                                style = ArflixTypography.caption.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold),
                                 color = Color.White
                             )
                         }
@@ -1724,7 +1724,7 @@ private fun DetailsContent(
                         Text(
                             text = "Budget $budgetText",
                             style = ArflixTypography.caption.copy(
-                                fontSize = 14.sp,
+                                fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,
                                 shadow = textShadow
                             ),
@@ -1733,7 +1733,7 @@ private fun DetailsContent(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(14.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
                 val displayOverview = item.overview
 
@@ -1747,11 +1747,11 @@ private fun DetailsContent(
                         style = ArflixTypography.body.copy(
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Normal,
-                            lineHeight = 17.sp,
+                            lineHeight = 15.sp,
                             shadow = textShadow
                         ),
                         color = Color.White.copy(alpha = 0.9f),
-                        maxLines = 4,
+                        maxLines = 3,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
@@ -1898,8 +1898,8 @@ private fun DetailsContent(
                 .padding(start = 24.dp, bottom = contentRowBottomPadding)
                 .arvioDpadFocusGroup()
                 .clipToBounds(),  // Clip content to prevent overlay on hero
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            contentPadding = PaddingValues(top = 12.dp)
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+            contentPadding = PaddingValues(top = 6.dp)
         ) {
             // TV rows: Seasons first, then Episodes
             if (item.mediaType == MediaType.TV && episodes.isNotEmpty()) {
@@ -1929,8 +1929,8 @@ private fun DetailsContent(
                             contentPadding = PaddingValues(
                                 start = contentStartPadding,
                                 end = 150.dp,
-                                top = 12.dp,
-                                bottom = 12.dp,
+                                top = 6.dp,
+                                bottom = 6.dp,
                             ),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
@@ -1953,7 +1953,7 @@ private fun DetailsContent(
                 }
 
                 item {
-                    val episodeCardWidth = if (configuration.screenWidthDp < 1400) 300.dp else 320.dp
+                    val episodeCardWidth = if (configuration.screenWidthDp < 1400) 292.dp else 300.dp
                     val episodeRowState = rememberTvLazyListState()
                     HomeStyleRowAutoScroll(
                         rowState = episodeRowState,
@@ -1973,8 +1973,8 @@ private fun DetailsContent(
                         contentPadding = PaddingValues(
                             start = contentStartPadding,
                             end = 520.dp,
-                            top = 14.dp,
-                            bottom = 14.dp,
+                            top = 6.dp,
+                            bottom = 6.dp,
                         ),
                         horizontalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
@@ -1985,6 +1985,7 @@ private fun DetailsContent(
                             val isFocused = currentFocusedSection == FocusSection.EPISODES && index == currentEpisodeIndex
                             EpisodeCard(
                                 episode = episode,
+                                cardWidth = episodeCardWidth,
                                 isFocused = isFocused,
                                 onClick = { onEpisodeClick(index) }
                             )
@@ -2541,11 +2542,10 @@ private fun PremiumActionButton(
 @Composable
 private fun EpisodeCard(
     episode: Episode,
+    cardWidth: androidx.compose.ui.unit.Dp = 300.dp,
     isFocused: Boolean,
     onClick: () -> Unit = {}
 ) {
-    val configuration = LocalConfiguration.current
-    val cardWidth = if (configuration.screenWidthDp < 1400) 300.dp else 320.dp
     val aspectRatio = 16f / 9f
     val context = LocalContext.current
     val density = LocalDensity.current

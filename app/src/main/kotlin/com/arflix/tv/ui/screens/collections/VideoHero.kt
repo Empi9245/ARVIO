@@ -96,10 +96,20 @@ fun VideoHero(
         factory = { ctx ->
             PlayerView(ctx).apply {
                 useController = false
+                setControllerAutoShow(false)
+                hideController()
+                isFocusable = false
+                isFocusableInTouchMode = false
+                descendantFocusability = android.view.ViewGroup.FOCUS_BLOCK_DESCENDANTS
                 resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
                 layoutParams = android.view.ViewGroup.LayoutParams(MATCH_PARENT, MATCH_PARENT)
             }
         },
-        update = { view -> view.player = player }
+        update = { view ->
+            view.useController = false
+            view.setControllerAutoShow(false)
+            view.hideController()
+            view.player = player
+        }
     )
 }

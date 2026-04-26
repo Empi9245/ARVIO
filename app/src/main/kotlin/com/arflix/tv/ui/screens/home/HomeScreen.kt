@@ -6,7 +6,6 @@ import android.content.Context
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.Animatable
@@ -28,7 +27,7 @@ import androidx.compose.ui.res.painterResource
 import com.arflix.tv.R
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -64,7 +63,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -139,6 +137,9 @@ import com.arflix.tv.ui.components.SidebarItem
 import com.arflix.tv.ui.components.topBarFocusedItem
 import com.arflix.tv.ui.components.topBarMaxIndex
 import com.arflix.tv.ui.focus.arvioDpadFocusGroup
+import com.arflix.tv.ui.skin.ArvioFocusableSurface
+import com.arflix.tv.ui.skin.ArvioSkin
+import com.arflix.tv.ui.skin.rememberArvioCardShape
 import com.arflix.tv.ui.theme.AnimationConstants
 import com.arflix.tv.ui.theme.ArflixTypography
 import com.arflix.tv.ui.theme.BackgroundCard
@@ -524,47 +525,12 @@ fun HomeScreen(
             )
         )
     }
-    val heroLeftScrim = remember {
-        Brush.horizontalGradient(
-            colorStops = arrayOf(
-                0.0f to Color.Black.copy(alpha = 0.95f),
-                0.12f to Color.Black.copy(alpha = 0.88f),
-                0.22f to Color.Black.copy(alpha = 0.72f),
-                0.32f to Color.Black.copy(alpha = 0.50f),
-                0.42f to Color.Black.copy(alpha = 0.30f),
-                0.55f to Color.Black.copy(alpha = 0.10f),
-                0.70f to Color.Transparent,
-                1.0f to Color.Transparent
-            )
-        )
-    }
-    val heroTopScrim = remember {
-        Brush.verticalGradient(
-            colorStops = arrayOf(
-                0.0f to Color.Black.copy(alpha = 0.7f),
-                0.06f to Color.Black.copy(alpha = 0.45f),
-                0.15f to Color.Black.copy(alpha = 0.15f),
-                0.25f to Color.Transparent,
-                1.0f to Color.Transparent
-            )
-        )
-    }
-    val heroBottomScrim = remember {
-        Brush.verticalGradient(
-            colorStops = arrayOf(
-                0.0f to Color.Transparent,
-                0.85f to Color.Transparent,
-                0.92f to Color.Black.copy(alpha = 0.5f),
-                1.0f to Color.Black.copy(alpha = 0.85f)
-            )
-        )
-    }
     val contentStartPadding = if (isMobile) 16.dp else 36.dp
 
     // Use rememberSaveable to persist focus position across navigation (back from details page)
     val focusState = rememberSaveable(saver = HomeFocusState.Saver) { HomeFocusState() }
     val fastScrollThresholdMs = 650L
-    val heroVideoIdleThresholdMs = 1_400L
+    val heroVideoIdleThresholdMs = 6_000L
     val startupEffectsDelayMs = if (isMobile) 0L else 900L
     var startupEffectsSettled by remember { mutableStateOf(isMobile) }
     var suppressHeroVideoPlayback by remember { mutableStateOf(false) }
@@ -618,11 +584,21 @@ fun HomeScreen(
     // Preload logos for current and next rows when row changes
     LaunchedEffect(allowHomeBackgroundWork) {
         if (!allowHomeBackgroundWork) return@LaunchedEffect
-        snapshotFlow { focusState.currentRowIndex }
+        snapshotFlow { focusState.currentRowIndex to focusState.lastNavEventTime }
             .distinctUntilChanged()
-            .collectLatest { rowIndex ->
+            .collectLatest { (rowIndex, navEventTime) ->
+                val idleForMs = if (navEventTime > 0L) {
+                    SystemClock.elapsedRealtime() - navEventTime
+                } else {
+                    fastScrollThresholdMs
+                }
+                if (idleForMs < heroVideoIdleThresholdMs) {
+                    delay(heroVideoIdleThresholdMs - idleForMs)
+                }
+                if (focusState.currentRowIndex != rowIndex) return@collectLatest
                 viewModel.preloadLogosForCategory(rowIndex, prioritizeVisible = true)
                 viewModel.preloadLogosForCategory(rowIndex + 1, prioritizeVisible = false)
+                viewModel.preloadLogosForCategory(rowIndex + 2, prioritizeVisible = false)
             }
     }
 
@@ -642,19 +618,14 @@ fun HomeScreen(
             .collectLatest { (rowIndex, itemIndex, _) ->
                 val categoriesSnapshot = latestDisplayCategories
                 if (categoriesSnapshot.isEmpty() || focusState.isSidebarFocused) return@collectLatest
-                val now = SystemClock.elapsedRealtime()
-                val isFastScrolling = now - focusState.lastNavEventTime < fastScrollThresholdMs
-                viewModel.onFocusChanged(rowIndex, itemIndex, shouldPrefetch = !isFastScrolling)
-                delay(if (isFastScrolling) 700L else 220L)
-
-                val idleFor = SystemClock.elapsedRealtime() - focusState.lastNavEventTime
-                if (idleFor < fastScrollThresholdMs) return@collectLatest
-
                 val row = categoriesSnapshot.getOrNull(rowIndex)
                 val newHeroItem = row?.items?.getOrNull(itemIndex)
                     ?: row?.items?.firstOrNull()
                     ?: categoriesSnapshot.firstOrNull()?.items?.firstOrNull()
 
+                val now = SystemClock.elapsedRealtime()
+                val isFastScrolling = now - focusState.lastNavEventTime < fastScrollThresholdMs
+                viewModel.onFocusChanged(rowIndex, itemIndex, shouldPrefetch = !isFastScrolling)
                 if (newHeroItem != null) {
                     viewModel.updateHeroItem(newHeroItem)
                 }
@@ -707,17 +678,22 @@ fun HomeScreen(
     val heroVideoUrl = when {
         !isMobile && !focusState.userHasNavigated -> null
         !heroVideoAllowed -> null
-        isHeroIptv -> displayHeroItem?.let { viewModel.getIptvStreamUrl(it.id) }
+        // Service collection MP4s should start as soon as the card becomes the hero.
+        // Keep the idle gate for heavier IPTV/live playback, but do not delay MP4 previews.
         serviceHeroVideoUrl != null -> serviceHeroVideoUrl
+        suppressHeroVideoPlayback -> null
+        isHeroIptv -> displayHeroItem?.let { viewModel.getIptvStreamUrl(it.id) }
         else -> null
     }
 
     var heroPlaybackHandles by remember { mutableStateOf<HomeHeroPlaybackHandles?>(null) }
+    var preparedHeroVideoUrl by remember { mutableStateOf<String?>(null) }
     val heroExoPlayer = heroPlaybackHandles?.player
     DisposableEffect(Unit) {
         onDispose {
             heroPlaybackHandles?.player?.release()
             heroPlaybackHandles = null
+            preparedHeroVideoUrl = null
         }
     }
 
@@ -752,33 +728,33 @@ fun HomeScreen(
         val player = heroPlaybackHandles?.player
         if (heroVideoUrl != null) {
             val handles = heroPlaybackHandles ?: return@LaunchedEffect
-            player?.stop()
-            player?.clearMediaItems()
-            val mi = androidx.media3.common.MediaItem.Builder()
-                .setUri(heroVideoUrl)
-                .setLiveConfiguration(
-                    androidx.media3.common.MediaItem.LiveConfiguration.Builder()
-                        .setMinPlaybackSpeed(1.0f).setMaxPlaybackSpeed(1.0f)
-                        .setTargetOffsetMs(4_000).build()
-                ).build()
-            val lower = heroVideoUrl.lowercase()
-            if (lower.contains(".m3u8") || lower.contains("/hls") || lower.contains("format=hls")) {
-                player?.setMediaSource(handles.hlsFactory.createMediaSource(mi))
-            } else {
-                player?.setMediaItem(mi)
+            if (preparedHeroVideoUrl != heroVideoUrl) {
+                player?.stop()
+                player?.clearMediaItems()
+                val mi = androidx.media3.common.MediaItem.Builder()
+                    .setUri(heroVideoUrl)
+                    .setLiveConfiguration(
+                        androidx.media3.common.MediaItem.LiveConfiguration.Builder()
+                            .setMinPlaybackSpeed(1.0f).setMaxPlaybackSpeed(1.0f)
+                            .setTargetOffsetMs(4_000).build()
+                    ).build()
+                val lower = heroVideoUrl.lowercase()
+                if (lower.contains(".m3u8") || lower.contains("/hls") || lower.contains("format=hls")) {
+                    player?.setMediaSource(handles.hlsFactory.createMediaSource(mi))
+                } else {
+                    player?.setMediaItem(mi)
+                }
+                player?.prepare()
+                preparedHeroVideoUrl = heroVideoUrl
             }
             // Service videos play once with sound and stop; IPTV live streams
             // naturally don't loop (they're live) so REPEAT_MODE_OFF is safe
             // for both paths.
             player?.repeatMode = androidx.media3.common.Player.REPEAT_MODE_OFF
             player?.volume = 1f
-            player?.prepare()
             player?.playWhenReady = true
         } else {
             player?.playWhenReady = false
-            delay(heroVideoFadeDurationMs.toLong())
-            player?.stop()
-            player?.clearMediaItems()
         }
     }
 
@@ -797,61 +773,122 @@ fun HomeScreen(
         // On mobile, the hero backdrop is rendered inline inside MobileHomeRowsLayer — skip the fixed backdrop.
         // On TV, fill the entire screen with the backdrop.
         if (!isMobile) {
-        val backdropModifier = Modifier.fillMaxSize()
-        Box(modifier = backdropModifier) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        brush = backdropGradient
+            val backdropModifier = Modifier.fillMaxSize()
+            Box(modifier = backdropModifier) {
+                if (!showCinematicHomeLayer || currentBackdrop == null) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(
+                                brush = backdropGradient
+                            )
                     )
-            )
+                }
 
-            if (showCinematicHomeLayer && currentBackdrop != null) {
-                HomeBackdropCrossfade(
-                    backdropUrl = currentBackdrop,
-                    backdropSize = backdropSize,
-                    modifier = Modifier.fillMaxSize()
-                )
-            }
+                if (showCinematicHomeLayer && currentBackdrop != null) {
+                    HomeBackdropCrossfade(
+                        backdropUrl = currentBackdrop,
+                        backdropSize = backdropSize,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
 
-            if (heroExoPlayer != null && (heroVideoUrl != null || heroVideoAlpha > 0.01f)) {
-                AndroidView(
-                    factory = { ctx ->
-                        PlayerView(ctx).apply {
-                            player = heroExoPlayer
-                            useController = false
-                            resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                            setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
-                            setKeepContentOnPlayerReset(true)
-                        }
-                    },
-                    update = { pv -> pv.player = heroExoPlayer },
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .graphicsLayer { alpha = heroVideoAlpha }
-                )
-            }
+                if (heroExoPlayer != null && (heroVideoUrl != null || heroVideoAlpha > 0.01f)) {
+                    AndroidView(
+                        factory = { ctx ->
+                            PlayerView(ctx).apply {
+                                useController = false
+                                setControllerAutoShow(false)
+                                hideController()
+                                isFocusable = false
+                                isFocusableInTouchMode = false
+                                descendantFocusability = android.view.ViewGroup.FOCUS_BLOCK_DESCENDANTS
+                                resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                                setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
+                                setKeepContentOnPlayerReset(true)
+                                player = heroExoPlayer
+                            }
+                        },
+                        update = { pv ->
+                            pv.useController = false
+                            pv.setControllerAutoShow(false)
+                            pv.hideController()
+                            pv.player = heroExoPlayer
+                        },
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer { alpha = heroVideoAlpha }
+                    )
+                }
 
-            // YouTube trailer auto-play (muted, no controls)
-            if (isMobile && heroVideoUrl == null && uiState.trailerAutoPlay && uiState.heroTrailerKey != null) {
-                TrailerPlayer(
-                    youtubeKey = uiState.heroTrailerKey!!,
-                    modifier = Modifier.fillMaxSize()
-                )
-            }
+                // YouTube trailer auto-play (muted, no controls)
+                if (isMobile && heroVideoUrl == null && uiState.trailerAutoPlay && uiState.heroTrailerKey != null) {
+                    TrailerPlayer(
+                        youtubeKey = uiState.heroTrailerKey!!,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
 
-            // === SCRIM SYSTEM ===
+                // === SCRIM SYSTEM ===
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .drawBehind {
-                            drawRect(brush = heroLeftScrim)
-                            drawRect(brush = heroTopScrim)
-                            drawRect(brush = heroBottomScrim)
+                        .drawWithCache {
+                            val width = size.width
+                            val height = size.height
+                            val leftScrim = Brush.horizontalGradient(
+                                colorStops = arrayOf(
+                                    0.0f to Color.Black.copy(alpha = 0.95f),
+                                    0.12f to Color.Black.copy(alpha = 0.88f),
+                                    0.22f to Color.Black.copy(alpha = 0.72f),
+                                    0.32f to Color.Black.copy(alpha = 0.50f),
+                                    0.42f to Color.Black.copy(alpha = 0.30f),
+                                    0.55f to Color.Black.copy(alpha = 0.10f),
+                                    0.65f to Color.Transparent,
+                                    1.0f to Color.Transparent
+                                ),
+                                startX = 0f,
+                                endX = width
+                            )
+                            val topScrim = Brush.verticalGradient(
+                                colorStops = arrayOf(
+                                    0.0f to Color.Black.copy(alpha = 0.7f),
+                                    0.06f to Color.Black.copy(alpha = 0.45f),
+                                    0.15f to Color.Black.copy(alpha = 0.15f),
+                                    0.25f to Color.Transparent,
+                                    1.0f to Color.Transparent
+                                ),
+                                startY = 0f,
+                                endY = height
+                            )
+                            val bottomScrim = Brush.verticalGradient(
+                                colorStops = arrayOf(
+                                    0.0f to Color.Transparent,
+                                    0.85f to Color.Transparent,
+                                    0.92f to Color.Black.copy(alpha = 0.5f),
+                                    1.0f to Color.Black.copy(alpha = 0.85f)
+                                ),
+                                startY = 0f,
+                                endY = height
+                            )
+                            onDrawBehind {
+                                drawRect(
+                                    brush = leftScrim,
+                                    size = Size(width * 0.66f, height)
+                                )
+                                drawRect(
+                                    brush = topScrim,
+                                    size = Size(width, height * 0.26f)
+                                )
+                                drawRect(
+                                    brush = bottomScrim,
+                                    topLeft = Offset(0f, height * 0.84f),
+                                    size = Size(width, height * 0.16f)
+                                )
+                            }
                         }
                 )
-        }
+            }
         } // end if (!isMobile) backdrop
         
         HomeInputLayer(
@@ -1037,8 +1074,8 @@ private fun HeroSection(
     val context = LocalContext.current
     val density = LocalDensity.current
     val logoSize = remember(density) {
-        val widthPx = with(density) { 300.dp.roundToPx() }
-        val heightPx = with(density) { 70.dp.roundToPx() }
+        val widthPx = with(density) { 280.dp.roundToPx() }
+        val heightPx = with(density) { 62.dp.roundToPx() }
         widthPx.coerceAtLeast(1) to heightPx.coerceAtLeast(1)
     }
 
@@ -1073,10 +1110,10 @@ private fun HeroSection(
             val inCinemaColor = Color(0xFF8AD5FF)
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Box(
-                    modifier = Modifier.height(70.dp),
+                    modifier = Modifier.height(62.dp),
                     contentAlignment = Alignment.CenterStart
                 ) {
                     if (currentLogoUrl != null) {
@@ -1096,8 +1133,8 @@ private fun HeroSection(
                             contentScale = ContentScale.Fit,
                             alignment = Alignment.CenterStart,
                             modifier = Modifier
-                                .height(70.dp)
-                                .width(300.dp)
+                                .height(62.dp)
+                                .width(280.dp)
                         )
                     } else {
                         // Fallback to title text
@@ -1134,7 +1171,7 @@ private fun HeroSection(
             }
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(6.dp))
 
         // Performance: Use key instead of AnimatedContent for faster transitions
         key(item.id) {
@@ -1194,14 +1231,14 @@ private fun HeroSection(
 
                 // Metadata row: Date | Genre | Duration | IMDb rating
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     if (displayDate.isNotEmpty()) {
                         Text(
                             text = displayDate,
                             style = ArflixTypography.caption.copy(
-                                fontSize = 14.sp,
+                                fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,
                                 shadow = textShadow
                             ),
@@ -1212,7 +1249,7 @@ private fun HeroSection(
                             Text(
                                 text = "|",
                                 style = ArflixTypography.caption.copy(
-                                    fontSize = 14.sp,
+                                    fontSize = 13.sp,
                                     shadow = textShadow
                                 ),
                                 color = Color.White.copy(alpha = 0.7f)
@@ -1224,7 +1261,7 @@ private fun HeroSection(
                         Text(
                             text = genreText,
                             style = ArflixTypography.caption.copy(
-                                fontSize = 14.sp,
+                                fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,
                                 shadow = textShadow
                             ),
@@ -1237,7 +1274,7 @@ private fun HeroSection(
                             Text(
                                 text = "|",
                                 style = ArflixTypography.caption.copy(
-                                    fontSize = 14.sp,
+                                    fontSize = 13.sp,
                                     shadow = textShadow
                                 ),
                                 color = Color.White.copy(alpha = 0.7f)
@@ -1246,7 +1283,7 @@ private fun HeroSection(
                         Text(
                             text = currentItem.duration,
                             style = ArflixTypography.caption.copy(
-                                fontSize = 14.sp,
+                                fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,
                                 shadow = textShadow
                             ),
@@ -1259,7 +1296,7 @@ private fun HeroSection(
                             Text(
                                 text = "|",
                                 style = ArflixTypography.caption.copy(
-                                    fontSize = 14.sp,
+                                    fontSize = 13.sp,
                                     shadow = textShadow
                                 ),
                                 color = Color.White.copy(alpha = 0.7f)
@@ -1270,8 +1307,8 @@ private fun HeroSection(
                             contentDescription = "Primary streaming provider",
                             contentScale = ContentScale.Fit,
                             modifier = Modifier
-                                .height(18.dp)
-                                .width(56.dp)
+                                .height(16.dp)
+                                .width(52.dp)
                         )
                     }
 
@@ -1282,7 +1319,7 @@ private fun HeroSection(
                             Text(
                                 text = "|",
                                 style = ArflixTypography.caption.copy(
-                                    fontSize = 14.sp,
+                                    fontSize = 13.sp,
                                     shadow = textShadow
                                 ),
                                 color = Color.White.copy(alpha = 0.7f)
@@ -1291,15 +1328,15 @@ private fun HeroSection(
 
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(3.dp),
                             modifier = Modifier
                                 .background(Color(0xFFF5C518), RoundedCornerShape(3.dp))
-                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                .padding(horizontal = 5.dp, vertical = 1.dp)
                         ) {
                             Text(
                                 text = "IMDb",
                                 style = ArflixTypography.caption.copy(
-                                    fontSize = 9.sp,
+                                    fontSize = 8.sp,
                                     fontWeight = FontWeight.Black
                                 ),
                                 color = Color.Black
@@ -1307,7 +1344,7 @@ private fun HeroSection(
                             Text(
                                 text = rating,
                                 style = ArflixTypography.caption.copy(
-                                    fontSize = 11.sp,
+                                    fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold
                                 ),
                                 color = Color.Black
@@ -1323,7 +1360,7 @@ private fun HeroSection(
                             Text(
                                 text = "|",
                                 style = ArflixTypography.caption.copy(
-                                    fontSize = 14.sp,
+                                    fontSize = 13.sp,
                                     shadow = textShadow
                                 ),
                                 color = Color.White.copy(alpha = 0.7f)
@@ -1333,7 +1370,7 @@ private fun HeroSection(
                         Text(
                             text = "Budget $budgetText",
                             style = ArflixTypography.caption.copy(
-                                fontSize = 14.sp,
+                                fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,
                                 shadow = textShadow
                             ),
@@ -1343,7 +1380,7 @@ private fun HeroSection(
                 }
                 } // end else (non-IPTV metadata)
 
-                Spacer(modifier = Modifier.height(14.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
                 // Overview text (EPG data for IPTV, synopsis for movies/shows)
                 val displayOverview = (overviewOverride ?: currentItem.overview)
@@ -1354,7 +1391,7 @@ private fun HeroSection(
                     .trim()
                     .ifBlank { "No description available." }
 
-                val overviewMaxHeight = 72.dp
+                val overviewMaxHeight = 52.dp
                 Box(
                     modifier = Modifier
                         .width(360.dp)
@@ -1365,11 +1402,11 @@ private fun HeroSection(
                         style = ArflixTypography.body.copy(
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Normal,
-                            lineHeight = 17.sp,
+                            lineHeight = 15.sp,
                             shadow = textShadow
                         ),
                         color = Color.White.copy(alpha = 0.9f),
-                        maxLines = 4,
+                        maxLines = 3,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
@@ -2160,6 +2197,8 @@ private fun HomeInputLayer(
                         focusState.userHasNavigated = true
                         if (focusState.isSidebarFocused) {
                             focusState.isSidebarFocused = false
+                            focusState.currentItemIndex = 0
+                            focusState.lastNavEventTime = SystemClock.elapsedRealtime()
                             true
                         } else if (!focusState.isSidebarFocused && focusState.currentRowIndex < categories.size - 1) {
                             // Save current item position before leaving this row
@@ -2590,7 +2629,7 @@ private fun TvHomeRowsLayer(
                 val deltaPx = ((targetIndex - currentIndex) * visibleRowPitchPx) - currentOffset
                 listState.animateHomeScrollDelta(
                     deltaPx = deltaPx,
-                    durationMillis = if (jumpDistance == 1) 190 else 220
+                    durationMillis = if (jumpDistance == 1) 56 else 72
                 )
                 if (!recentUserNav && (
                     listState.firstVisibleItemIndex != targetIndex ||
@@ -2628,6 +2667,7 @@ private fun TvHomeRowsLayer(
                 contentType = { _, _ -> "home_category_row" }
             ) { index, category ->
                     val actualRowIndex = rowWindowStart + index
+                    val rowIsFocused = !focusState.isSidebarFocused && actualRowIndex == focusState.currentRowIndex
                     val rowHeight = if (usePosterCards) 252.dp else 202.dp
                     Box(
                         modifier = Modifier
@@ -2638,11 +2678,11 @@ private fun TvHomeRowsLayer(
                         ContentRow(
                             category = category,
                             cardLogoUrls = cardLogoUrls,
-                            isCurrentRow = !focusState.isSidebarFocused && actualRowIndex == focusState.currentRowIndex,
+                            isCurrentRow = rowIsFocused,
                             isRanked = category.title.contains("Top 10", ignoreCase = true),
                             usePosterCards = usePosterCards,
                             startPadding = contentStartPadding,
-                            focusedItemIndex = if (!focusState.isSidebarFocused && actualRowIndex == focusState.currentRowIndex) focusState.currentItemIndex else -1,
+                            focusedItemIndex = if (rowIsFocused) focusState.currentItemIndex else -1,
                             isFastScrolling = isFastScrolling,
                             onItemClick = onItemClick,
                             onItemFocused = { item, itemIdx ->
@@ -2820,6 +2860,7 @@ private fun ContentRow(
     } else {
         usePosterCards
     }
+    val cardAspectRatio = if (effectivePosterMode) 2f / 3f else 16f / 9f
     val itemWidth = if (effectivePosterMode) 119.dp else 210.dp
     val itemSpacing = 14.dp
     val availableWidthDp = configuration.screenWidthDp.dp - 56.dp - 12.dp
@@ -2830,9 +2871,6 @@ private fun ContentRow(
     }
     val itemsPerPage = fallbackItemsPerPage
     val totalItems = category.items.size
-    val itemKeys = remember(category.items) {
-        category.items.map(::homeRowItemKey)
-    }
     val maxFirstIndex = remember(totalItems, itemsPerPage) {
         (totalItems - itemsPerPage.coerceAtLeast(1)).coerceAtLeast(0)
     }
@@ -2840,54 +2878,17 @@ private fun ContentRow(
     val itemSpanPx = remember(density, itemWidth, itemSpacing) {
         with(density) { (itemWidth + itemSpacing).toPx().coerceAtLeast(1f) }
     }
-    val rowIdleLiftPx = with(density) { 8.dp.toPx() }
-    val rowAlpha by animateFloatAsState(
-        targetValue = if (isCurrentRow) 1f else 0.9f,
-        animationSpec = tween(
-            durationMillis = if (isFastScrolling) 82 else 170,
-            easing = LinearOutSlowInEasing
-        ),
-        label = "home_row_alpha"
-    )
-    val rowScale by animateFloatAsState(
-        targetValue = if (isCurrentRow) 1f else 0.985f,
-        animationSpec = tween(
-            durationMillis = if (isFastScrolling) 90 else 190,
-            easing = FastOutSlowInEasing
-        ),
-        label = "home_row_scale"
-    )
-    val rowTranslationY by animateFloatAsState(
-        targetValue = if (isCurrentRow) 0f else rowIdleLiftPx,
-        animationSpec = tween(
-            durationMillis = if (isFastScrolling) 90 else 190,
-            easing = FastOutSlowInEasing
-        ),
-        label = "home_row_translation"
-    )
-
+    val railFocusOverlayActive = isCurrentRow && isFastScrolling && focusedItemIndex >= 0 && totalItems > 0
+    val railFocusShape = rememberArvioCardShape(ArvioSkin.radius.md)
     // Keep focused card anchored by scrolling the row on every focus change.
     // Use smooth scroll (animated) for D-pad moves to avoid abrupt jumps.
     var lastScrollIndex by remember { mutableIntStateOf(-1) }
     var lastScrollOffset by remember { mutableIntStateOf(-1) }
-    val focusedItemFlags = remember(category.id) { mutableStateMapOf<String, Boolean>() }
-    var activeFocusedItemKey by remember(category.id) { mutableStateOf<String?>(null) }
     LaunchedEffect(isCurrentRow) {
         if (!isCurrentRow) {
             lastScrollIndex = -1
             lastScrollOffset = -1
         }
-    }
-    LaunchedEffect(itemKeys, isCurrentRow, focusedItemIndex) {
-        val desiredKey = itemKeys.getOrNull(focusedItemIndex).takeIf { isCurrentRow }
-        if (activeFocusedItemKey == desiredKey) return@LaunchedEffect
-        activeFocusedItemKey?.let { previousKey ->
-            focusedItemFlags[previousKey] = false
-        }
-        if (desiredKey != null) {
-            focusedItemFlags[desiredKey] = true
-        }
-        activeFocusedItemKey = desiredKey
     }
     LaunchedEffect(isCurrentRow, focusedItemIndex, totalItems, itemsPerPage) {
         if (!isCurrentRow || focusedItemIndex < 0 || totalItems == 0) return@LaunchedEffect
@@ -2895,14 +2896,12 @@ private fun ContentRow(
         val visibleCapacity = itemsPerPage.coerceAtLeast(1)
         val currentFirstIndex = rowState.firstVisibleItemIndex.coerceAtMost(maxFirstIndex)
         val currentFirstOffset = rowState.firstVisibleItemScrollOffset
-        val leadingComfort = if (visibleCapacity >= 4) 1 else 0
-        val trailingComfort = if (visibleCapacity >= 4) 2 else 1
+        // TV rows should behave like a stable focus rail: the focused tile stays
+        // in the first visible slot while D-pad Right moves the row underneath it.
+        // Allowing a leading comfort item made focus sit on the second tile.
         val scrollTargetIndex = when {
             !isScrollable || lastScrollIndex == -1 -> focusedItemIndex.coerceAtMost(maxFirstIndex)
-            focusedItemIndex < currentFirstIndex + leadingComfort ->
-                (focusedItemIndex - leadingComfort).coerceAtLeast(0)
-            focusedItemIndex > currentFirstIndex + visibleCapacity - 1 - trailingComfort ->
-                (focusedItemIndex - visibleCapacity + 1 + trailingComfort).coerceAtLeast(0)
+            focusedItemIndex != currentFirstIndex -> focusedItemIndex.coerceAtLeast(0)
             else -> currentFirstIndex
         }.coerceAtMost(maxFirstIndex)
 
@@ -2958,12 +2957,6 @@ private fun ContentRow(
 
     Column(
         modifier = Modifier
-            .graphicsLayer {
-                alpha = rowAlpha
-                scaleX = rowScale
-                scaleY = rowScale
-                translationY = rowTranslationY
-            }
             .padding(bottom = 12.dp)
     ) {
         // Section title - clean white text, aligned with cards
@@ -2999,7 +2992,7 @@ private fun ContentRow(
                 },
                 contentType = { _, item -> "${item.mediaType.name}_card" }
             ) { index, item ->
-                val itemIsFocused = focusedItemFlags[itemKeys[index]] == true
+                val itemIsFocused = isCurrentRow && index == focusedItemIndex
                 if (isRanked) {
                     // Top 10 rows should use the SAME card sizing as every other row.
                     // The previous layout used giant background numerals and a smaller
@@ -3015,13 +3008,14 @@ private fun ContentRow(
                             width = itemWidth,
                             isLandscape = !effectivePosterMode,
                             logoImageUrl = cardLogoUrl,
-                            showLogoImage = !isFastScrolling || itemIsFocused,
+                            showLogoImage = true,
                             raiseOnFocus = !isFastScrolling,
                             showProgress = false,
                             showTitle = isCollectionRow && !item.collectionHideTitle,
-                            isFocusedOverride = itemIsFocused,
-                            enableFocusedImageSwap = !isFastScrolling,
-                            animateFocus = !isFastScrolling,
+                            isFocusedOverride = itemIsFocused && !railFocusOverlayActive,
+                            focusedScale = 1f,
+                            enableFocusedImageSwap = !isCollectionRow && !isFastScrolling,
+                            animateFocus = false,
                             enableSystemFocus = false,
                             onFocused = { onItemFocused(item, index) },
                             onClick = { onItemClick(item) },
@@ -3045,13 +3039,14 @@ private fun ContentRow(
                         width = itemWidth,
                         isLandscape = !effectivePosterMode,
                         logoImageUrl = cardLogoUrl,
-                        showLogoImage = !isFastScrolling || itemIsFocused,
+                        showLogoImage = true,
                         raiseOnFocus = !isFastScrolling,
                         showProgress = isContinueWatching,
                         showTitle = isCollectionRow && !item.collectionHideTitle,
-                        isFocusedOverride = itemIsFocused,
-                        enableFocusedImageSwap = !isFastScrolling,
-                        animateFocus = !isFastScrolling,
+                        isFocusedOverride = itemIsFocused && !railFocusOverlayActive,
+                        focusedScale = 1f,
+                        enableFocusedImageSwap = !isCollectionRow && !isFastScrolling,
+                        animateFocus = false,
                         enableSystemFocus = false,
                         onFocused = { onItemFocused(item, index) },
                         onClick = { onItemClick(item) },
@@ -3059,6 +3054,27 @@ private fun ContentRow(
                 }
             }
             }  // Close TvLazyRow
+            if (railFocusOverlayActive) {
+                ArvioFocusableSurface(
+                    modifier = Modifier
+                        .padding(start = startPadding, top = 14.dp)
+                        .width(itemWidth)
+                        .aspectRatio(cardAspectRatio)
+                        .zIndex(4f),
+                    shape = railFocusShape,
+                    backgroundColor = Color.Transparent,
+                    outlineColor = ArvioSkin.colors.focusOutline,
+                    outlineWidth = 2.5.dp,
+                    focusedScale = 1f,
+                    pressedScale = 0.97f,
+                    animateFocus = false,
+                    enableSystemFocus = false,
+                    isFocusedOverride = true
+                ) {
+                    // Empty by design: this keeps the D-pad focus ring anchored to
+                    // the first rail slot while the selected item scrolls under it.
+                }
+            }
         }  // Close Box
     }  // Close Column
 }

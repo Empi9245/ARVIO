@@ -33,6 +33,8 @@ import com.arflix.tv.data.repository.CollectionTemplateManifest
 import com.arflix.tv.data.repository.WatchHistoryRepository
 import com.arflix.tv.data.repository.WatchlistRepository
 import com.arflix.tv.util.Constants
+import com.arflix.tv.util.DeviceType
+import com.arflix.tv.util.detectDeviceType
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Job
@@ -593,6 +595,7 @@ class HomeViewModel @Inject constructor(
 
     private val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
     private val isLowRamDevice = activityManager.isLowRamDevice || activityManager.memoryClass <= 256
+    private val isTvDevice = detectDeviceType(context) == DeviceType.TV
     private val gson = com.google.gson.Gson()
 
     // Disk cache key for the home categories — profile-scoped so each profile gets
@@ -681,13 +684,20 @@ class HomeViewModel @Inject constructor(
     private var lastFocusChangeTime = 0L
     private var consecutiveFastChanges = 0
     private val FAST_SCROLL_THRESHOLD_MS = 650L  // Under 650ms = fast scrolling
-    private val FAST_SCROLL_DEBOUNCE_MS = 620L   // Higher debounce during fast scroll
+    private val FAST_SCROLL_DEBOUNCE_MS = 220L   // Keep hero responsive without updating every key repeat
 
     private val FOCUS_PREFETCH_COALESCE_MS = if (isLowRamDevice) 180L else 120L
 
-    private val logoPreloadWidth = if (isLowRamDevice) 260 else 300
-    private val logoPreloadHeight = if (isLowRamDevice) 60 else 70
-    private val cardBackdropWidth = (240 * context.resources.displayMetrics.density)
+    private val homeLandscapeCardWidthDp = 210
+    private val homeLogoWidthDp = 220
+    private val homeLogoHeightDp = 64
+    private val logoPreloadWidth = (homeLogoWidthDp * context.resources.displayMetrics.density)
+        .toInt()
+        .coerceAtLeast(1)
+    private val logoPreloadHeight = (homeLogoHeightDp * context.resources.displayMetrics.density)
+        .toInt()
+        .coerceAtLeast(1)
+    private val cardBackdropWidth = (homeLandscapeCardWidthDp * context.resources.displayMetrics.density)
         .toInt()
         .coerceAtLeast(1)
     private val cardBackdropHeight = (cardBackdropWidth / (16f / 9f))
@@ -703,7 +713,7 @@ class HomeViewModel @Inject constructor(
     private val initialBackdropPrefetchItems = 1
     private val incrementalLogoPrefetchItems = if (isLowRamDevice) 4 else 6
     private val prioritizedLogoPrefetchItems = if (isLowRamDevice) 5 else 7
-    private val incrementalBackdropPrefetchItems = 1
+    private val incrementalBackdropPrefetchItems = if (isLowRamDevice) 4 else 7
     private val initialCategoryItemCap = if (isLowRamDevice) 8 else 10
     private val categoryPageSize = if (isLowRamDevice) 8 else 10
     private val initialMdblistCatalogCount = 1
@@ -1161,13 +1171,11 @@ class HomeViewModel @Inject constructor(
         scheduleInitialHomeLoad()
         // Defer heavy background warmups so first-launch navigation remains smooth.
         viewModelScope.launch {
-            delay(if (isLowRamDevice) 12_000L else 8_000L)
+            delay(if (isLowRamDevice) 10 * 60_000L else 8 * 60_000L)
             kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
                 try {
                     iptvRepository.warmXtreamVodCachesIfPossible()
-                    System.err.println("HomeVM: VOD cache warmup completed")
                 } catch (e: Exception) {
-                    System.err.println("HomeVM: VOD cache warmup failed: ${e.message}")
                 }
             }
         }
@@ -1190,7 +1198,7 @@ class HomeViewModel @Inject constructor(
             }
         }
         viewModelScope.launch(Dispatchers.IO) {
-            delay(if (isLowRamDevice) 60_000L else 45_000L)
+            delay(if (isLowRamDevice) 8 * 60_000L else 6 * 60_000L)
             // Warm IPTV channels + EPG in background after startup settles.
             // First load from disk cache (fast), then do targeted network EPG refresh
             // for favorite channels so home screen shows current program info.
@@ -1206,19 +1214,15 @@ class HomeViewModel @Inject constructor(
                         .map { it.id }
                         .toSet()
                     if (favChannelIds.isNotEmpty()) {
-                        val refreshed = runCatching { iptvRepository.refreshEpgForChannels(favChannelIds) }.getOrNull()
-                        if (refreshed != null) {
-                            refreshFavoriteTvEpg(networkFetch = false)
-                        }
+                        refreshFavoriteTvEpg(networkFetch = false)
                     }
                 }
-            } catch (e: Exception) {
-                System.err.println("HomeVM: IPTV warmup failed: ${e.message}")
+            } catch (_: Exception) {
             }
         }
         // Periodically refresh EPG data for Favorite TV row after Home settles.
         viewModelScope.launch {
-            delay(if (isLowRamDevice) 18_000L else 14_000L)
+            delay(if (isLowRamDevice) 8 * 60_000L else 6 * 60_000L)
             startEpgRefreshTimer()
         }
         viewModelScope.launch {
@@ -1924,7 +1928,7 @@ class HomeViewModel @Inject constructor(
 
                 // On mobile/touch devices, prefetch logos for ALL categories in the background
                 // since there's no D-pad focus to trigger incremental loading.
-                if (!isLowRamDevice) {
+                if (!isLowRamDevice && !isTvDevice) {
                     viewModelScope.launch(networkDispatcher) {
                         delay(1_500L) // Let initial UI settle first
                         for (i in initialLogoPrefetchRows until categories.size) {
@@ -1934,22 +1938,15 @@ class HomeViewModel @Inject constructor(
                     }
                 }
 
-                // Immediately refresh EPG for Favorite TV row if the cached data
-                // produced "Live TV" fallback (stale/empty EPG).
-                // The background init warmup may also be refreshing EPG concurrently —
-                // this is a fast-path that fires as soon as categories are set.
+                // If the cached Favorite TV row has stale/empty EPG text, refresh it
+                // after Home has had time to settle. Doing network EPG work during
+                // startup competes with TV D-pad navigation and causes GC stalls.
                 val favTvCat = _uiState.value.categories.firstOrNull { it.id == FAVORITE_TV_CATEGORY_ID }
                 if (favTvCat != null && favTvCat.items.any { it.overview == "Live TV" }) {
                     viewModelScope.launch(Dispatchers.IO) {
-                        delay(if (isLowRamDevice) 4_000L else 2_500L)
+                        delay(if (isLowRamDevice) 8 * 60_000L else 6 * 60_000L)
                         val channelIds = favTvCat.items.mapNotNull { getIptvChannelId(it) }.toSet()
                         if (channelIds.isNotEmpty()) {
-                            // Try lightweight Xtream short EPG first
-                            val refreshed = runCatching { iptvRepository.refreshEpgForChannels(channelIds) }.getOrNull()
-                            if (refreshed == null) {
-                                // Not Xtream or failed — defer full EPG reload to the normal
-                                // background warmup path instead of competing with Home startup.
-                            }
                             refreshFavoriteTvEpg(networkFetch = false)
                             // Also update hero if it's an IPTV item showing stale EPG
                             val currentHero = _uiState.value.heroItem
@@ -2333,7 +2330,7 @@ class HomeViewModel @Inject constructor(
                 .data(url)
                 .size(width.coerceAtLeast(1), height.coerceAtLeast(1))
                 .precision(Precision.INEXACT)
-                .allowHardware(true)
+                .allowHardware(false)
                 .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
                 .build()
             imageLoader.enqueue(request)
@@ -2844,6 +2841,20 @@ class HomeViewModel @Inject constructor(
      * Phase 1.4 & 6.1 & 6.2-6.3: Update hero with adaptive debouncing
      * Uses fast-scroll detection for smoother experience during rapid navigation
      */
+    fun updateHeroVisualItemImmediately(item: MediaItem) {
+        if (isCollectionItem(item)) {
+            updateHeroItem(item)
+            return
+        }
+        if (!isActionableMediaItem(item)) return
+
+        val cacheKey = "${item.mediaType}_${item.id}"
+        heroUpdateJob?.cancel()
+        heroDetailsJob?.cancel()
+        performHeroUpdate(item, getCachedLogo(cacheKey))
+        scheduleHeroDetailsFetch(item, fastScrolling = true)
+    }
+
     fun updateHeroItem(item: MediaItem) {
         if (isCollectionItem(item)) {
             if (item.isPlaceholder) return
