@@ -800,34 +800,14 @@ fun PlayerScreen(
     val frameRateActivity = context as? android.app.Activity
     LaunchedEffect(uiState.frameRateMatchingMode) {
         if (playerReleased) return@LaunchedEffect
-        val configuredStrategy = resolveFrameRateStrategyForMode(uiState.frameRateMatchingMode)
-        val effectiveStrategy = if (isFrameRateMatchingSupported(context)) {
-            configuredStrategy
-        } else {
-            resolveFrameRateOffStrategy()
-        }
+        // We apply display-mode matching explicitly before playback starts.
+        // Keep Media3 runtime switching off to avoid late black-screen switches
+        // once playback has already begun.
+        val effectiveStrategy = resolveFrameRateOffStrategy()
         runCatching {
             exoPlayer.javaClass
                 .getMethod("setVideoChangeFrameRateStrategy", Int::class.javaPrimitiveType)
                 .invoke(exoPlayer, effectiveStrategy)
-        }
-    }
-
-    // Actual display mode switching when stream URL changes and frame rate matching is enabled
-    LaunchedEffect(uiState.selectedStreamUrl, uiState.frameRateMatchingMode) {
-        val url = uiState.selectedStreamUrl ?: return@LaunchedEffect
-        val mode = uiState.frameRateMatchingMode
-        val activity = frameRateActivity ?: return@LaunchedEffect
-        if (mode == "Off" || mode.isBlank()) {
-            com.arflix.tv.util.FrameRateUtils.restoreOriginalMode(activity)
-            return@LaunchedEffect
-        }
-        // Detect and switch in background
-        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            val detection = com.arflix.tv.util.FrameRateUtils.detectFrameRate(url)
-            if (detection != null) {
-                com.arflix.tv.util.FrameRateUtils.matchFrameRateAndWait(activity, detection.snapped)
-            }
         }
     }
 
@@ -861,6 +841,31 @@ fun PlayerScreen(
         if (BuildConfig.DEBUG) {
         }
         if (url != null) {
+            // Match frame rate before touching playback so any display mode switch
+            // happens up-front instead of mid-playback.
+            frameRateActivity?.let { activity ->
+                val mode = uiState.frameRateMatchingMode
+                if (mode == "Off" || mode.isBlank()) {
+                    com.arflix.tv.util.FrameRateUtils.restoreOriginalMode(activity)
+                } else {
+                    val streamHeaders = uiState.selectedStream
+                        ?.behaviorHints
+                        ?.proxyHeaders
+                        ?.request
+                        .orEmpty()
+                        .filterKeys { it.isNotBlank() }
+                    val detection = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        com.arflix.tv.util.FrameRateUtils.detectFrameRate(
+                            sourceUrl = url,
+                            headers = baseRequestHeaders + streamHeaders
+                        )
+                    }
+                    if (detection != null) {
+                        com.arflix.tv.util.FrameRateUtils.matchFrameRateAndWait(activity, detection.snapped)
+                    }
+                }
+            }
+
             val isNewStartupSource = startupUrlLock != url
             if (isNewStartupSource) {
                 startupUrlLock = url
@@ -3833,23 +3838,6 @@ private fun isLikelyDolbyVisionStream(stream: StreamSource?): Boolean {
         text.contains("hdr10+dv")
 }
 
-private fun isFrameRateMatchingSupported(context: Context): Boolean {
-    if (Build.VERSION.SDK_INT < 30) return false
-    val modesCount = runCatching { context.display?.supportedModes?.size ?: 0 }.getOrDefault(0)
-    return modesCount > 1
-}
-
-private fun resolveFrameRateStrategyForMode(mode: String): Int {
-    return when (mode.trim().lowercase()) {
-        "always" -> readMedia3FrameRateConst(
-            fieldName = "VIDEO_CHANGE_FRAME_RATE_STRATEGY_ALWAYS",
-            fallback = resolveFrameRateSeamlessStrategy()
-        )
-        "seamless", "seamless only", "only if seamless", "only_if_seamless" -> resolveFrameRateSeamlessStrategy()
-        else -> resolveFrameRateOffStrategy()
-    }
-}
-
 private fun resolveFrameRateOffStrategy(): Int {
     return readMedia3FrameRateConst("VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF", fallback = 0)
 }
@@ -3860,10 +3848,6 @@ private tailrec fun Context.findActivity(): Activity? {
         is ContextWrapper -> baseContext.findActivity()
         else -> null
     }
-}
-
-private fun resolveFrameRateSeamlessStrategy(): Int {
-    return readMedia3FrameRateConst("VIDEO_CHANGE_FRAME_RATE_STRATEGY_ONLY_IF_SEAMLESS", fallback = 1)
 }
 
 private fun readMedia3FrameRateConst(fieldName: String, fallback: Int): Int {
