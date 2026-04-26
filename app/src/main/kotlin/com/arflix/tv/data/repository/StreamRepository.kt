@@ -214,6 +214,7 @@ class StreamRepository @Inject constructor(
             runCatching { Regex(filter.regexPattern, RegexOption.IGNORE_CASE) }.getOrNull()
         }
         cachedQualityFilters = PrecompiledQualityFilter(regexes, isEmpty = regexes.isEmpty())
+        synchronized(streamResultCache) { streamResultCache.clear() }
     }
     fun observeTorrServerBaseUrl(): Flow<String> =
         profileManager.activeProfileId.combine(context.streamDataStore.data) { _, prefs ->

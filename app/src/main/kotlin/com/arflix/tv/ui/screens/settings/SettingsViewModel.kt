@@ -262,7 +262,7 @@ class SettingsViewModel @Inject constructor(
         HD_1080_ONLY(
             label = "1080p only",
             filterId = "preset_quality_1080_only",
-            regexPattern = "(?:2160|4k|uhd|1080p?)|(?:360|480|576|720)p|cam|hdcam|hdts|hdtc|telesync|telecine|ts|tc|screener|scr|sd"
+            regexPattern = "(?:2160|4k|uhd)|(?:360|480|576|720)p|cam|hdcam|hdts|hdtc|telesync|telecine|ts|tc|screener|scr|sd"
         ),
         HD_720_PLUS(
             label = "720p+",
@@ -1009,6 +1009,26 @@ class SettingsViewModel @Inject constructor(
                 regexPattern = trimmedRegex,
                 enabled = true
             )
+            saveQualityFilters(next)
+        }
+    }
+
+    fun updateQualityFilter(filterId: String, deviceName: String, regexPattern: String) {
+        val trimmedRegex = regexPattern.trim()
+        if (trimmedRegex.isBlank()) return
+        if (runCatching { Regex(trimmedRegex) }.isFailure) return
+
+        viewModelScope.launch {
+            val next = _uiState.value.qualityFilters.map { filter ->
+                if (filter.id == filterId) {
+                    filter.copy(
+                        deviceName = deviceName.trim(),
+                        regexPattern = trimmedRegex
+                    )
+                } else {
+                    filter
+                }
+            }
             saveQualityFilters(next)
         }
     }
