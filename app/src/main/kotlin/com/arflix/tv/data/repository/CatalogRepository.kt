@@ -52,8 +52,12 @@ class CatalogRepository @Inject constructor(
         private const val ADDON_SOURCE_REF_PREFIX = "addon_catalog|"
     }
 
+    private val bundledPreinstalledCatalogsById by lazy(LazyThreadSafetyMode.NONE) {
+        MediaRepository.buildPreinstalledDefaults().associateBy { it.id }
+    }
+
     private val bundledPreinstalledCatalogIds by lazy(LazyThreadSafetyMode.NONE) {
-        MediaRepository.buildPreinstalledDefaults().map { it.id }.toSet()
+        bundledPreinstalledCatalogsById.keys
     }
 
     private val gson = Gson()
@@ -160,6 +164,15 @@ class CatalogRepository @Inject constructor(
 
     private fun isPreinstalledCatalog(config: CatalogConfig): Boolean {
         return config.isPreinstalled || isBundledPreinstalledCatalogId(config.id)
+    }
+
+    private fun refreshBundledPreinstalledCatalog(config: CatalogConfig): CatalogConfig {
+        val bundled = bundledPreinstalledCatalogsById[config.id] ?: return config
+        val shouldRefresh = config.isPreinstalled ||
+            config.sourceType == CatalogSourceType.PREINSTALLED ||
+            config.kind == CatalogKind.COLLECTION ||
+            config.kind == CatalogKind.COLLECTION_RAIL
+        return if (shouldRefresh) bundled else config
     }
 
     private fun sanitizeCollectionCatalogs(catalogs: List<CatalogConfig>): List<CatalogConfig> {
@@ -1065,6 +1078,7 @@ class CatalogRepository @Inject constructor(
         if (primary.isNotEmpty()) {
             val base = primary
                 .distinctBy { it.id }
+                .map { refreshBundledPreinstalledCatalog(it) }
                 .filterNot { it.isHidden() }
                 .toMutableList()
             val existingKeys = base.map { "${it.id}|${it.sourceUrl.orEmpty()}" }.toMutableSet()
@@ -1095,6 +1109,7 @@ class CatalogRepository @Inject constructor(
         if (legacyDefault.isNotEmpty()) {
             return legacyDefault
                 .distinctBy { it.id }
+                .map { refreshBundledPreinstalledCatalog(it) }
                 .filterNot { it.isHidden() }
         }
 
@@ -1102,6 +1117,7 @@ class CatalogRepository @Inject constructor(
         if (legacyGlobal.isNotEmpty()) {
             return legacyGlobal
                 .distinctBy { it.id }
+                .map { refreshBundledPreinstalledCatalog(it) }
                 .filterNot { it.isHidden() }
         }
 

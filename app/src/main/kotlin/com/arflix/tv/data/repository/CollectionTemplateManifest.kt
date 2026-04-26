@@ -112,7 +112,9 @@ internal object CollectionTemplateManifest {
             heroVideoUrl = "${VIDEO_BASE}netflix.mp4",
             sources = listOf(
                 source(addonId = "aio-metadata", type = "movie", catalogId = "streaming.nfx"),
-                source(addonId = "aio-metadata", type = "series", catalogId = "streaming.nfx")
+                source(addonId = "aio-metadata", type = "series", catalogId = "streaming.nfx"),
+                watchProviderSource(type = "movie", providerId = 8),
+                watchProviderSource(type = "series", providerId = 8)
             ),
             listMetadata = listOf(
                 metadata(sourceCatalogId = "streaming.nfx", sourceAddonId = "aio-metadata", sourceName = "Netflix", sourceLabel = "AIO", mediaType = "movie", itemCount = null, author = null, url = null),
@@ -128,7 +130,9 @@ internal object CollectionTemplateManifest {
             heroVideoUrl = "${VIDEO_BASE}disneyplus.mp4",
             sources = listOf(
                 source(addonId = "aio-metadata", type = "movie", catalogId = "streaming.dnp"),
-                source(addonId = "aio-metadata", type = "series", catalogId = "streaming.dnp")
+                source(addonId = "aio-metadata", type = "series", catalogId = "streaming.dnp"),
+                watchProviderSource(type = "movie", providerId = 337),
+                watchProviderSource(type = "series", providerId = 337)
             ),
             listMetadata = listOf(
                 metadata(sourceCatalogId = "streaming.dnp", sourceAddonId = "aio-metadata", sourceName = "Disney+", sourceLabel = "AIO", mediaType = "movie", itemCount = null, author = null, url = null),
@@ -144,7 +148,9 @@ internal object CollectionTemplateManifest {
             heroVideoUrl = "${VIDEO_BASE}appletv.mp4",
             sources = listOf(
                 source(addonId = "aio-metadata", type = "movie", catalogId = "streaming.atp"),
-                source(addonId = "aio-metadata", type = "series", catalogId = "streaming.atp")
+                source(addonId = "aio-metadata", type = "series", catalogId = "streaming.atp"),
+                watchProviderSource(type = "movie", providerId = 350),
+                watchProviderSource(type = "series", providerId = 350)
             ),
             listMetadata = listOf(
                 metadata(sourceCatalogId = "streaming.atp", sourceAddonId = "aio-metadata", sourceName = "Apple TV+", sourceLabel = "AIO", mediaType = "movie", itemCount = null, author = null, url = null),
@@ -160,7 +166,9 @@ internal object CollectionTemplateManifest {
             heroVideoUrl = "${VIDEO_BASE}amazonprime.mp4",
             sources = listOf(
                 source(addonId = "aio-metadata", type = "movie", catalogId = "streaming.amp"),
-                source(addonId = "aio-metadata", type = "series", catalogId = "streaming.amp")
+                source(addonId = "aio-metadata", type = "series", catalogId = "streaming.amp"),
+                watchProviderSource(type = "movie", providerId = 9),
+                watchProviderSource(type = "series", providerId = 9)
             ),
             listMetadata = listOf(
                 metadata(sourceCatalogId = "streaming.amp", sourceAddonId = "aio-metadata", sourceName = "Prime Video", sourceLabel = "AIO", mediaType = "movie", itemCount = null, author = null, url = null),
@@ -176,7 +184,9 @@ internal object CollectionTemplateManifest {
             heroVideoUrl = "${VIDEO_BASE}hbomax.mp4",
             sources = listOf(
                 source(addonId = "aio-metadata", type = "movie", catalogId = "streaming.hbm"),
-                source(addonId = "aio-metadata", type = "series", catalogId = "streaming.hbm")
+                source(addonId = "aio-metadata", type = "series", catalogId = "streaming.hbm"),
+                watchProviderSource(type = "movie", providerId = 1899),
+                watchProviderSource(type = "series", providerId = 1899)
             ),
             listMetadata = listOf(
                 metadata(sourceCatalogId = "streaming.hbm", sourceAddonId = "aio-metadata", sourceName = "HBO Max", sourceLabel = "AIO", mediaType = "movie", itemCount = null, author = null, url = null),
@@ -192,7 +202,9 @@ internal object CollectionTemplateManifest {
             heroVideoUrl = "${VIDEO_BASE}hulu.mp4",
             sources = listOf(
                 source(addonId = "aio-metadata", type = "movie", catalogId = "streaming.hlu"),
-                source(addonId = "aio-metadata", type = "series", catalogId = "streaming.hlu")
+                source(addonId = "aio-metadata", type = "series", catalogId = "streaming.hlu"),
+                watchProviderSource(type = "movie", providerId = 15),
+                watchProviderSource(type = "series", providerId = 15)
             ),
             listMetadata = listOf(
                 metadata(sourceCatalogId = "streaming.hlu", sourceAddonId = "aio-metadata", sourceName = "Hulu", sourceLabel = "AIO", mediaType = "movie", itemCount = null, author = null, url = null),
@@ -207,8 +219,12 @@ internal object CollectionTemplateManifest {
             hideTitle = true,
             heroVideoUrl = "${VIDEO_BASE}paramount.mp4",
             sources = listOf(
-                source(addonId = "aio-metadata", type = "movie", catalogId = "mdblist.86762"),
-                source(addonId = "aio-metadata", type = "series", catalogId = "mdblist.86761")
+                source(addonId = "aio-metadata", type = "movie", catalogId = "streaming.pmp"),
+                source(addonId = "aio-metadata", type = "series", catalogId = "streaming.pmp"),
+                watchProviderSource(type = "movie", providerId = 2303),
+                watchProviderSource(type = "series", providerId = 2303),
+                watchProviderSource(type = "movie", providerId = 2616),
+                watchProviderSource(type = "series", providerId = 2616)
             ),
             listMetadata = listOf(
                 metadata(sourceCatalogId = "mdblist.86762", sourceAddonId = "aio-metadata", sourceName = "Paramount+ Movies", sourceLabel = "MDBLIST", mediaType = "movie", itemCount = null, author = null, url = null),
@@ -224,7 +240,11 @@ internal object CollectionTemplateManifest {
             heroVideoUrl = null,
             sources = listOf(
                 source(addonId = "aio-metadata", type = "movie", catalogId = "streaming.pcp"),
-                source(addonId = "aio-metadata", type = "series", catalogId = "streaming.pcp")
+                source(addonId = "aio-metadata", type = "series", catalogId = "streaming.pcp"),
+                watchProviderSource(type = "movie", providerId = 386),
+                watchProviderSource(type = "series", providerId = 386),
+                watchProviderSource(type = "movie", providerId = 387),
+                watchProviderSource(type = "series", providerId = 387)
             ),
             listMetadata = listOf(
                 metadata(sourceCatalogId = "streaming.pcp", sourceAddonId = "aio-metadata", sourceName = "Peacock", sourceLabel = "AIO", mediaType = "movie", itemCount = null, author = null, url = null),
@@ -240,7 +260,9 @@ internal object CollectionTemplateManifest {
             heroVideoUrl = null,
             sources = listOf(
                 source(addonId = "aio-metadata", type = "movie", catalogId = "streaming.sta"),
-                source(addonId = "aio-metadata", type = "series", catalogId = "streaming.sta")
+                source(addonId = "aio-metadata", type = "series", catalogId = "streaming.sta"),
+                watchProviderSource(type = "movie", providerId = 43),
+                watchProviderSource(type = "series", providerId = 43)
             ),
             listMetadata = listOf(
                 metadata(sourceCatalogId = "streaming.sta", sourceAddonId = "aio-metadata", sourceName = "Starz", sourceLabel = "AIO", mediaType = "movie", itemCount = null, author = null, url = null),
@@ -256,7 +278,9 @@ internal object CollectionTemplateManifest {
             heroVideoUrl = null,
             sources = listOf(
                 source(addonId = "aio-metadata", type = "movie", catalogId = "mdblist.8862"),
-                source(addonId = "aio-metadata", type = "series", catalogId = "mdblist.8861")
+                source(addonId = "aio-metadata", type = "series", catalogId = "mdblist.8861"),
+                watchProviderSource(type = "movie", providerId = 99),
+                watchProviderSource(type = "series", providerId = 99)
             ),
             listMetadata = listOf(
                 metadata(sourceCatalogId = "mdblist.8862", sourceAddonId = "aio-metadata", sourceName = "Shudder Movies", sourceLabel = "MDBLIST", mediaType = "movie", itemCount = 814, author = "sig1878", url = "https://mdblist.com/lists/sig1878/movies-shudder"),
@@ -272,7 +296,9 @@ internal object CollectionTemplateManifest {
             heroVideoUrl = null,
             sources = listOf(
                 source(addonId = "aio-metadata", type = "movie", catalogId = "mdblist.48305"),
-                source(addonId = "aio-metadata", type = "series", catalogId = "mdblist.48306")
+                source(addonId = "aio-metadata", type = "series", catalogId = "mdblist.48306"),
+                watchProviderSource(type = "movie", providerId = 34),
+                watchProviderSource(type = "series", providerId = 34)
             ),
             listMetadata = listOf(
                 metadata(sourceCatalogId = "mdblist.48305", sourceAddonId = "aio-metadata", sourceName = "MGM+ Movies", sourceLabel = "MDBLIST", mediaType = "movie", itemCount = null, author = null, url = null),
@@ -288,7 +314,9 @@ internal object CollectionTemplateManifest {
             heroVideoUrl = null,
             sources = listOf(
                 source(addonId = "aio-metadata", type = "movie", catalogId = "streaming.dpe"),
-                source(addonId = "aio-metadata", type = "series", catalogId = "streaming.dpe")
+                source(addonId = "aio-metadata", type = "series", catalogId = "streaming.dpe"),
+                watchProviderSource(type = "movie", providerId = 520),
+                watchProviderSource(type = "series", providerId = 520)
             ),
             listMetadata = listOf(
                 metadata(sourceCatalogId = "streaming.dpe", sourceAddonId = "aio-metadata", sourceName = "Discovery+", sourceLabel = "AIO", mediaType = "movie", itemCount = null, author = null, url = null),
@@ -304,7 +332,9 @@ internal object CollectionTemplateManifest {
             heroVideoUrl = null,
             sources = listOf(
                 source(addonId = "aio-metadata", type = "movie", catalogId = "streaming.cru_movie"),
-                source(addonId = "aio-metadata", type = "series", catalogId = "streaming.cru_series")
+                source(addonId = "aio-metadata", type = "series", catalogId = "streaming.cru_series"),
+                watchProviderSource(type = "movie", providerId = 283),
+                watchProviderSource(type = "series", providerId = 283)
             ),
             listMetadata = listOf(
                 metadata(sourceCatalogId = "streaming.cru_movie", sourceAddonId = "aio-metadata", sourceName = "Crunchyroll Movies", sourceLabel = "AIO", mediaType = "movie", itemCount = null, author = null, url = null),
@@ -334,7 +364,9 @@ internal object CollectionTemplateManifest {
             heroVideoUrl = null,
             sources = listOf(
                 source(addonId = "aio-metadata", type = "movie", catalogId = "mdblist.91211"),
-                source(addonId = "aio-metadata", type = "series", catalogId = "mdblist.91213")
+                source(addonId = "aio-metadata", type = "series", catalogId = "mdblist.91213"),
+                tmdbGenreSource(type = "movie", genreId = 28),
+                tmdbGenreSource(type = "series", genreId = 10759)
             ),
             listMetadata = listOf(
                 metadata(sourceCatalogId = "mdblist.91211", sourceAddonId = "aio-metadata", sourceName = "Popular Action Movies", sourceLabel = "MDBLIST", mediaType = "movie", itemCount = 500, author = "snoak", url = "https://mdblist.com/lists/snoak/action-movies"),
@@ -350,7 +382,9 @@ internal object CollectionTemplateManifest {
             heroVideoUrl = null,
             sources = listOf(
                 source(addonId = "aio-metadata", type = "movie", catalogId = "mdblist.91223"),
-                source(addonId = "aio-metadata", type = "series", catalogId = "mdblist.91224")
+                source(addonId = "aio-metadata", type = "series", catalogId = "mdblist.91224"),
+                tmdbGenreSource(type = "movie", genreId = 35),
+                tmdbGenreSource(type = "series", genreId = 35)
             ),
             listMetadata = listOf(
                 metadata(sourceCatalogId = "mdblist.91223", sourceAddonId = "aio-metadata", sourceName = "Popular Comedy Movies", sourceLabel = "MDBLIST", mediaType = "movie", itemCount = 500, author = "snoak", url = "https://mdblist.com/lists/snoak/comedy-movies"),
@@ -366,7 +400,9 @@ internal object CollectionTemplateManifest {
             heroVideoUrl = null,
             sources = listOf(
                 source(addonId = "aio-metadata", type = "movie", catalogId = "mdblist.91220"),
-                source(addonId = "aio-metadata", type = "series", catalogId = "mdblist.91221")
+                source(addonId = "aio-metadata", type = "series", catalogId = "mdblist.91221"),
+                tmdbGenreSource(type = "movie", genreId = 878),
+                tmdbGenreSource(type = "series", genreId = 10765)
             ),
             listMetadata = listOf(
                 metadata(sourceCatalogId = "mdblist.91220", sourceAddonId = "aio-metadata", sourceName = "Popular Sci-Fi Movies", sourceLabel = "MDBLIST", mediaType = "movie", itemCount = 500, author = "snoak", url = "https://mdblist.com/lists/snoak/science-fiction-movies"),
@@ -382,7 +418,9 @@ internal object CollectionTemplateManifest {
             heroVideoUrl = null,
             sources = listOf(
                 source(addonId = "aio-metadata", type = "movie", catalogId = "mdblist.91893"),
-                source(addonId = "aio-metadata", type = "series", catalogId = "mdblist.91894")
+                source(addonId = "aio-metadata", type = "series", catalogId = "mdblist.91894"),
+                tmdbGenreSource(type = "movie", genreId = 53),
+                tmdbKeywordSource(type = "series", keywordId = 316362)
             ),
             listMetadata = listOf(
                 metadata(sourceCatalogId = "mdblist.91893", sourceAddonId = "aio-metadata", sourceName = "Popular Thriller Movies", sourceLabel = "MDBLIST", mediaType = "movie", itemCount = 500, author = "snoak", url = "https://mdblist.com/lists/snoak/thriller-movies"),
@@ -398,7 +436,9 @@ internal object CollectionTemplateManifest {
             heroVideoUrl = null,
             sources = listOf(
                 source(addonId = "aio-metadata", type = "movie", catalogId = "mdblist.91296"),
-                source(addonId = "aio-metadata", type = "series", catalogId = "mdblist.91297")
+                source(addonId = "aio-metadata", type = "series", catalogId = "mdblist.91297"),
+                tmdbGenreSource(type = "movie", genreId = 18),
+                tmdbGenreSource(type = "series", genreId = 18)
             ),
             listMetadata = listOf(
                 metadata(sourceCatalogId = "mdblist.91296", sourceAddonId = "aio-metadata", sourceName = "Popular Drama Movies", sourceLabel = "MDBLIST", mediaType = "movie", itemCount = 500, author = "snoak", url = "https://mdblist.com/lists/snoak/drama-movies"),
@@ -415,7 +455,9 @@ internal object CollectionTemplateManifest {
             sources = listOf(
                 source(addonId = "aio-metadata", type = "movie", catalogId = "mdblist.91215"),
                 source(addonId = "aio-metadata", type = "series", catalogId = "mdblist.91217"),
-                source(addonId = "aio-metadata", type = "movie", catalogId = "mdblist.102554")
+                source(addonId = "aio-metadata", type = "movie", catalogId = "mdblist.102554"),
+                tmdbGenreSource(type = "movie", genreId = 27),
+                tmdbKeywordSource(type = "series", keywordId = 315058)
             ),
             listMetadata = listOf(
                 metadata(sourceCatalogId = "mdblist.91215", sourceAddonId = "aio-metadata", sourceName = "Popular Horror Movies", sourceLabel = "MDBLIST", mediaType = "movie", itemCount = 500, author = "snoak", url = "https://mdblist.com/lists/snoak/horror-movies"),
@@ -432,7 +474,9 @@ internal object CollectionTemplateManifest {
             heroVideoUrl = null,
             sources = listOf(
                 source(addonId = "aio-metadata", type = "movie", catalogId = "mdblist.128051"),
-                source(addonId = "aio-metadata", type = "series", catalogId = "mdblist.128052")
+                source(addonId = "aio-metadata", type = "series", catalogId = "mdblist.128052"),
+                tmdbGenreSource(type = "movie", genreId = 99),
+                tmdbGenreSource(type = "series", genreId = 99)
             ),
             listMetadata = listOf(
                 metadata(sourceCatalogId = "mdblist.128051", sourceAddonId = "aio-metadata", sourceName = "Popular Documentary Movies", sourceLabel = "MDBLIST", mediaType = "movie", itemCount = 500, author = "snoak", url = "https://mdblist.com/lists/snoak/popular-documentary-movies"),
@@ -448,7 +492,9 @@ internal object CollectionTemplateManifest {
             heroVideoUrl = null,
             sources = listOf(
                 source(addonId = "aio-metadata", type = "movie", catalogId = "mdblist.128262"),
-                source(addonId = "aio-metadata", type = "series", catalogId = "mdblist.128265")
+                source(addonId = "aio-metadata", type = "series", catalogId = "mdblist.128265"),
+                tmdbGenreSource(type = "movie", genreId = 10749),
+                tmdbKeywordSource(type = "series", keywordId = 9840)
             ),
             listMetadata = listOf(
                 metadata(sourceCatalogId = "mdblist.128262", sourceAddonId = "aio-metadata", sourceName = "Popular Romance Movies", sourceLabel = "MDBLIST", mediaType = "movie", itemCount = 500, author = "snoak", url = "https://mdblist.com/lists/snoak/popular-romance-movies"),
@@ -464,7 +510,9 @@ internal object CollectionTemplateManifest {
             heroVideoUrl = null,
             sources = listOf(
                 source(addonId = "aio-metadata", type = "movie", catalogId = "mdblist.121922"),
-                source(addonId = "aio-metadata", type = "series", catalogId = "mdblist.121921")
+                source(addonId = "aio-metadata", type = "series", catalogId = "mdblist.121921"),
+                tmdbGenreSource(type = "movie", genreId = 16),
+                tmdbGenreSource(type = "series", genreId = 16)
             ),
             listMetadata = listOf(
                 metadata(sourceCatalogId = "mdblist.121922", sourceAddonId = "aio-metadata", sourceName = "Popular Animated Movies", sourceLabel = "MDBLIST", mediaType = "movie", itemCount = 500, author = "snoak", url = "https://mdblist.com/lists/snoak/animationanime-movies"),
@@ -480,7 +528,9 @@ internal object CollectionTemplateManifest {
             heroVideoUrl = null,
             sources = listOf(
                 source(addonId = "aio-metadata", type = "movie", catalogId = "mdblist.43249"),
-                source(addonId = "aio-metadata", type = "series", catalogId = "mdblist.43251")
+                source(addonId = "aio-metadata", type = "series", catalogId = "mdblist.43251"),
+                tmdbGenreSource(type = "movie", genreId = 10751),
+                tmdbGenreSource(type = "series", genreId = 10751)
             ),
             listMetadata = listOf(
                 metadata(sourceCatalogId = "mdblist.43249", sourceAddonId = "aio-metadata", sourceName = "Popular Family Movies", sourceLabel = "MDBLIST", mediaType = "movie", itemCount = 434, author = "familytv133", url = "https://mdblist.com/lists/familytv133/family-kids-english-movies-rated-g-pg"),
@@ -1016,6 +1066,14 @@ internal object CollectionTemplateManifest {
         kind = CollectionSourceKind.TMDB_KEYWORD,
         mediaType = type,
         tmdbKeywordId = keywordId,
+        sortBy = "popularity.desc"
+    )
+
+    private fun watchProviderSource(type: String, providerId: Int) = CollectionSourceConfig(
+        kind = CollectionSourceKind.TMDB_WATCH_PROVIDER,
+        mediaType = type,
+        tmdbWatchProviderId = providerId,
+        watchRegion = "US",
         sortBy = "popularity.desc"
     )
 

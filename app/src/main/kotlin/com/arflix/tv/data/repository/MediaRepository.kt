@@ -555,8 +555,10 @@ class MediaRepository @Inject constructor(
                     addonCollectionSource("aio-metadata", "movie", "mdblist.86762"),
                     addonCollectionSource("aio-metadata", "series", "mdblist.86761"),
                     addonCollectionSource("org.kris.ultra.max.all.v5", "movie", "paramount_movies"),
-                    watchProviderSource(MediaType.MOVIE, 531),
-                    watchProviderSource(MediaType.TV, 531)
+                    watchProviderSource(MediaType.MOVIE, 2303),
+                    watchProviderSource(MediaType.TV, 2303),
+                    watchProviderSource(MediaType.MOVIE, 2616),
+                    watchProviderSource(MediaType.TV, 2616)
                 )
             ),
             // ── Extras (keep existing cover/hero, strip GIF + clearLogo) ──
