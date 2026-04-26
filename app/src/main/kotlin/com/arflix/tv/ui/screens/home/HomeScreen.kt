@@ -154,6 +154,7 @@ import com.arflix.tv.ui.theme.BackgroundGradientEnd
 import com.arflix.tv.ui.theme.BackgroundGradientStart
 import com.arflix.tv.util.isInCinema
 import com.arflix.tv.util.parseRatingValue
+import com.arflix.tv.util.tr
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.C
 import androidx.media3.datasource.okhttp.OkHttpDataSource
@@ -976,7 +977,7 @@ fun HomeScreen(
                     verticalArrangement = Arrangement.Center
                 ) {
                     Text(
-                        text = "Unable to load content",
+                        text = tr("Unable to load content"),
                         style = ArflixTypography.sectionTitle,
                         color = TextPrimary
                     )
@@ -990,7 +991,7 @@ fun HomeScreen(
                     androidx.tv.material3.Button(
                         onClick = { viewModel.refresh() }
                     ) {
-                        Text("Retry")
+                        Text(tr("Retry"))
                     }
                 }
             }
@@ -1159,7 +1160,7 @@ private fun HeroSection(
                             .padding(horizontal = 10.dp, vertical = 4.dp)
                     ) {
                         Text(
-                            text = "In Cinema",
+                            text = tr("In Cinema"),
                             style = ArflixTypography.caption.copy(
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold
@@ -1190,7 +1191,7 @@ private fun HeroSection(
                                 .padding(horizontal = 8.dp, vertical = 3.dp)
                         ) {
                             Text(
-                                text = "LIVE",
+                                text = tr("LIVE"),
                                 style = ArflixTypography.caption.copy(
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Black
@@ -1634,12 +1635,12 @@ private fun MobileHeroOverlay(
                     ) {
                         Icon(
                             imageVector = Icons.Filled.PlayArrow,
-                            contentDescription = "Play",
+                            contentDescription = tr("Play"),
                             tint = Color.White,
                             modifier = Modifier.size(18.dp)
                         )
                         Text(
-                            text = "Play",
+                            text = tr("Play"),
                             style = ArflixTypography.caption.copy(
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold
@@ -1662,12 +1663,12 @@ private fun MobileHeroOverlay(
                     ) {
                         Icon(
                             imageVector = Icons.Filled.Info,
-                            contentDescription = "Details",
+                            contentDescription = tr("Details"),
                             tint = Color.White,
                             modifier = Modifier.size(18.dp)
                         )
                         Text(
-                            text = "Details",
+                            text = tr("Details"),
                             style = ArflixTypography.caption.copy(
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold
@@ -2764,7 +2765,7 @@ private fun IncludedWithPrimeBadge() {
                 .background(Color.Transparent) // No circle bg in screenshot, just check
         )
         Text(
-            text = "Included with Prime",
+            text = tr("Included with Prime"),
             style = ArflixTypography.caption.copy(
                 fontWeight = FontWeight.Bold,
                 fontSize = 13.sp

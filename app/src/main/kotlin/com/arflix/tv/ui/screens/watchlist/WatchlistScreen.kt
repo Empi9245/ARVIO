@@ -68,6 +68,7 @@ import com.arflix.tv.ui.theme.ArflixTypography
 import com.arflix.tv.ui.theme.BackgroundDark
 import com.arflix.tv.ui.theme.Pink
 import com.arflix.tv.ui.theme.TextSecondary
+import com.arflix.tv.util.tr
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.abs
@@ -319,13 +320,13 @@ fun WatchlistScreen(
                                 )
                                 Spacer(modifier = Modifier.height(16.dp))
                                 Text(
-                                    text = "Your watchlist is empty",
+                                    text = tr("Your watchlist is empty"),
                                     style = ArflixTypography.body,
                                     color = Color.White.copy(alpha = 0.5f)
                                 )
                                 Spacer(modifier = Modifier.height(8.dp))
                                 Text(
-                                    text = "Add movies and shows to watch later",
+                                    text = tr("Add movies and shows to watch later"),
                                     style = ArflixTypography.caption,
                                     color = Color.White.copy(alpha = 0.3f)
                                 )
