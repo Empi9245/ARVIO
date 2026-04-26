@@ -116,7 +116,9 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
+import coil.ImageLoader
 import coil.compose.AsyncImage
+import coil.decode.SvgDecoder
 import coil.request.ImageRequest
 import coil.size.Precision
 import com.arflix.tv.data.model.Category
@@ -1034,6 +1036,13 @@ private fun HeroSection(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val metadataLogoImageLoader = remember(context) {
+        ImageLoader.Builder(context)
+            .okHttpClient(OkHttpProvider.coilClient)
+            .components { add(SvgDecoder.Factory()) }
+            .crossfade(false)
+            .build()
+    }
     val density = LocalDensity.current
     val logoSize = remember(density) {
         val widthPx = with(density) { 300.dp.roundToPx() }
@@ -1193,7 +1202,7 @@ private fun HeroSection(
 
                 // Metadata row: Date | Genre | Duration | IMDb rating
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     if (displayDate.isNotEmpty()) {
@@ -1265,12 +1274,15 @@ private fun HeroSection(
                             )
                         }
                         AsyncImage(
-                            model = primaryNetworkLogo,
+                            model = ImageRequest.Builder(context)
+                                .data(primaryNetworkLogo)
+                                .crossfade(false)
+                                .build(),
+                            imageLoader = metadataLogoImageLoader,
                             contentDescription = "Primary streaming provider",
                             contentScale = ContentScale.Fit,
                             modifier = Modifier
                                 .height(18.dp)
-                                .width(56.dp)
                         )
                     }
 
@@ -1290,26 +1302,26 @@ private fun HeroSection(
 
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                            modifier = Modifier
-                                .background(Color(0xFFF5C518), RoundedCornerShape(3.dp))
-                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                            horizontalArrangement = Arrangement.spacedBy(3.dp)
                         ) {
-                            Text(
-                                text = "IMDb",
-                                style = ArflixTypography.caption.copy(
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.Black
-                                ),
-                                color = Color.Black
+                            AsyncImage(
+                                model = ImageRequest.Builder(context)
+                                    .data(R.raw.logo_imdb_rectangle)
+                                    .crossfade(false)
+                                    .build(),
+                                imageLoader = metadataLogoImageLoader,
+                                contentDescription = "IMDb",
+                                contentScale = ContentScale.Fit,
+                                modifier = Modifier.height(17.dp)
                             )
                             Text(
                                 text = rating,
                                 style = ArflixTypography.caption.copy(
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    shadow = textShadow
                                 ),
-                                color = Color.Black
+                                color = Color.White
                             )
                         }
                     }

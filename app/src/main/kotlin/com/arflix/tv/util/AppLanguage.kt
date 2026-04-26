@@ -1,7 +1,9 @@
 package com.arflix.tv.util
 
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.res.Configuration
+import android.content.res.Resources
 import android.os.Build
 import android.os.LocaleList
 import androidx.compose.runtime.Composable
@@ -25,7 +27,11 @@ fun localizedAppContext(context: Context, languageTag: String): Context {
         @Suppress("DEPRECATION")
         config.setLocale(locale)
     }
-    return context.createConfigurationContext(config)
+    val localized = context.createConfigurationContext(config)
+    return object : ContextWrapper(context) {
+        override fun getResources(): Resources = localized.resources
+        override fun getAssets() = localized.assets
+    }
 }
 
 @Composable
