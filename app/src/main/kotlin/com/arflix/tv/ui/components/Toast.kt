@@ -86,7 +86,7 @@ fun Toast(
                     Icons.Default.Close
                 )
                 ToastType.INFO -> Triple(
-                    Pink.copy(alpha = 0.9f),
+                    com.arflix.tv.ui.theme.ArcticGray.copy(alpha = 0.9f),
                     Color.White,
                     Icons.Default.Info
                 )
