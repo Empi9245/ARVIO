@@ -2774,7 +2774,7 @@ private fun PulsingLogo(
                 if (!logoUrl.isNullOrBlank()) {
                     AsyncImage(
                         model = logoUrl, contentDescription = title, contentScale = ContentScale.Fit,
-                        modifier = Modifier.fillMaxWidth(0.55f).height(90.dp)
+                        modifier = Modifier.fillMaxWidth(0.7f).height(140.dp)
                     )
                 } else {
                     Text(
