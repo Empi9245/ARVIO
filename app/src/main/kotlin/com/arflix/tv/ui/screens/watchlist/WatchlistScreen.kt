@@ -7,13 +7,11 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Bookmark
 import androidx.compose.material3.Icon
@@ -67,8 +65,6 @@ import com.arflix.tv.ui.focus.arvioDpadFocusGroup
 import com.arflix.tv.ui.theme.ArflixTypography
 import com.arflix.tv.ui.theme.BackgroundDark
 import com.arflix.tv.ui.theme.Pink
-import com.arflix.tv.ui.theme.TextPrimary
-import com.arflix.tv.ui.theme.TextSecondary
 import com.arflix.tv.util.tr
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -292,27 +288,8 @@ fun WatchlistScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(top = if (isMobile) 16.dp else AppTopBarContentTopInset)
-                .padding(start = 24.dp, top = 24.dp, end = 48.dp)
+                .padding(start = 24.dp, top = 4.dp, end = 48.dp)
         ) {
-                // Header with pink bookmark icon
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(bottom = 24.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Bookmark,
-                        contentDescription = null,
-                        tint = Pink,
-                        modifier = Modifier.size(28.dp)
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Text(
-                        text = tr("MY WATCHLIST"),
-                        style = ArflixTypography.sectionTitle,
-                        color = TextPrimary
-                    )
-                }
-                
                 when {
                     uiState.isLoading -> {
                         Box(
@@ -358,7 +335,7 @@ fun WatchlistScreen(
                         TvLazyVerticalGrid(
                             columns = TvGridCells.Fixed(gridColumns),
                             state = gridState,
-                            contentPadding = PaddingValues(top = 8.dp, bottom = 48.dp),
+                            contentPadding = PaddingValues(top = 12.dp, bottom = 48.dp),
                             horizontalArrangement = Arrangement.spacedBy(16.dp),
                             verticalArrangement = Arrangement.spacedBy(24.dp),
                             modifier = Modifier

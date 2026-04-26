@@ -9,6 +9,7 @@ import com.arflix.tv.data.repository.MediaRepository
 import com.arflix.tv.data.repository.TraktRepository
 import com.arflix.tv.data.repository.WatchlistRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -41,20 +42,18 @@ class WatchlistViewModel @Inject constructor(
 
     private val _logoUrls = MutableStateFlow<Map<String, String>>(emptyMap())
     val logoUrls: StateFlow<Map<String, String>> = _logoUrls.asStateFlow()
+    private var syncJob: Job? = null
 
     init {
-        // Show cached items instantly, then refresh in background
-        loadWatchlistInstant()
-        // Also observe the repository's StateFlow for live updates
+        showCachedWatchlist()
         observeWatchlistChanges()
-        // Sync Trakt watchlist → local (merge any items added via Trakt)
         syncTraktWatchlist()
     }
 
     private fun observeWatchlistChanges() {
         viewModelScope.launch {
             watchlistRepository.watchlistItems.collect { items ->
-                if (items.isNotEmpty() || _uiState.value.items.isEmpty()) {
+                if (items.isNotEmpty() || _uiState.value.items.isNotEmpty()) {
                     _uiState.value = _uiState.value.copy(
                         items = items,
                         isLoading = false
@@ -80,38 +79,16 @@ class WatchlistViewModel @Inject constructor(
         }
     }
 
-    private fun loadWatchlistInstant() {
-        viewModelScope.launch {
-            // Show cached items INSTANTLY (no loading state if we have cache)
-            val cachedItems = watchlistRepository.getCachedItems()
-            if (cachedItems.isNotEmpty()) {
-                _uiState.value = WatchlistUiState(
-                    isLoading = false,
-                    items = cachedItems
-                )
-            } else {
-                // Only show loading if no cache
-                _uiState.value = WatchlistUiState(isLoading = true)
-            }
-
-            // Fetch fresh data (will update via StateFlow)
-            try {
-                val items = watchlistRepository.getWatchlistItems()
-                _uiState.value = WatchlistUiState(
-                    isLoading = false,
-                    items = items
-                )
-            } catch (e: Exception) {
-                // Keep showing cached items on error
-                if (_uiState.value.items.isEmpty()) {
-                    _uiState.value = _uiState.value.copy(
-                        isLoading = false,
-                        error = e.message
-                    )
-                } else {
-                    _uiState.value = _uiState.value.copy(isLoading = false)
-                }
-            }
+    private fun showCachedWatchlist() {
+        val cachedItems = watchlistRepository.getCachedItems()
+        if (cachedItems.isNotEmpty()) {
+            _uiState.value = WatchlistUiState(
+                isLoading = false,
+                items = cachedItems
+            )
+            fetchLogos(cachedItems)
+        } else {
+            _uiState.value = WatchlistUiState(isLoading = true)
         }
     }
 
@@ -161,26 +138,22 @@ class WatchlistViewModel @Inject constructor(
     }
 
     /**
-     * Pull Trakt watchlist and merge new items into local watchlist.
-     * Trakt is the source of truth for order: items are inserted oldest-first so
-     * that the newest item ends up at the front (repository prepends at index 0).
-     * Local-only items are preserved after all Trakt items.
+     * Pull Trakt watchlist into local storage.
+     * When Trakt is connected, Trakt is authoritative for order and membership.
      */
     private fun syncTraktWatchlist() {
-        viewModelScope.launch {
+        syncJob?.cancel()
+        syncJob = viewModelScope.launch {
             runCatching { syncTraktWatchlistSuspend() }
         }
     }
 
     private suspend fun syncTraktWatchlistSuspend() {
         try {
-            val traktItems = traktRepository.getWatchlist()  // newest-first by listed_at
-            if (traktItems.isEmpty()) return
-
-            // Reorder local to match Trakt newest-first, preserving local-only
-            // items at the end. This corrects both the "wrong order" and "out of
-            // sync after the first fetch" cases.
-            watchlistRepository.syncFromTraktOrder(traktItems)
+            val traktItems = traktRepository.getWatchlistOrNull()  // newest-first by listed_at
+            if (traktItems != null) {
+                watchlistRepository.syncFromTraktOrder(traktItems, keepLocalOnly = false)
+            }
 
             val items = watchlistRepository.refreshWatchlistItems()
             _uiState.value = _uiState.value.copy(items = items, isLoading = false)

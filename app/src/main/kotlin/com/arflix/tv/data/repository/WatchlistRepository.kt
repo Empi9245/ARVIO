@@ -227,12 +227,13 @@ class WatchlistRepository @Inject constructor(
 
     /**
      * Reorder the local watchlist to match Trakt's newest-first list.
-     * Adds missing Trakt items, keeps local-only items at the end, and writes
-     * the resulting order to DataStore + in-memory cache.
+     * When Trakt is connected, stale local-only entries must not remain in the
+     * page because they can keep old same-title mismatches visible.
      */
-    suspend fun syncFromTraktOrder(traktItems: List<MediaItem>) = withContext(Dispatchers.IO) {
-        if (traktItems.isEmpty()) return@withContext
-
+    suspend fun syncFromTraktOrder(
+        traktItems: List<MediaItem>,
+        keepLocalOnly: Boolean = false
+    ) = withContext(Dispatchers.IO) {
         val existing = loadWatchlistRaw()
         val existingByKey = existing.associateBy { "${it.mediaType}:${it.tmdbId}" }
 
@@ -261,10 +262,11 @@ class WatchlistRepository @Inject constructor(
             )
         }
 
-        // 2. Append any local-only items at the end (preserve original relative order).
-        for (local in existing) {
-            val key = "${local.mediaType}:${local.tmdbId}"
-            if (key !in seen) ordered.add(local)
+        if (keepLocalOnly) {
+            for (local in existing) {
+                val key = "${local.mediaType}:${local.tmdbId}"
+                if (key !in seen) ordered.add(local)
+            }
         }
 
         saveWatchlist(ordered)

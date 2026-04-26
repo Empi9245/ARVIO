@@ -2149,24 +2149,25 @@ class TraktRepository @Inject constructor(
 
     suspend fun getWatchlist(): List<MediaItem> {
         val auth = getAuthHeader() ?: return emptyList()
-        return getWatchlistFromTrakt(auth)
+        return runCatching { getWatchlistFromTrakt(auth) }.getOrDefault(emptyList())
+    }
+
+    suspend fun getWatchlistOrNull(): List<MediaItem>? {
+        val auth = getAuthHeader() ?: return null
+        return runCatching { getWatchlistFromTrakt(auth) }.getOrNull()
     }
 
     private suspend fun getWatchlistFromTrakt(auth: String): List<MediaItem> {
-        return try {
-            val watchlist = fetchAllWatchlistItems(auth)
-            val semaphore = Semaphore(6)
-            coroutineScope {
-                watchlist.map { item ->
-                    async {
-                        semaphore.withPermit {
-                            hydrateWatchlistItem(item)
-                        }
+        val watchlist = fetchAllWatchlistItems(auth)
+        val semaphore = Semaphore(6)
+        return coroutineScope {
+            watchlist.map { item ->
+                async {
+                    semaphore.withPermit {
+                        hydrateWatchlistItem(item)
                     }
-                }.awaitAll().filterNotNull()
-            }
-        } catch (_: Exception) {
-            emptyList()
+                }
+            }.awaitAll().filterNotNull()
         }
     }
 
@@ -2287,11 +2288,14 @@ class TraktRepository @Inject constructor(
             movie.ids.tmdb?.takeIf { it > 0 }?.let { add(it) }
         }.distinct()
 
+        val exactIdMatches = mutableListOf<TmdbMovieDetails>()
         for (id in ids) {
             val details = runCatching { tmdbApi.getMovieDetails(id, Constants.TMDB_API_KEY) }.getOrNull() ?: continue
-            if (isWatchlistMatch(movie.title, movie.year, details.title, details.releaseDate)) {
+            val sameTitle = isSameWatchlistTitle(movie.title, details.title)
+            if (sameTitle && movie.year != null && yearCompatible(movie.year, details.releaseDate?.take(4)?.toIntOrNull())) {
                 return details
             }
+            if (sameTitle) exactIdMatches.add(details)
         }
 
         val searchMatch = searchTmdbWatchlistMatch(movie.title, movie.year, MediaType.MOVIE)
@@ -2299,7 +2303,7 @@ class TraktRepository @Inject constructor(
             return runCatching { tmdbApi.getMovieDetails(searchMatch, Constants.TMDB_API_KEY) }.getOrNull()
         }
 
-        return if (normalizeWatchlistTitle(movie.title).isBlank()) {
+        return exactIdMatches.firstOrNull() ?: if (normalizeWatchlistTitle(movie.title).isBlank()) {
             ids.firstNotNullOfOrNull { id ->
                 runCatching { tmdbApi.getMovieDetails(id, Constants.TMDB_API_KEY) }.getOrNull()
             }
@@ -2320,11 +2324,14 @@ class TraktRepository @Inject constructor(
             show.ids.tmdb?.takeIf { it > 0 }?.let { add(it) }
         }.distinct()
 
+        val exactIdMatches = mutableListOf<TmdbTvDetails>()
         for (id in ids) {
             val details = runCatching { tmdbApi.getTvDetails(id, Constants.TMDB_API_KEY) }.getOrNull() ?: continue
-            if (isWatchlistMatch(show.title, show.year, details.name, details.firstAirDate)) {
+            val sameTitle = isSameWatchlistTitle(show.title, details.name)
+            if (sameTitle && show.year != null && yearCompatible(show.year, details.firstAirDate?.take(4)?.toIntOrNull())) {
                 return details
             }
+            if (sameTitle) exactIdMatches.add(details)
         }
 
         val searchMatch = searchTmdbWatchlistMatch(show.title, show.year, MediaType.TV)
@@ -2332,7 +2339,7 @@ class TraktRepository @Inject constructor(
             return runCatching { tmdbApi.getTvDetails(searchMatch, Constants.TMDB_API_KEY) }.getOrNull()
         }
 
-        return if (normalizeWatchlistTitle(show.title).isBlank()) {
+        return exactIdMatches.firstOrNull() ?: if (normalizeWatchlistTitle(show.title).isBlank()) {
             ids.firstNotNullOfOrNull { id ->
                 runCatching { tmdbApi.getTvDetails(id, Constants.TMDB_API_KEY) }.getOrNull()
             }
@@ -2357,7 +2364,7 @@ class TraktRepository @Inject constructor(
                 .filter { result ->
                     val candidateTitle = result.title ?: result.name ?: ""
                     normalizeWatchlistTitle(candidateTitle) == normalizedTitle &&
-                        yearCompatible(year, (result.releaseDate ?: result.firstAirDate)?.take(4)?.toIntOrNull())
+                        (year == null || yearCompatible(year, (result.releaseDate ?: result.firstAirDate)?.take(4)?.toIntOrNull()))
                 }
                 .sortedByDescending { it.popularity }
                 .firstOrNull()
@@ -2372,8 +2379,12 @@ class TraktRepository @Inject constructor(
         tmdbTitle: String,
         tmdbDate: String?
     ): Boolean {
-        return normalizeWatchlistTitle(traktTitle) == normalizeWatchlistTitle(tmdbTitle) &&
+        return isSameWatchlistTitle(traktTitle, tmdbTitle) &&
             yearCompatible(traktYear, tmdbDate?.take(4)?.toIntOrNull())
+    }
+
+    private fun isSameWatchlistTitle(first: String, second: String): Boolean {
+        return normalizeWatchlistTitle(first) == normalizeWatchlistTitle(second)
     }
 
     private fun normalizeWatchlistTitle(title: String): String {
