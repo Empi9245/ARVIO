@@ -104,15 +104,19 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import coil.ImageLoader
 import coil.compose.AsyncImage
 import coil.compose.SubcomposeAsyncImage
+import coil.decode.SvgDecoder
 import coil.request.ImageRequest
 import coil.size.Precision
+import com.arflix.tv.R
 import com.arflix.tv.data.model.CastMember
 import com.arflix.tv.data.model.Episode
 import com.arflix.tv.data.model.MediaItem
 import com.arflix.tv.data.model.MediaType
 import com.arflix.tv.data.model.Review
+import com.arflix.tv.network.OkHttpProvider
 import com.arflix.tv.ui.components.EpisodeContextMenu
 import com.arflix.tv.ui.components.SeasonContextMenu
 import com.arflix.tv.ui.components.LoadingIndicator
@@ -605,7 +609,6 @@ fun DetailsScreen(
                     usePosterCards = usePosterCards,
                     isMobile = isMobile,
                     onBack = onBack,
-                    malScore = uiState.malScore,
                     onButtonClick = { idx ->
                         when (idx) {
                             0 -> { // Play
@@ -966,9 +969,6 @@ private fun DetailsContent(
     // Persistent back callback used by the phone-layout back button overlay
     // (issue #43). No-op by default so tablet/TV callers don't need to pass it.
     onBack: () -> Unit = {},
-    // MAL community score for anime (issue #45). Plumbed from DetailsUiState.malScore.
-    // Null for non-anime or when Jikan returns no score.
-    malScore: Double? = null,
     onButtonClick: (Int) -> Unit = {},
     onSeasonClick: (Int) -> Unit = {},
     onEpisodeClick: (Int) -> Unit = {},
@@ -1149,16 +1149,6 @@ private fun DetailsContent(
                                     value = rating,
                                     backgroundColor = Color(0xFFF5C518),
                                     contentColor = Color.Black
-                                )
-                            }
-                            // MyAnimeList community score for anime only. Populated
-                            // asynchronously after details load via Jikan API.
-                            if (malScore != null && malScore > 0.0) {
-                                MobileScoreBadge(
-                                    label = "MAL",
-                                    value = String.format("%.1f", malScore),
-                                    backgroundColor = Color(0xFF2E51A2),
-                                    contentColor = Color.White
                                 )
                             }
                             if (displayDate.isNotEmpty()) {
@@ -1545,7 +1535,26 @@ private fun DetailsContent(
         val heroStartPadding = 36.dp
         val heroEndPadding = 400.dp
         val configuration = LocalConfiguration.current
-        val contentRowHeight = (configuration.screenHeightDp * 0.34f).dp.coerceIn(240.dp, 320.dp)
+        val context = LocalContext.current
+        val metadataLogoImageLoader = remember(context) {
+            ImageLoader.Builder(context)
+                .okHttpClient(OkHttpProvider.coilClient)
+                .components { add(SvgDecoder.Factory()) }
+                .crossfade(false)
+                .build()
+        }
+        val isTV = item.mediaType == MediaType.TV
+        val hasEpisodes = isTV && episodes.isNotEmpty()
+        val hasSeasons = isTV && totalSeasons > 1
+        val baseContentRowHeight = (configuration.screenHeightDp * 0.34f).dp.coerceIn(240.dp, 320.dp)
+        val contentRowHeight = if (hasEpisodes && !hasSeasons) {
+            212.dp
+        } else {
+            baseContentRowHeight
+        }
+        val contentTopPadding = if (hasEpisodes && !hasSeasons) 4.dp else 12.dp
+        val contentVerticalSpacing = if (hasEpisodes && !hasSeasons) 0.dp else 8.dp
+        val episodeVerticalPadding = if (hasEpisodes && !hasSeasons) 8.dp else 14.dp
         val contentRowBottomPadding = 12.dp
         val contentRowTopPadding = contentRowHeight + contentRowBottomPadding
         val buttonsBottomPadding = contentRowTopPadding - 10.dp
@@ -1625,6 +1634,8 @@ private fun DetailsContent(
                 val isCompactHeight = configuration.screenHeightDp < 720
                 val displayDate = item.releaseDate?.takeIf { it.isNotEmpty() } ?: item.year
                 val hasDuration = item.duration.isNotEmpty() && item.duration != "0m"
+                val hasGenre = genreText.isNotEmpty()
+                val primaryNetworkLogo = item.primaryNetworkLogo?.takeIf { it.isNotBlank() }
                 val rating = item.imdbRating.ifEmpty { item.tmdbRating }
                 val ratingValue = parseRatingValue(rating)
                 val budgetText = budget?.trim()?.takeIf { it.isNotEmpty() && item.mediaType == MediaType.MOVIE }
@@ -1636,23 +1647,28 @@ private fun DetailsContent(
                 )
 
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = genreText,
-                        style = ArflixTypography.caption.copy(
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold,
-                            shadow = textShadow
-                        ),
-                        color = Color.White
-                    )
-
                     if (displayDate.isNotEmpty()) {
-                        Text(text = "|", style = separatorStyle, color = Color.White.copy(alpha = 0.7f))
                         Text(
                             text = displayDate,
+                            style = ArflixTypography.caption.copy(
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                shadow = textShadow
+                            ),
+                            color = Color.White
+                        )
+
+                        if (hasGenre) {
+                            Text(text = "|", style = separatorStyle, color = Color.White.copy(alpha = 0.7f))
+                        }
+                    }
+
+                    if (hasGenre) {
+                        Text(
+                            text = genreText,
                             style = ArflixTypography.caption.copy(
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Bold,
@@ -1663,7 +1679,9 @@ private fun DetailsContent(
                     }
 
                     if (hasDuration) {
-                        Text(text = "|", style = separatorStyle, color = Color.White.copy(alpha = 0.7f))
+                        if (displayDate.isNotEmpty() || hasGenre) {
+                            Text(text = "|", style = separatorStyle, color = Color.White.copy(alpha = 0.7f))
+                        }
                         Text(
                             text = item.duration,
                             style = ArflixTypography.caption.copy(
@@ -1675,53 +1693,52 @@ private fun DetailsContent(
                         )
                     }
 
+                    if (primaryNetworkLogo != null) {
+                        if (displayDate.isNotEmpty() || hasGenre || hasDuration) {
+                            Text(text = "|", style = separatorStyle, color = Color.White.copy(alpha = 0.7f))
+                        }
+                        AsyncImage(
+                            model = ImageRequest.Builder(context)
+                                .data(primaryNetworkLogo)
+                                .crossfade(false)
+                                .build(),
+                            imageLoader = metadataLogoImageLoader,
+                            contentDescription = "Primary streaming provider",
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier.height(18.dp)
+                        )
+                    }
+
                     if (ratingValue > 0f) {
-                        Text(text = "|", style = separatorStyle, color = Color.White.copy(alpha = 0.7f))
+                        if (displayDate.isNotEmpty() || hasGenre || hasDuration || primaryNetworkLogo != null) {
+                            Text(text = "|", style = separatorStyle, color = Color.White.copy(alpha = 0.7f))
+                        }
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                            modifier = Modifier
-                                .background(Color(0xFFF5C518), RoundedCornerShape(3.dp))
-                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                            horizontalArrangement = Arrangement.spacedBy(3.dp)
                         ) {
-                            Text(
-                                text = "IMDb",
-                                style = ArflixTypography.caption.copy(fontSize = 9.sp, fontWeight = FontWeight.Black),
-                                color = Color.Black
+                            AsyncImage(
+                                model = ImageRequest.Builder(context)
+                                    .data(R.raw.logo_imdb_rectangle)
+                                    .crossfade(false)
+                                    .build(),
+                                imageLoader = metadataLogoImageLoader,
+                                contentDescription = "IMDb",
+                                contentScale = ContentScale.Fit,
+                                modifier = Modifier.height(17.dp)
                             )
                             Text(
                                 text = rating,
-                                style = ArflixTypography.caption.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold),
-                                color = Color.Black
-                            )
-                        }
-                    }
-
-                    // MAL community score badge for anime. Issue #45.
-                    if (malScore != null && malScore > 0.0) {
-                        Text(text = "|", style = separatorStyle, color = Color.White.copy(alpha = 0.7f))
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                            modifier = Modifier
-                                .background(Color(0xFF2E51A2), RoundedCornerShape(3.dp))
-                                .padding(horizontal = 6.dp, vertical = 2.dp)
-                        ) {
-                            Text(
-                                text = "MAL",
-                                style = ArflixTypography.caption.copy(fontSize = 9.sp, fontWeight = FontWeight.Black),
-                                color = Color.White
-                            )
-                            Text(
-                                text = String.format("%.1f", malScore),
-                                style = ArflixTypography.caption.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold),
+                                style = ArflixTypography.caption.copy(fontSize = 13.sp, fontWeight = FontWeight.Bold),
                                 color = Color.White
                             )
                         }
                     }
 
                     if (!budgetText.isNullOrBlank()) {
-                        Text(text = "|", style = separatorStyle, color = Color.White.copy(alpha = 0.7f))
+                        if (displayDate.isNotEmpty() || hasGenre || hasDuration || primaryNetworkLogo != null || ratingValue > 0f) {
+                            Text(text = "|", style = separatorStyle, color = Color.White.copy(alpha = 0.7f))
+                        }
                         Text(
                             text = "${tr("Budget")} $budgetText",
                             style = ArflixTypography.caption.copy(
@@ -1833,9 +1850,6 @@ private fun DetailsContent(
         val contentScrollState = rememberTvLazyListState()
 
         // Calculate section indices dynamically
-        val isTV = item.mediaType == MediaType.TV
-        val hasEpisodes = isTV && episodes.isNotEmpty()
-        val hasSeasons = isTV && totalSeasons > 1
         val hasCast = cast.isNotEmpty()
         val hasReviews = reviews.isNotEmpty()
         val hasSimilar = similar.isNotEmpty()
@@ -1899,8 +1913,8 @@ private fun DetailsContent(
                 .padding(start = 24.dp, bottom = contentRowBottomPadding)
                 .arvioDpadFocusGroup()
                 .clipToBounds(),  // Clip content to prevent overlay on hero
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            contentPadding = PaddingValues(top = 12.dp)
+            verticalArrangement = Arrangement.spacedBy(contentVerticalSpacing),
+            contentPadding = PaddingValues(top = contentTopPadding)
         ) {
             // TV rows: Seasons first, then Episodes
             if (item.mediaType == MediaType.TV && episodes.isNotEmpty()) {
@@ -1974,8 +1988,8 @@ private fun DetailsContent(
                         contentPadding = PaddingValues(
                             start = contentStartPadding,
                             end = 520.dp,
-                            top = 14.dp,
-                            bottom = 14.dp,
+                            top = episodeVerticalPadding,
+                            bottom = episodeVerticalPadding,
                         ),
                         horizontalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
