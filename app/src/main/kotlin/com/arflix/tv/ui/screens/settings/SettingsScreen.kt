@@ -1802,7 +1802,8 @@ private fun CloudEmailPasswordModal(
                                 Key.DirectionDown -> {
                                     focusedIndex = when (focusedIndex) {
                                         0 -> 1
-                                        1 -> 3
+                                        1 -> 2
+                                        2 -> 3
                                         else -> focusedIndex
                                     }
                                     true
