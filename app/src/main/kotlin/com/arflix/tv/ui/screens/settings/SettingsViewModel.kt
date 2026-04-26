@@ -99,6 +99,7 @@ data class SettingsUiState(
     val cloudVerificationUrl: String? = null,
     val showCloudEmailPasswordDialog: Boolean = false,
     val isCloudAuthWorking: Boolean = false,
+    val isForceCloudSyncing: Boolean = false,
     val shouldSwitchProfile: Boolean = false,
     // Trakt
     val isTraktAuthenticated: Boolean = false,
@@ -1943,19 +1944,23 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun forceCloudSyncNow() {
-        if (!_uiState.value.isLoggedIn || authRepository.getCurrentUserId().isNullOrBlank()) {
-            _uiState.value = _uiState.value.copy(
-                toastMessage = "Sign in to ARVIO Cloud first",
-                toastType = ToastType.INFO
-            )
-            return
-        }
+        if (_uiState.value.isForceCloudSyncing) return
 
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(
+                isForceCloudSyncing = true,
                 toastMessage = "Forcing cloud sync...",
                 toastType = ToastType.INFO
             )
+
+            if (!ensureCloudSyncSession()) {
+                _uiState.value = _uiState.value.copy(
+                    isForceCloudSyncing = false,
+                    toastMessage = "Sign in to ARVIO Cloud first",
+                    toastType = ToastType.INFO
+                )
+                return@launch
+            }
 
             // Push local state first (30s timeout), then pull remote state so this device ends
             // with the server-authoritative snapshot after upload.
@@ -1964,6 +1969,7 @@ class SettingsViewModel @Inject constructor(
             }
             if (pushResult == null) {
                 _uiState.value = _uiState.value.copy(
+                    isForceCloudSyncing = false,
                     toastMessage = "Cloud sync upload timed out — try again",
                     toastType = ToastType.ERROR
                 )
@@ -1977,6 +1983,7 @@ class SettingsViewModel @Inject constructor(
             }
             if (pushResult == null || pushResult.isFailure) {
                 _uiState.value = _uiState.value.copy(
+                    isForceCloudSyncing = false,
                     toastMessage = pushResult?.exceptionOrNull()?.message ?: "Cloud sync failed while uploading",
                     toastType = ToastType.ERROR
                 )
@@ -1996,6 +2003,7 @@ class SettingsViewModel @Inject constructor(
             }
 
             _uiState.value = _uiState.value.copy(
+                isForceCloudSyncing = false,
                 toastMessage = when (restoreResult) {
                     CloudRestoreResult.RESTORED -> "Cloud sync complete"
                     CloudRestoreResult.NO_BACKUP -> "Cloud sync complete (no backup to restore)"
@@ -2008,6 +2016,17 @@ class SettingsViewModel @Inject constructor(
                 }
             )
         }
+    }
+
+    private suspend fun ensureCloudSyncSession(): Boolean {
+        if (authRepository.getCurrentUserId().isNullOrBlank()) {
+            authRepository.checkAuthState()
+        }
+        if (authRepository.getCurrentUserId().isNullOrBlank()) {
+            authRepository.getAccessToken()
+            authRepository.checkAuthState()
+        }
+        return authRepository.getCurrentUserId().isNullOrBlank().not()
     }
 
     private suspend fun restoreCloudStateToLocalInternal(silent: Boolean): CloudRestoreResult {
