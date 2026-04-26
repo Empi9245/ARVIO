@@ -895,6 +895,7 @@ fun SettingsScreen(
                 openAudioLanguagePicker = openAudioLanguagePicker,
                 openDnsProviderPicker = openDnsProviderPicker,
                 openUiModeWarningDialog = openUiModeWarningDialog,
+                openQualityFiltersModal = { showQualityFiltersModal = true },
                 onAddIptvClick = { editingIptvIndex = -1; showIptvInput = true },
                 onEditIptvClick = { idx -> editingIptvIndex = idx; showIptvInput = true },
                 onAddCatalogClick = { showCatalogInput = true },
@@ -2304,6 +2305,7 @@ private fun MobileSettingsLayout(
     openAudioLanguagePicker: () -> Unit,
     openDnsProviderPicker: () -> Unit,
     openUiModeWarningDialog: () -> Unit,
+    openQualityFiltersModal: () -> Unit,
     onAddIptvClick: () -> Unit,
     onEditIptvClick: (Int) -> Unit,
     onAddCatalogClick: () -> Unit,
@@ -2382,6 +2384,7 @@ private fun MobileSettingsLayout(
                 cloudstreamPlugins = cloudstreamPlugins,
                 openDnsProviderPicker = openDnsProviderPicker,
                 openUiModeWarningDialog = openUiModeWarningDialog,
+                openQualityFiltersModal = openQualityFiltersModal,
                 onAddIptvClick = onAddIptvClick,
                 onEditIptvClick = onEditIptvClick,
                 onAddCatalogClick = onAddCatalogClick,
@@ -2524,6 +2527,7 @@ private fun MobileSettingsSubPage(
     cloudstreamPlugins: List<com.arflix.tv.data.model.Addon>,
     openDnsProviderPicker: () -> Unit,
     openUiModeWarningDialog: () -> Unit,
+    openQualityFiltersModal: () -> Unit,
     onAddIptvClick: () -> Unit,
     onEditIptvClick: (Int) -> Unit,
     onAddCatalogClick: () -> Unit,
@@ -2575,8 +2579,15 @@ private fun MobileSettingsSubPage(
                         title = "Frame Rate Matching",
                         value = uiState.frameRateMatchingMode,
                         isFocused = false,
-                        showDivider = false,
                         onClick = { viewModel.cycleFrameRateMatchingMode() }
+                    )
+                    MobileSettingsRow(
+                        icon = Icons.Default.HighQuality,
+                        title = "Quality Regex Filters",
+                        value = uiState.qualityFilterPresetLabel,
+                        isFocused = false,
+                        showDivider = false,
+                        onClick = openQualityFiltersModal
                     )
                 }
                 MobileSettingsCategory(title = "CONTROLS") {
