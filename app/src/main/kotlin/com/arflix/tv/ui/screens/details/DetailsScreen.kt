@@ -1105,6 +1105,7 @@ private fun DetailsContent(
                         Box(
                             modifier = Modifier
                                 .zIndex(11f)
+                                .height(86.dp)
                                 .onGloballyPositioned { coords ->
                                     val currentInitialY = coords.positionInWindow().y + mobileScrollState.value
                                     val pinnedY = statusBarsTop - with(density) { 12.dp.toPx() }
@@ -1139,20 +1140,6 @@ private fun DetailsContent(
                                     modifier = Modifier
                                         .fillMaxWidth(0.78f)
                                         .height(86.dp)
-                                )
-                            } else {
-                                Text(
-                                    text = item.title,
-                                    style = ArflixTypography.heroTitle.copy(
-                                        fontSize = 28.sp,
-                                        fontWeight = FontWeight.Black,
-                                        shadow = textShadow
-                                    ),
-                                    color = Color.White,
-                                    textAlign = TextAlign.Center,
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.fillMaxWidth(0.82f)
                                 )
                             }
                         }
@@ -1605,19 +1592,6 @@ private fun DetailsContent(
                                 modifier = Modifier
                                     .height(72.dp)
                                     .width(320.dp)
-                            )
-                        } else {
-                            Text(
-                                text = item.title.uppercase(),
-                                style = ArflixTypography.heroTitle.copy(
-                                    fontSize = 40.sp,
-                                    fontWeight = FontWeight.Black,
-                                    letterSpacing = 2.sp,
-                                    shadow = textShadow
-                                ),
-                                color = TextPrimary,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     }
