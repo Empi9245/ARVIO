@@ -139,7 +139,10 @@ import androidx.compose.ui.input.key.onKeyEvent
 import com.arflix.tv.ui.components.Toast
 import com.arflix.tv.ui.components.topBarFocusedItem
 import com.arflix.tv.ui.components.topBarMaxIndex
+import com.arflix.tv.ui.focus.arvioManualBringIntoViewBoundary
 import com.arflix.tv.ui.focus.arvioDpadFocusGroup
+import com.arflix.tv.ui.focus.isArvioDpadNavigationKey
+import com.arflix.tv.ui.focus.rememberArvioDpadRepeatGate
 import com.arflix.tv.ui.skin.ArvioFocusableSurface
 import com.arflix.tv.ui.skin.ArvioSkin
 import com.arflix.tv.ui.skin.rememberArvioCardShape
@@ -295,7 +298,22 @@ fun DetailsScreen(
     }
 
     // D-pad key handler — only used on TV (skipped on mobile/touch devices)
+    val dpadRepeatGate = rememberArvioDpadRepeatGate(minRepeatIntervalMs = 78L)
     val keyModifier = if (isMobile) Modifier else Modifier.onPreviewKeyEvent { event ->
+                if (event.type == KeyEventType.KeyUp && isArvioDpadNavigationKey(event.key)) {
+                    dpadRepeatGate.reset()
+                }
+                if (
+                    event.type == KeyEventType.KeyDown &&
+                    isArvioDpadNavigationKey(event.key) &&
+                    dpadRepeatGate.shouldSkip(
+                        keyCode = event.nativeKeyEvent.keyCode,
+                        repeatCount = event.nativeKeyEvent.repeatCount,
+                        nowMs = SystemClock.elapsedRealtime()
+                    )
+                ) {
+                    return@onPreviewKeyEvent true
+                }
                 if (event.type == KeyEventType.KeyDown) {
                     // Check if any modal is showing
                     if (showStreamSelector || showEpisodeContextMenu || showSeasonContextMenu || uiState.showPersonModal) {
@@ -1894,6 +1912,7 @@ private fun DetailsContent(
 
         // Content padding for consistent alignment (12dp to match play button at 68dp total)
         val contentStartPadding = 12.dp
+        val contentOuterStartPadding = 24.dp
 
         TvLazyColumn(
             state = contentScrollState,
@@ -1902,7 +1921,8 @@ private fun DetailsContent(
                 .fillMaxWidth()
                 .height(contentRowHeight)
                 .padding(start = 24.dp, bottom = contentRowBottomPadding)
-                .arvioDpadFocusGroup()
+                .arvioManualBringIntoViewBoundary()
+                .arvioDpadFocusGroup(enableFocusRestorer = false)
                 .clipToBounds(),  // Clip content to prevent overlay on hero
             verticalArrangement = Arrangement.spacedBy(4.dp),
             contentPadding = PaddingValues(top = 6.dp)
@@ -1931,10 +1951,15 @@ private fun DetailsContent(
 
                         TvLazyRow(
                             state = seasonRowState,
-                            modifier = Modifier.arvioDpadFocusGroup(),
+                            modifier = Modifier.arvioDpadFocusGroup(enableFocusRestorer = false),
                             contentPadding = PaddingValues(
                                 start = contentStartPadding,
-                                end = 150.dp,
+                                end = lockedDetailsRailEndPadding(
+                                    itemWidth = 128.dp,
+                                    startPadding = contentStartPadding,
+                                    outerStartPadding = contentOuterStartPadding,
+                                    minimum = 150.dp
+                                ),
                                 top = 6.dp,
                                 bottom = 6.dp,
                             ),
@@ -1964,9 +1989,7 @@ private fun DetailsContent(
                     val episodeFixedFocus = focusSectionForUi == FocusSection.EPISODES &&
                         detailsRailUsesFixedFirstSlotFocus(
                             totalItems = episodes.size,
-                            focusedItemIndex = episodeIndex,
-                            itemWidth = episodeCardWidth,
-                            itemSpacing = 16.dp
+                            focusedItemIndex = episodeIndex
                         )
                     HomeStyleRowAutoScroll(
                         rowState = episodeRowState,
@@ -1983,10 +2006,15 @@ private fun DetailsContent(
                     Box(modifier = Modifier.fillMaxWidth()) {
                         TvLazyRow(
                             state = episodeRowState,
-                            modifier = Modifier.arvioDpadFocusGroup(),
+                            modifier = Modifier.arvioDpadFocusGroup(enableFocusRestorer = false),
                             contentPadding = PaddingValues(
                                 start = contentStartPadding,
-                                end = 520.dp,
+                                end = lockedDetailsRailEndPadding(
+                                    itemWidth = episodeCardWidth,
+                                    startPadding = contentStartPadding,
+                                    outerStartPadding = contentOuterStartPadding,
+                                    minimum = 520.dp
+                                ),
                                 top = 6.dp,
                                 bottom = 6.dp,
                             ),
@@ -2046,10 +2074,15 @@ private fun DetailsContent(
 
                         TvLazyRow(
                             state = castRowState,
-                            modifier = Modifier.arvioDpadFocusGroup(),
+                            modifier = Modifier.arvioDpadFocusGroup(enableFocusRestorer = false),
                             contentPadding = PaddingValues(
                                 start = contentStartPadding,
-                                end = 120.dp,
+                                end = lockedDetailsRailEndPadding(
+                                    itemWidth = 90.dp,
+                                    startPadding = contentStartPadding,
+                                    outerStartPadding = contentOuterStartPadding,
+                                    minimum = 120.dp
+                                ),
                                 top = 10.dp,
                                 bottom = 10.dp,
                             ),  // 90dp card + focus margin
@@ -2099,10 +2132,15 @@ private fun DetailsContent(
 
                         TvLazyRow(
                             state = reviewRowState,
-                            modifier = Modifier.arvioDpadFocusGroup(),
+                            modifier = Modifier.arvioDpadFocusGroup(enableFocusRestorer = false),
                             contentPadding = PaddingValues(
                                 start = contentStartPadding,
-                                end = 350.dp,
+                                end = lockedDetailsRailEndPadding(
+                                    itemWidth = 320.dp,
+                                    startPadding = contentStartPadding,
+                                    outerStartPadding = contentOuterStartPadding,
+                                    minimum = 350.dp
+                                ),
                                 top = 14.dp,
                                 bottom = 14.dp,
                             ),  // 320dp card + focus margin
@@ -2133,9 +2171,7 @@ private fun DetailsContent(
                     val similarFixedFocus = focusSectionForUi == FocusSection.SIMILAR &&
                         detailsRailUsesFixedFirstSlotFocus(
                             totalItems = similar.size,
-                            focusedItemIndex = similarIndex,
-                            itemWidth = similarCardWidth,
-                            itemSpacing = 14.dp
+                            focusedItemIndex = similarIndex
                         )
                     HomeStyleRowAutoScroll(
                         rowState = similarRowState,
@@ -2160,10 +2196,15 @@ private fun DetailsContent(
                         Box(modifier = Modifier.fillMaxWidth()) {
                             TvLazyRow(
                                 state = similarRowState,
-                                modifier = Modifier.arvioDpadFocusGroup(),
+                                modifier = Modifier.arvioDpadFocusGroup(enableFocusRestorer = false),
                                 contentPadding = PaddingValues(
                                     start = contentStartPadding,
-                                    end = if (usePosterCards) 140.dp else 210.dp,
+                                    end = lockedDetailsRailEndPadding(
+                                        itemWidth = similarCardWidth,
+                                        startPadding = contentStartPadding,
+                                        outerStartPadding = contentOuterStartPadding,
+                                        minimum = if (usePosterCards) 140.dp else 210.dp
+                                    ),
                                     top = 14.dp,
                                     bottom = 14.dp,
                                 ),
@@ -2221,25 +2262,24 @@ private fun detailsRailIsScrollable(
     return totalItems > visibleCapacity
 }
 
-@Composable
 private fun detailsRailUsesFixedFirstSlotFocus(
     totalItems: Int,
-    focusedItemIndex: Int,
-    itemWidth: Dp,
-    itemSpacing: Dp
+    focusedItemIndex: Int
 ): Boolean {
     if (focusedItemIndex < 0 || totalItems <= 0) return false
+    return totalItems > 1 && focusedItemIndex <= totalItems - 1
+}
+
+@Composable
+private fun lockedDetailsRailEndPadding(
+    itemWidth: Dp,
+    startPadding: Dp,
+    outerStartPadding: Dp,
+    minimum: Dp
+): Dp {
     val configuration = LocalConfiguration.current
-    val density = LocalDensity.current
-    val visibleCapacity = remember(configuration, density, itemWidth, itemSpacing) {
-        val availablePx = with(density) {
-            (configuration.screenWidthDp.dp - 56.dp - 12.dp).coerceAtLeast(1.dp).roundToPx()
-        }
-        val itemSpanPx = with(density) { (itemWidth + itemSpacing).roundToPx() }.coerceAtLeast(1)
-        ((availablePx + itemSpanPx - 1) / itemSpanPx).coerceAtLeast(1)
-    }
-    val maxFirstIndex = (totalItems - visibleCapacity).coerceAtLeast(0)
-    return totalItems > visibleCapacity && focusedItemIndex < maxFirstIndex
+    return (configuration.screenWidthDp.dp - outerStartPadding - startPadding - itemWidth)
+        .coerceAtLeast(minimum)
 }
 
 private suspend fun TvLazyListState.animateDetailsScrollDelta(
@@ -2299,29 +2339,9 @@ private fun HomeStyleRowAutoScroll(
     itemWidth: androidx.compose.ui.unit.Dp,
     itemSpacing: androidx.compose.ui.unit.Dp
 ) {
-    val configuration = LocalConfiguration.current
     val density = LocalDensity.current
-    val availableWidthDp = configuration.screenWidthDp.dp - 56.dp - 12.dp
-    val fallbackItemsPerPage = remember(configuration, density, itemWidth, itemSpacing) {
-        val availablePx = with(density) { availableWidthDp.coerceAtLeast(1.dp).roundToPx() }
-        val itemSpanPx = with(density) { (itemWidth + itemSpacing).roundToPx() }.coerceAtLeast(1)
-        ((availablePx + itemSpanPx - 1) / itemSpanPx).coerceAtLeast(1)
-    }
-    var baseVisibleCount by remember { mutableIntStateOf(0) }
-    val visibleCount = rowState.layoutInfo.visibleItemsInfo.size
-    LaunchedEffect(visibleCount) {
-        if (visibleCount > 0 && baseVisibleCount == 0) {
-            baseVisibleCount = visibleCount
-        }
-    }
-    val itemsPerPage = remember(fallbackItemsPerPage, baseVisibleCount) {
-        if (baseVisibleCount > 0) maxOf(baseVisibleCount, fallbackItemsPerPage) else fallbackItemsPerPage
-    }
-    val effectiveVisibleCount = remember(totalItems, itemsPerPage, visibleCount) {
-        if (visibleCount > 0) minOf(visibleCount, totalItems.coerceAtLeast(1)) else itemsPerPage
-    }
-    val maxFirstIndex = remember(totalItems, effectiveVisibleCount) {
-        (totalItems - effectiveVisibleCount).coerceAtLeast(0)
+    val maxFirstIndex = remember(totalItems) {
+        (totalItems - 1).coerceAtLeast(0)
     }
     val scrollTargetIndex by remember(rowState, focusedItemIndex, isCurrentRow, totalItems, maxFirstIndex) {
         derivedStateOf {

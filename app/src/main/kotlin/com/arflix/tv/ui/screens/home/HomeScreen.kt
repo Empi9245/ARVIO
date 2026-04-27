@@ -101,6 +101,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
@@ -136,7 +137,10 @@ import com.arflix.tv.ui.components.ToastType as ComponentToastType
 import com.arflix.tv.ui.components.SidebarItem
 import com.arflix.tv.ui.components.topBarFocusedItem
 import com.arflix.tv.ui.components.topBarMaxIndex
+import com.arflix.tv.ui.focus.arvioManualBringIntoViewBoundary
 import com.arflix.tv.ui.focus.arvioDpadFocusGroup
+import com.arflix.tv.ui.focus.isArvioDpadNavigationKey
+import com.arflix.tv.ui.focus.rememberArvioDpadRepeatGate
 import com.arflix.tv.ui.skin.ArvioFocusableSurface
 import com.arflix.tv.ui.skin.ArvioSkin
 import com.arflix.tv.ui.skin.rememberArvioCardShape
@@ -2038,6 +2042,7 @@ private fun HomeInputLayer(
     var rootHasFocus by remember { mutableStateOf(false) }
     val focusRecoveryDelayMs = 180L
     var preferredCategoryId by rememberSaveable { mutableStateOf<String?>(null) }
+    val dpadRepeatGate = rememberArvioDpadRepeatGate(minRepeatIntervalMs = 78L)
     // Profile avatar is always shown when a profile exists (clickable, opens
     // profile switcher). Focus navigation includes it as the first focusable item.
     val hasProfile = currentProfile != null
@@ -2128,6 +2133,20 @@ private fun HomeInputLayer(
         Modifier.onPreviewKeyEvent { event ->
             if (isContextMenuOpen) {
                 return@onPreviewKeyEvent false
+            }
+            if (event.type == KeyEventType.KeyUp && isArvioDpadNavigationKey(event.key)) {
+                dpadRepeatGate.reset()
+            }
+            if (
+                event.type == KeyEventType.KeyDown &&
+                isArvioDpadNavigationKey(event.key) &&
+                dpadRepeatGate.shouldSkip(
+                    keyCode = event.nativeKeyEvent.keyCode,
+                    repeatCount = event.nativeKeyEvent.repeatCount,
+                    nowMs = SystemClock.elapsedRealtime()
+                )
+            ) {
+                return@onPreviewKeyEvent true
             }
             when (event.type) {
                 KeyEventType.KeyDown -> when (event.key) {
@@ -2673,6 +2692,7 @@ private fun TvHomeRowsLayer(
                 .align(Alignment.BottomStart)
                 .fillMaxWidth()
                 .height(rowsViewportHeight)
+                .arvioManualBringIntoViewBoundary()
                 .clipToBounds()
         ) {
             LazyColumn(
@@ -2680,7 +2700,7 @@ private fun TvHomeRowsLayer(
                 contentPadding = PaddingValues(bottom = rowsViewportHeight),
                 modifier = Modifier
                     .fillMaxSize()
-                    .arvioDpadFocusGroup()
+                    .arvioDpadFocusGroup(enableFocusRestorer = false)
                     .clipToBounds(),
                 verticalArrangement = Arrangement.spacedBy(0.dp)
             ) {
@@ -2750,25 +2770,18 @@ private fun homeViewportFocusOverlayActive(
     usePosterCards: Boolean
 ): Boolean {
     if (focusedItemIndex < 0 || category.items.isEmpty()) return false
-    val isCollectionRow = category.id.startsWith("collection_row_")
-    val effectivePosterMode = if (isCollectionRow) {
-        category.items.firstOrNull()?.collectionTileShape == CollectionTileShape.POSTER
-    } else {
-        usePosterCards
-    }
-    val itemWidth = if (effectivePosterMode) 119.dp else 210.dp
-    val itemSpacing = 14.dp
+    return category.items.size > 1 && focusedItemIndex <= category.items.lastIndex
+}
+
+@Composable
+private fun lockedHomeRailEndPadding(
+    itemWidth: Dp,
+    startPadding: Dp,
+    minimum: Dp
+): Dp {
     val configuration = LocalConfiguration.current
-    val density = LocalDensity.current
-    val visibleCapacity = remember(configuration, density, itemWidth, itemSpacing) {
-        val availablePx = with(density) {
-            (configuration.screenWidthDp.dp - 56.dp - 12.dp).coerceAtLeast(1.dp).roundToPx()
-        }
-        val itemSpanPx = with(density) { (itemWidth + itemSpacing).roundToPx() }.coerceAtLeast(1)
-        max(1, (availablePx + itemSpanPx - 1) / itemSpanPx)
-    }
-    val maxFirstIndex = (category.items.size - visibleCapacity).coerceAtLeast(0)
-    return category.items.size > visibleCapacity && focusedItemIndex < maxFirstIndex
+    return (configuration.screenWidthDp.dp - startPadding - itemWidth)
+        .coerceAtLeast(minimum)
 }
 
 @Composable
@@ -2955,7 +2968,6 @@ private fun ContentRow(
 ) {
     val isCollectionRow = category.id.startsWith("collection_row_")
     val rowState = rememberLazyListState()
-    val configuration = LocalConfiguration.current
     val density = LocalDensity.current
     val isContinueWatching = category.id == "continue_watching"
     // Poster rows felt too tight vertically when focused. Instead of adding more
@@ -2970,34 +2982,23 @@ private fun ContentRow(
     val cardAspectRatio = if (effectivePosterMode) 2f / 3f else 16f / 9f
     val itemWidth = if (effectivePosterMode) 119.dp else 210.dp
     val itemSpacing = 14.dp
-    val availableWidthDp = configuration.screenWidthDp.dp - 56.dp - 12.dp
-    val fallbackItemsPerPage = remember(configuration, density, itemWidth, itemSpacing) {
-        val availablePx = with(density) { availableWidthDp.coerceAtLeast(1.dp).roundToPx() }
-        val itemSpanPx = with(density) { (itemWidth + itemSpacing).roundToPx() }.coerceAtLeast(1)
-        max(1, (availablePx + itemSpanPx - 1) / itemSpanPx)
-    }
-    var baseVisibleCount by remember { mutableIntStateOf(0) }
-    val visibleCount = rowState.layoutInfo.visibleItemsInfo.size
-    LaunchedEffect(visibleCount) {
-        if (visibleCount > 0 && baseVisibleCount == 0) {
-            baseVisibleCount = visibleCount
-        }
-    }
-    val itemsPerPage = remember(fallbackItemsPerPage, baseVisibleCount) {
-        if (baseVisibleCount > 0) maxOf(baseVisibleCount, fallbackItemsPerPage) else fallbackItemsPerPage
-    }
     val totalItems = category.items.size
-    val maxFirstIndex = remember(totalItems, itemsPerPage) {
-        (totalItems - itemsPerPage.coerceAtLeast(1)).coerceAtLeast(0)
+    val maxFirstIndex = remember(totalItems) {
+        (totalItems - 1).coerceAtLeast(0)
     }
-    val isScrollable = totalItems > itemsPerPage
+    val isScrollable = totalItems > 1
     val itemSpanPx = remember(density, itemWidth, itemSpacing) {
         with(density) { (itemWidth + itemSpacing).toPx().coerceAtLeast(1f) }
     }
     val railFocusOverlayActive = !useViewportFocusOverlay &&
         isCurrentRow && isScrollable && focusedItemIndex >= 0 && totalItems > 0 &&
-        focusedItemIndex < maxFirstIndex
+        focusedItemIndex <= maxFirstIndex
     val railFocusShape = rememberArvioCardShape(ArvioSkin.radius.md)
+    val railEndPadding = lockedHomeRailEndPadding(
+        itemWidth = itemWidth,
+        startPadding = startPadding,
+        minimum = itemWidth + 30.dp
+    )
     // Keep focused card anchored by scrolling the row on every focus change.
     // Use smooth scroll (animated) for D-pad moves to avoid abrupt jumps.
     var lastScrollIndex by remember { mutableIntStateOf(-1) }
@@ -3008,10 +3009,9 @@ private fun ContentRow(
             lastScrollOffset = -1
         }
     }
-    LaunchedEffect(isCurrentRow, focusedItemIndex, totalItems, itemsPerPage) {
+    LaunchedEffect(isCurrentRow, focusedItemIndex, totalItems) {
         if (!isCurrentRow || focusedItemIndex < 0 || totalItems == 0) return@LaunchedEffect
 
-        val visibleCapacity = itemsPerPage.coerceAtLeast(1)
         val currentFirstIndex = rowState.firstVisibleItemIndex.coerceAtMost(maxFirstIndex)
         val currentFirstOffset = rowState.firstVisibleItemScrollOffset
         // TV rows should behave like a stable focus rail: the focused tile stays
@@ -3086,14 +3086,15 @@ private fun ContentRow(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
+                .arvioManualBringIntoViewBoundary()
                 .then(clipModifier)
         ) {
             LazyRow(
                 state = rowState,
-                modifier = Modifier.arvioDpadFocusGroup(),
+                modifier = Modifier.arvioDpadFocusGroup(enableFocusRestorer = false),
                 contentPadding = PaddingValues(
                     start = startPadding,
-                    end = itemWidth + 30.dp,
+                    end = railEndPadding,
                     top = 14.dp,
                     bottom = 14.dp
                 ),
