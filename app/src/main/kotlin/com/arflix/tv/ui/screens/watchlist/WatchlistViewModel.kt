@@ -195,12 +195,14 @@ class WatchlistViewModel @Inject constructor(
      * for both order and IDs when connected.
      */
     private suspend fun syncTraktWatchlistSuspend(): Boolean {
+        if (traktSyncInFlight) return true
         traktSyncInFlight = true
         return try {
             val (hasTraktAuth, traktItems) = traktRepository.getWatchlistWithAuthState()
             if (!hasTraktAuth) {
                 false
             } else {
+                watchlistRepository.clearWatchlistCache()
                 val orderedTraktItems = traktItems.watchlistDisplayOrder()
                 _uiState.value = WatchlistUiState(isLoading = false, items = orderedTraktItems)
                 fetchLogos(orderedTraktItems)

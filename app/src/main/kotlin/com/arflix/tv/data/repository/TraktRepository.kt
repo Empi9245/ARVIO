@@ -2360,6 +2360,15 @@ class TraktRepository @Inject constructor(
                         .mapNotNull { it.id.takeIf { tmdbId -> tmdbId > 0 } }
                 }.getOrNull()?.let { addAll(it) }
             }
+            show.ids.tvdb?.takeIf { it > 0 }?.let { tvdbId ->
+                runCatching {
+                    tmdbApi.findByExternalId(
+                        tvdbId.toString(),
+                        Constants.TMDB_API_KEY,
+                        externalSource = "tvdb_id"
+                    ).tvResults.mapNotNull { it.id.takeIf { tmdbId -> tmdbId > 0 } }
+                }.getOrNull()?.let { addAll(it) }
+            }
             show.ids.tmdb?.takeIf { it > 0 }?.let { add(it) }
         }.distinct()
 
@@ -2380,7 +2389,12 @@ class TraktRepository @Inject constructor(
             exactIdMatches.firstOrNull()?.let { return it }
         }
 
-        val searchMatch = searchTmdbWatchlistMatch(show.title, show.year, MediaType.TV)
+        val searchMatch = searchTmdbWatchlistMatch(
+            title = show.title,
+            year = show.year,
+            mediaType = MediaType.TV,
+            allowTitleOnly = ids.isEmpty()
+        )
         if (searchMatch != null) {
             return runCatching { tmdbApi.getTvDetails(searchMatch, Constants.TMDB_API_KEY) }.getOrNull()
         }
@@ -2396,9 +2410,15 @@ class TraktRepository @Inject constructor(
         }
     }
 
-    private suspend fun searchTmdbWatchlistMatch(title: String, year: Int?, mediaType: MediaType): Int? {
+    private suspend fun searchTmdbWatchlistMatch(
+        title: String,
+        year: Int?,
+        mediaType: MediaType,
+        allowTitleOnly: Boolean = false
+    ): Int? {
         val normalizedTitle = normalizeWatchlistTitle(title)
         if (normalizedTitle.isBlank()) return null
+        if (year == null && !allowTitleOnly) return null
 
         return runCatching {
             tmdbApi.searchMulti(Constants.TMDB_API_KEY, title, page = 1).results
@@ -2416,7 +2436,8 @@ class TraktRepository @Inject constructor(
                         candidateTitle = result.title ?: result.name ?: "",
                         candidateYear = (result.releaseDate ?: result.firstAirDate)?.take(4)?.toIntOrNull(),
                         popularity = result.popularity,
-                        voteCount = result.voteCount
+                        voteCount = result.voteCount,
+                        allowTitleOnly = allowTitleOnly
                     )
                     if (score > 0) result to score else null
                 }
@@ -2461,7 +2482,8 @@ class TraktRepository @Inject constructor(
         candidateTitle: String,
         candidateYear: Int?,
         popularity: Float,
-        voteCount: Int
+        voteCount: Int,
+        allowTitleOnly: Boolean = false
     ): Float {
         if (!isSameWatchlistTitle(traktTitle, candidateTitle)) return 0f
 
@@ -2470,6 +2492,8 @@ class TraktRepository @Inject constructor(
             val diff = if (traktYear > candidateYear) traktYear - candidateYear else candidateYear - traktYear
             if (diff > 1) return 0f
             score += if (diff == 0) 500f else 250f
+        } else if (traktYear == null && !allowTitleOnly) {
+            return 0f
         } else if (traktYear != null || candidateYear != null) {
             score -= 100f
         }

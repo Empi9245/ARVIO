@@ -92,6 +92,16 @@ private data class UserSettingsAccountSyncUpdate(
     val settings: JsonObject
 )
 
+@Serializable
+private data class ProfileAccountSyncRow(
+    val addons: String? = null
+)
+
+@Serializable
+private data class ProfileAccountSyncUpdate(
+    val addons: String
+)
+
 /**
  * Authentication state
  */
@@ -119,6 +129,9 @@ class AuthRepository @Inject constructor(
     private val accountSyncMutationMutex = Mutex()
     private val ACCOUNT_SYNC_PAYLOAD_KEY = "accountSyncPayload"
     private val ACCOUNT_SYNC_UPDATED_AT_KEY = "accountSyncUpdatedAt"
+    private val PROFILE_SYNC_PAYLOAD_KEY = "__arvioAccountSyncPayload"
+    private val PROFILE_SYNC_UPDATED_AT_KEY = "__arvioAccountSyncUpdatedAt"
+    private val PROFILE_SYNC_LEGACY_ADDONS_KEY = "__arvioLegacyAddons"
 
     // DataStore keys
     private object PrefsKeys {
@@ -897,12 +910,23 @@ class AuthRepository @Inject constructor(
                 .decodeSingleOrNull<AccountSyncStateRow>()
             row?.payload
         }
-        if (accountSyncResult.isSuccess) {
+        if (!accountSyncResult.getOrNull().isNullOrBlank()) {
             return Result.success(accountSyncResult.getOrNull())
         }
 
-        return loadAccountSyncPayloadFromUserSettings()
-            .recoverCatching { throw accountSyncResult.exceptionOrNull() ?: it }
+        val userSettingsResult = loadAccountSyncPayloadFromUserSettings()
+        if (!userSettingsResult.getOrNull().isNullOrBlank()) return userSettingsResult
+
+        val profileResult = loadAccountSyncPayloadFromProfileAddons()
+        if (profileResult.isSuccess) return profileResult
+        if (accountSyncResult.isSuccess || userSettingsResult.isSuccess) return Result.success(null)
+
+        return Result.failure(
+            accountSyncResult.exceptionOrNull()
+                ?: userSettingsResult.exceptionOrNull()
+                ?: profileResult.exceptionOrNull()
+                ?: IllegalStateException("Cloud sync payload unavailable")
+        )
     }
 
     suspend fun saveAccountSyncPayload(payload: String): Result<Unit> {
@@ -921,8 +945,15 @@ class AuthRepository @Inject constructor(
         }
         if (accountSyncResult.isSuccess) return Result.success(Unit)
 
-        return saveAccountSyncPayloadToUserSettings(userId, payload)
-            .recoverCatching { throw accountSyncResult.exceptionOrNull() ?: it }
+        val userSettingsResult = saveAccountSyncPayloadToUserSettings(userId, payload)
+        if (userSettingsResult.isSuccess) return Result.success(Unit)
+
+        return saveAccountSyncPayloadToProfileAddons(userId, payload)
+            .recoverCatching {
+                throw accountSyncResult.exceptionOrNull()
+                    ?: userSettingsResult.exceptionOrNull()
+                    ?: it
+            }
     }
 
     private suspend fun loadAccountSyncPayloadFromUserSettings(): Result<String?> {
@@ -967,6 +998,84 @@ class AuthRepository @Inject constructor(
         } catch (e: Exception) {
             Result.failure(e)
         }
+    }
+
+    private suspend fun loadAccountSyncPayloadFromProfileAddons(): Result<String?> {
+        val userId = getCurrentUserId() ?: return Result.failure(Exception("Not logged in"))
+        return try {
+            ensureValidSession()
+            val row = supabase.postgrest
+                .from("profiles")
+                .select {
+                    filter { eq("id", userId) }
+                }
+                .decodeSingleOrNull<ProfileAccountSyncRow>()
+            Result.success(decodeProfileAccountSyncPayload(row?.addons))
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    private suspend fun saveAccountSyncPayloadToProfileAddons(userId: String, payload: String): Result<Unit> {
+        return try {
+            ensureValidSession()
+            val existingAddons = runCatching {
+                supabase.postgrest
+                    .from("profiles")
+                    .select {
+                        filter { eq("id", userId) }
+                    }
+                    .decodeSingleOrNull<ProfileAccountSyncRow>()
+                    ?.addons
+            }.getOrNull()
+
+            val encoded = encodeProfileAccountSyncPayload(existingAddons, payload)
+            supabase.postgrest
+                .from("profiles")
+                .update(ProfileAccountSyncUpdate(addons = encoded)) {
+                    filter { eq("id", userId) }
+                }
+
+            val currentProfile = _userProfile.value
+            val resolvedEmail = currentProfile?.email
+                ?: (authState.value as? AuthState.Authenticated)?.email
+                ?: ""
+            _userProfile.value = (currentProfile ?: UserProfile(id = userId, email = resolvedEmail)).copy(
+                id = userId,
+                email = resolvedEmail,
+                addons = encoded
+            )
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    private fun decodeProfileAccountSyncPayload(raw: String?): String? {
+        if (raw.isNullOrBlank()) return null
+        return runCatching {
+            val obj = JSONObject(raw)
+            obj.optString(PROFILE_SYNC_PAYLOAD_KEY).takeIf { it.isNotBlank() }
+        }.getOrNull()
+    }
+
+    private fun encodeProfileAccountSyncPayload(existingAddons: String?, payload: String): String {
+        val existing = existingAddons.orEmpty()
+        val legacyAddons = if (
+            existing.isNotBlank() &&
+            decodeProfileAccountSyncPayload(existing) == null
+        ) {
+            existing
+        } else {
+            runCatching {
+                JSONObject(existing).optString(PROFILE_SYNC_LEGACY_ADDONS_KEY)
+            }.getOrNull().orEmpty()
+        }
+        return JSONObject().apply {
+            put(PROFILE_SYNC_PAYLOAD_KEY, payload)
+            put(PROFILE_SYNC_UPDATED_AT_KEY, Clock.System.now().toString())
+            if (legacyAddons.isNotBlank()) put(PROFILE_SYNC_LEGACY_ADDONS_KEY, legacyAddons)
+        }.toString()
     }
 
     suspend fun mutateAccountSyncPayload(mutator: (JSONObject) -> Unit): Result<Unit> {
