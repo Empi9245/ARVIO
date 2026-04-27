@@ -1609,7 +1609,7 @@ class StreamRepository @Inject constructor(
                         Log.e(TAG, "[StreamFetch][Movie] stremio addon ${addon.id} failed", e)
                         emptyList()
                     }
-                    mutex.withLock {
+                    val update = mutex.withLock {
                         aggregatedStreams.addAll(addonStreams)
                         completed += 1
                         val deduped = aggregatedStreams
@@ -1627,6 +1627,8 @@ class StreamRepository @Inject constructor(
                         }
                         ProgressiveStreamResult(filtered, emptyList(), completed, totalAddons, completed == totalAddons)
                     }
+                    trySend(update)
+                    if (update.isFinal) close()
                 }
             }
             if (cloudstreamAddons.isNotEmpty()) {
@@ -1641,7 +1643,7 @@ class StreamRepository @Inject constructor(
                         Log.e(TAG, "[StreamFetch][Movie] cloudstream runtime failed", e)
                         emptyList()
                     }
-                    mutex.withLock {
+                    val update = mutex.withLock {
                         aggregatedStreams.addAll(addonStreams)
                         completed += 1
                         val deduped = aggregatedStreams
@@ -1659,6 +1661,8 @@ class StreamRepository @Inject constructor(
                         }
                         ProgressiveStreamResult(filtered, emptyList(), completed, totalAddons, completed == totalAddons)
                     }
+                    trySend(update)
+                    if (update.isFinal) close()
                 }
             }
         }
@@ -1952,7 +1956,7 @@ class StreamRepository @Inject constructor(
                         Log.e(TAG, "[StreamFetch][Episode] stremio addon ${addon.id} failed", e)
                         emptyList()
                     }
-                    mutex.withLock {
+                    val update = mutex.withLock {
                         aggregatedStreams.addAll(addonStreams)
                         completed += 1
                         val deduped = aggregatedStreams
@@ -1970,6 +1974,8 @@ class StreamRepository @Inject constructor(
                         }
                         ProgressiveStreamResult(filtered, emptyList(), completed, totalAddons, completed == totalAddons)
                     }
+                    trySend(update)
+                    if (update.isFinal) close()
                 }
             }
             if (cloudstreamAddons.isNotEmpty()) {
@@ -1987,7 +1993,7 @@ class StreamRepository @Inject constructor(
                         Log.e(TAG, "[StreamFetch][Episode] cloudstream runtime failed", e)
                         emptyList()
                     }
-                    mutex.withLock {
+                    val update = mutex.withLock {
                         aggregatedStreams.addAll(addonStreams)
                         completed += 1
                         val deduped = aggregatedStreams
@@ -2005,6 +2011,8 @@ class StreamRepository @Inject constructor(
                         }
                         ProgressiveStreamResult(filtered, emptyList(), completed, totalAddons, completed == totalAddons)
                     }
+                    trySend(update)
+                    if (update.isFinal) close()
                 }
             }
         }
