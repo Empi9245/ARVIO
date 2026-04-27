@@ -2,6 +2,10 @@
 
 package com.arflix.tv.ui.screens.tv.live
 
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import android.content.pm.ActivityInfo
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -144,6 +148,7 @@ fun LiveTvScreen(
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val currentUiState by rememberUpdatedState(state)
     val context = LocalContext.current
+    val activity = remember(context) { context.findActivity() }
     val configuration = LocalConfiguration.current
     val deviceType = LocalDeviceType.current
     val isTouchDevice = deviceType.isTouchDevice()
@@ -330,7 +335,6 @@ fun LiveTvScreen(
     // Full-screen playback mode — pressing OK on an EPG row expands the
     // mini-player to cover the whole screen. Back collapses back to the grid.
     var isFullScreen by rememberSaveable { mutableStateOf(initialStreamUrl != null) }
-
     // Focus requesters for the three regions.
     val sidebarFocus = remember { FocusRequester() }
     val miniFocus = remember { FocusRequester() }
@@ -340,6 +344,32 @@ fun LiveTvScreen(
     // Monotonic counter bumped on every DPAD key while in fullscreen —
     // the HUD observes this to re-show and reset its auto-hide timer.
     var hudPokeSignal by remember { mutableStateOf(0) }
+
+    DisposableEffect(activity, isFullScreen, isTouchDevice) {
+        if (!isTouchDevice || !isFullScreen) {
+            return@DisposableEffect onDispose { }
+        }
+
+        val previousOrientation = activity?.requestedOrientation
+        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        val window = activity?.window
+        if (window != null) {
+            val controller = androidx.core.view.WindowInsetsControllerCompat(window, window.decorView)
+            controller.systemBarsBehavior =
+                androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+        }
+
+        onDispose {
+            if (previousOrientation != null) {
+                activity.requestedOrientation = previousOrientation
+            }
+            if (window != null) {
+                androidx.core.view.WindowInsetsControllerCompat(window, window.decorView)
+                    .show(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+            }
+        }
+    }
 
     // Prev/next zapping across the full enriched list (not the filtered
     // category) per user spec. Wraps around.
@@ -415,6 +445,14 @@ fun LiveTvScreen(
 
     // When the selected channel changes, swap media item.
     val currentStreamUrl by rememberUpdatedState(playingChannel?.streamUrl ?: initialStreamUrl)
+    val openFullScreenPlayer = remember(playingChannelId, currentStreamUrl) {
+        {
+            if (playingChannelId != null || currentStreamUrl != null) {
+                isFullScreen = true
+                hudPokeSignal++
+            }
+        }
+    }
     LaunchedEffect(currentStreamUrl) {
         val stream = currentStreamUrl ?: return@LaunchedEffect
         delay(90L)
@@ -558,6 +596,7 @@ fun LiveTvScreen(
                         nowNext = playingChannelId?.let { state.snapshot.nowNext[it] },
                         onFavoriteToggle = { viewModel.toggleFavoriteChannel(it) },
                         favoriteSet = favSet,
+                        onFullscreenClick = openFullScreenPlayer,
                         compact = true,
                         modifier = Modifier.fillMaxWidth(),
                     )
@@ -624,6 +663,7 @@ fun LiveTvScreen(
                         nowNext = playingChannelId?.let { state.snapshot.nowNext[it] },
                         onFavoriteToggle = { viewModel.toggleFavoriteChannel(it) },
                         favoriteSet = favSet,
+                        onFullscreenClick = openFullScreenPlayer,
                         compact = compactTouchLayout,
                         modifier = Modifier
                             .fillMaxWidth()
@@ -791,5 +831,13 @@ data class EnrichedChannels(
                 adult = LiveSection("adult", "ADULT", emptyList()),
             ),
         )
+    }
+}
+
+private tailrec fun Context.findActivity(): Activity? {
+    return when (this) {
+        is Activity -> this
+        is ContextWrapper -> baseContext.findActivity()
+        else -> null
     }
 }

@@ -8,6 +8,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -52,6 +53,7 @@ fun MiniPlayerRow(
     nowNext: IptvNowNext?,
     favoriteSet: Set<String>,
     onFavoriteToggle: (String) -> Unit,
+    onFullscreenClick: (() -> Unit)? = null,
     compact: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
@@ -66,6 +68,7 @@ fun MiniPlayerRow(
                 exoPlayer = exoPlayer,
                 channel = channel,
                 compact = true,
+                onFullscreenClick = onFullscreenClick,
                 modifier = Modifier.fillMaxWidth(),
             )
             InfoColumn(
@@ -85,7 +88,11 @@ fun MiniPlayerRow(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.Top,
         ) {
-            VideoCard(exoPlayer = exoPlayer, channel = channel)
+            VideoCard(
+                exoPlayer = exoPlayer,
+                channel = channel,
+                onFullscreenClick = onFullscreenClick,
+            )
             InfoColumn(
                 channel = channel,
                 clockTickMillis = clockTickMillis,
@@ -104,6 +111,7 @@ private fun VideoCard(
     exoPlayer: ExoPlayer,
     channel: EnrichedChannel?,
     compact: Boolean = false,
+    onFullscreenClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     Box(
@@ -115,6 +123,9 @@ private fun VideoCard(
                     Modifier.size(LiveDims.MiniPlayerWidth, LiveDims.MiniPlayerHeight)
                 }
             )
+            .clickable(enabled = onFullscreenClick != null) {
+                onFullscreenClick?.invoke()
+            }
             .clip(RoundedCornerShape(LiveDims.VideoRadius))
             .background(LiveColors.PanelDeep),
     ) {
