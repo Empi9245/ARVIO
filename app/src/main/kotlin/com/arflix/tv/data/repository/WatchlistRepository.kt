@@ -252,7 +252,7 @@ class WatchlistRepository @Inject constructor(
             val typeStr = if (item.mediaType == MediaType.TV) "tv" else "movie"
             val key = "$typeStr:${item.id}"
             val local = existingByKey[key]
-            val traktOrderAddedAt = System.currentTimeMillis() - index
+            val traktOrderAddedAt = item.addedAt.takeIf { it > 0L } ?: (System.currentTimeMillis() - index)
             ordered.add(
                 local?.copy(
                     title = item.title.ifBlank { local.title },
@@ -372,7 +372,8 @@ class WatchlistRepository @Inject constructor(
                     duration = details.episodeRunTime?.firstOrNull()?.let { "${it}m" } ?: "",
                     mediaType = MediaType.TV,
                     image = details.posterPath?.let { "${Constants.IMAGE_BASE}$it" } ?: "",
-                    backdrop = details.backdropPath?.let { "${Constants.BACKDROP_BASE_LARGE}$it" }
+                    backdrop = details.backdropPath?.let { "${Constants.BACKDROP_BASE_LARGE}$it" },
+                    addedAt = item.addedAt
                 )
             } else {
                 val details = tmdbApi.getMovieDetails(item.tmdbId, apiKey)
@@ -387,7 +388,8 @@ class WatchlistRepository @Inject constructor(
                     duration = details.runtime?.let { formatRuntime(it) } ?: "",
                     mediaType = MediaType.MOVIE,
                     image = details.posterPath?.let { "${Constants.IMAGE_BASE}$it" } ?: "",
-                    backdrop = details.backdropPath?.let { "${Constants.BACKDROP_BASE_LARGE}$it" }
+                    backdrop = details.backdropPath?.let { "${Constants.BACKDROP_BASE_LARGE}$it" },
+                    addedAt = item.addedAt
                 )
             }
         } catch (_: Exception) {
@@ -400,7 +402,8 @@ class WatchlistRepository @Inject constructor(
                 year = "",
                 mediaType = if (item.mediaType == "tv") MediaType.TV else MediaType.MOVIE,
                 image = item.posterPath ?: "",
-                backdrop = item.backdropPath
+                backdrop = item.backdropPath,
+                addedAt = item.addedAt
             )
         }
     }
@@ -421,7 +424,8 @@ class WatchlistRepository @Inject constructor(
             year = "",
             mediaType = type,
             image = posterPath.orEmpty(),
-            backdrop = backdropPath
+            backdrop = backdropPath,
+            addedAt = addedAt
         )
     }
 

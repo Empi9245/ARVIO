@@ -2204,6 +2204,7 @@ class TraktRepository @Inject constructor(
     }
 
     private suspend fun mapWatchlistItemFast(item: TraktWatchlistItem): MediaItem? {
+        val listedAtMs = parseTraktListedAtMs(item.listedAt)
         return when (item.type) {
             "movie" -> item.movie?.let { movie ->
                 val tmdbId = resolveWatchlistMovieTmdbId(movie) ?: return null
@@ -2215,7 +2216,8 @@ class TraktRepository @Inject constructor(
                     year = movie.year?.toString().orEmpty(),
                     mediaType = MediaType.MOVIE,
                     image = "",
-                    backdrop = null
+                    backdrop = null,
+                    addedAt = listedAtMs
                 )
             }
             "show" -> item.show?.let { show ->
@@ -2228,15 +2230,20 @@ class TraktRepository @Inject constructor(
                     year = show.year?.toString().orEmpty(),
                     mediaType = MediaType.TV,
                     image = "",
-                    backdrop = null
+                    backdrop = null,
+                    addedAt = listedAtMs
                 )
             }
             else -> null
         }
     }
 
+    private fun parseTraktListedAtMs(value: String?): Long {
+        if (value.isNullOrBlank()) return 0L
+        return runCatching { java.time.Instant.parse(value).toEpochMilli() }.getOrDefault(0L)
+    }
+
     private suspend fun resolveWatchlistMovieTmdbId(movie: TraktMovieInfo): Int? {
-        searchTmdbWatchlistMatch(movie.title, movie.year, MediaType.MOVIE)?.let { return it }
         movie.ids.tmdb?.takeIf { it > 0 }?.let { return it }
         val imdbId = movie.ids.imdb?.trim()?.takeIf { it.isNotEmpty() }
         if (imdbId != null) {
@@ -2246,11 +2253,11 @@ class TraktRepository @Inject constructor(
                     ?.id
             }.getOrNull()?.let { return it }
         }
+        searchTmdbWatchlistMatch(movie.title, movie.year, MediaType.MOVIE)?.let { return it }
         return null
     }
 
     private suspend fun resolveWatchlistShowTmdbId(show: TraktShowInfo): Int? {
-        searchTmdbWatchlistMatch(show.title, show.year, MediaType.TV)?.let { return it }
         show.ids.tmdb?.takeIf { it > 0 }?.let { return it }
         val imdbId = show.ids.imdb?.trim()?.takeIf { it.isNotEmpty() }
         if (imdbId != null) {
@@ -2260,6 +2267,7 @@ class TraktRepository @Inject constructor(
                     ?.id
             }.getOrNull()?.let { return it }
         }
+        searchTmdbWatchlistMatch(show.title, show.year, MediaType.TV)?.let { return it }
         return null
     }
 
@@ -2314,11 +2322,6 @@ class TraktRepository @Inject constructor(
     }
 
     private suspend fun resolveWatchlistMovieDetails(movie: TraktMovieInfo): TmdbMovieDetails? {
-        val searchMatch = searchTmdbWatchlistMatch(movie.title, movie.year, MediaType.MOVIE)
-        if (searchMatch != null) {
-            return runCatching { tmdbApi.getMovieDetails(searchMatch, Constants.TMDB_API_KEY) }.getOrNull()
-        }
-
         movie.ids.tmdb?.takeIf { it > 0 }?.let { tmdbId ->
             runCatching { tmdbApi.getMovieDetails(tmdbId, Constants.TMDB_API_KEY) }.getOrNull()?.let { return it }
         }
@@ -2332,16 +2335,15 @@ class TraktRepository @Inject constructor(
                 runCatching { tmdbApi.getMovieDetails(tmdbId, Constants.TMDB_API_KEY) }.getOrNull()?.let { return it }
             }
         }
+        val searchMatch = searchTmdbWatchlistMatch(movie.title, movie.year, MediaType.MOVIE)
+        if (searchMatch != null) {
+            return runCatching { tmdbApi.getMovieDetails(searchMatch, Constants.TMDB_API_KEY) }.getOrNull()
+        }
 
         return null
     }
 
     private suspend fun resolveWatchlistShowDetails(show: TraktShowInfo): TmdbTvDetails? {
-        val searchMatch = searchTmdbWatchlistMatch(show.title, show.year, MediaType.TV)
-        if (searchMatch != null) {
-            return runCatching { tmdbApi.getTvDetails(searchMatch, Constants.TMDB_API_KEY) }.getOrNull()
-        }
-
         show.ids.tmdb?.takeIf { it > 0 }?.let { tmdbId ->
             runCatching { tmdbApi.getTvDetails(tmdbId, Constants.TMDB_API_KEY) }.getOrNull()?.let { return it }
         }
@@ -2354,6 +2356,10 @@ class TraktRepository @Inject constructor(
             }.getOrNull()?.let { tmdbId ->
                 runCatching { tmdbApi.getTvDetails(tmdbId, Constants.TMDB_API_KEY) }.getOrNull()?.let { return it }
             }
+        }
+        val searchMatch = searchTmdbWatchlistMatch(show.title, show.year, MediaType.TV)
+        if (searchMatch != null) {
+            return runCatching { tmdbApi.getTvDetails(searchMatch, Constants.TMDB_API_KEY) }.getOrNull()
         }
 
         return null

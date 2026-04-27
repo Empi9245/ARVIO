@@ -45,6 +45,8 @@ data class MediaItem(
     val character: String = "",
     // Popularity score from TMDB (higher = more mainstream content)
     val popularity: Float = 0f,
+    // Source-specific added timestamp, used for exact newest-first watchlist ordering.
+    val addedAt: Long = 0L,
     // Placeholder card - shows skeleton loading animation
     val isPlaceholder: Boolean = false
 ) : Serializable
