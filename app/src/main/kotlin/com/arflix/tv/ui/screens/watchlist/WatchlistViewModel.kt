@@ -176,9 +176,7 @@ class WatchlistViewModel @Inject constructor(
                 fetchLogos(traktItems)
 
                 watchlistRepository.syncFromTraktOrder(traktItems)
-
-                val items = watchlistRepository.refreshWatchlistItems()
-                _uiState.value = WatchlistUiState(isLoading = false, items = items)
+                _uiState.value = WatchlistUiState(isLoading = false, items = traktItems)
                 runCatching { cloudSyncRepository.pushToCloud() }
                 true
             }
