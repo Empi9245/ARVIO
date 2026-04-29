@@ -1088,15 +1088,16 @@ fun PlayerScreen(
         }
     }
 
-    // Request focus on play button when controls are shown
-    LaunchedEffect(showControls) {
-        if (showControls && !showSubtitleMenu && !showSourceMenu && uiState.error == null) {
-            delay(100) // Small delay to ensure UI is composed
+    // Request focus on play button when controls are shown.
+    // hasPlaybackStarted is also a key because the controls are inside
+    // AnimatedVisibility(visible = hasPlaybackStarted && showControls),
+    // so the play button isn't in composition until playback begins.
+    LaunchedEffect(showControls, hasPlaybackStarted) {
+        if (showControls && hasPlaybackStarted && !showSubtitleMenu && !showSourceMenu && uiState.error == null) {
+            delay(300)
             try {
                 playButtonFocusRequester.requestFocus()
-            } catch (e: Exception) {
-                // Focus request may fail if component not ready
-            }
+            } catch (e: Exception) {}
         }
     }
 
