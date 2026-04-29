@@ -7,6 +7,8 @@ import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import coil.compose.AsyncImage
 import com.arflix.tv.BuildConfig
 import androidx.compose.foundation.background
 import androidx.compose.ui.input.pointer.pointerInput
@@ -48,6 +50,7 @@ import androidx.compose.material.icons.filled.LinkOff
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material.icons.filled.VisibilityOff
@@ -101,10 +104,12 @@ import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -123,6 +128,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
 import com.arflix.tv.data.model.CatalogConfig
+import com.arflix.tv.data.model.CatalogDiscoveryResult
 import com.arflix.tv.data.model.CatalogKind
 import com.arflix.tv.data.model.CatalogSourceType
 import com.arflix.tv.data.model.QualityFilterConfig
@@ -1310,12 +1316,17 @@ fun SettingsScreen(
         
 
         if (showCatalogInput) {
-            InputModal(
-                title = stringResource(R.string.add_catalog),
-                fields = listOf(
-                    InputField(label = "Catalog URL", value = catalogInputUrl, onValueChange = { catalogInputUrl = it })
-                ),
-                onConfirm = {
+            CatalogDiscoveryModal(
+                query = uiState.catalogSearchQuery,
+                results = uiState.catalogSearchResults,
+                isSearching = uiState.isCatalogSearching,
+                error = uiState.catalogSearchError,
+                manualUrl = catalogInputUrl,
+                onQueryChange = viewModel::setCatalogSearchQuery,
+                onSearch = { viewModel.searchCatalogLists() },
+                onAddResult = viewModel::addDiscoveredCatalog,
+                onManualUrlChange = { catalogInputUrl = it },
+                onManualAdd = {
                     if (catalogInputUrl.isNotBlank()) {
                         viewModel.addCatalog(catalogInputUrl)
                         catalogInputUrl = ""
@@ -1324,6 +1335,7 @@ fun SettingsScreen(
                 },
                 onDismiss = {
                     catalogInputUrl = ""
+                    viewModel.clearCatalogDiscovery()
                     showCatalogInput = false
                 }
             )
@@ -4097,6 +4109,786 @@ private fun SettingsToggleRow(
             )
         }
     }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun CatalogDiscoveryModal(
+    query: String,
+    results: List<CatalogDiscoveryResult>,
+    isSearching: Boolean,
+    error: String?,
+    manualUrl: String,
+    onQueryChange: (String) -> Unit,
+    onSearch: () -> Unit,
+    onAddResult: (CatalogDiscoveryResult) -> Unit,
+    onManualUrlChange: (String) -> Unit,
+    onManualAdd: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val focusManager = LocalFocusManager.current
+    val view = LocalView.current
+    var editingInput by remember { mutableStateOf<CatalogDiscoveryInputTarget?>(null) }
+    fun submitSearch() {
+        focusManager.clearFocus()
+        (view.context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as? InputMethodManager)
+            ?.hideSoftInputFromWindow(view.windowToken, 0)
+        onSearch()
+    }
+
+    androidx.compose.ui.window.Dialog(
+        onDismissRequest = onDismiss,
+        properties = androidx.compose.ui.window.DialogProperties(
+            dismissOnBackPress = true,
+            dismissOnClickOutside = true,
+            usePlatformDefaultWidth = false
+        )
+    ) {
+        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+            val isCompact = maxWidth < 720.dp
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.86f))
+                    .padding(
+                        horizontal = if (isCompact) 10.dp else 48.dp,
+                        vertical = if (isCompact) 10.dp else 34.dp
+                    ),
+                contentAlignment = Alignment.TopCenter
+            ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(RoundedCornerShape(if (isCompact) 12.dp else 18.dp))
+                    .background(Color.Black.copy(alpha = 0.34f), RoundedCornerShape(if (isCompact) 12.dp else 18.dp))
+                    .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(if (isCompact) 12.dp else 18.dp))
+                    .padding(if (isCompact) 10.dp else 18.dp)
+            ) {
+                if (isCompact) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(Color.Black.copy(alpha = 0.32f))
+                            .border(1.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(14.dp))
+                            .padding(10.dp)
+                    ) {
+                        CatalogDiscoveryInputButton(
+                            label = "Search lists",
+                            value = query,
+                            modifier = Modifier.fillMaxWidth(),
+                            placeholder = "top trending anime",
+                            onClick = { editingInput = CatalogDiscoveryInputTarget.Search }
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            DiscoveryActionButton(
+                                label = if (isSearching) "Searching" else "Search",
+                                onClick = { submitSearch() },
+                                highlighted = true,
+                                enabled = !isSearching && query.isNotBlank(),
+                                modifier = Modifier.weight(1f)
+                            )
+                            DiscoveryActionButton(
+                                label = "Close",
+                                onClick = onDismiss,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        CatalogDiscoveryInputButton(
+                            label = "Paste URL",
+                            value = manualUrl,
+                            modifier = Modifier.fillMaxWidth(),
+                            placeholder = "Trakt or MDBList URL",
+                            onClick = { editingInput = CatalogDiscoveryInputTarget.ManualUrl }
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        DiscoveryActionButton(
+                            label = "Add URL",
+                            onClick = onManualAdd,
+                            enabled = manualUrl.isNotBlank(),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(Color.Black.copy(alpha = 0.32f))
+                            .border(1.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(16.dp))
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        CatalogDiscoveryInputButton(
+                            label = "Search lists",
+                            value = query,
+                            modifier = Modifier.weight(1f),
+                            placeholder = "top trending anime",
+                            onClick = { editingInput = CatalogDiscoveryInputTarget.Search }
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        DiscoveryActionButton(
+                            label = if (isSearching) "Searching" else "Search",
+                            onClick = { submitSearch() },
+                            highlighted = true,
+                            enabled = !isSearching && query.isNotBlank()
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        CatalogDiscoveryInputButton(
+                            label = "Paste URL",
+                            value = manualUrl,
+                            modifier = Modifier.weight(1f),
+                            placeholder = "Trakt or MDBList URL",
+                            onClick = { editingInput = CatalogDiscoveryInputTarget.ManualUrl }
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        DiscoveryActionButton(
+                            label = "Add URL",
+                            onClick = onManualAdd,
+                            enabled = manualUrl.isNotBlank()
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        DiscoveryActionButton(
+                            label = "Close",
+                            onClick = onDismiss
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                if (isCompact) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            text = when {
+                                isSearching -> "Searching both sources"
+                                results.isNotEmpty() -> "${results.size} lists found"
+                                else -> "Searches Trakt and MDBList automatically"
+                            },
+                            style = ArflixTypography.caption,
+                            color = TextSecondary
+                        )
+                        Text(
+                            text = "Tap a field to edit",
+                            style = ArflixTypography.caption,
+                            color = TextSecondary.copy(alpha = 0.75f)
+                        )
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                    Text(
+                        text = when {
+                            isSearching -> "Searching both sources"
+                            results.isNotEmpty() -> "${results.size} lists found"
+                            else -> "Searches Trakt and MDBList automatically"
+                        },
+                        style = ArflixTypography.caption,
+                        color = TextSecondary
+                    )
+                    Spacer(modifier = Modifier.weight(1f))
+                    Text(
+                        text = "Press Select on a field to edit",
+                        style = ArflixTypography.caption,
+                        color = TextSecondary.copy(alpha = 0.75f)
+                    )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Color.Black.copy(alpha = 0.20f))
+                        .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(16.dp))
+                        .padding(if (isCompact) 8.dp else 12.dp)
+                ) {
+                    when {
+                        isSearching -> {
+                            Column(
+                                modifier = Modifier.align(Alignment.Center),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                LoadingIndicator(size = 30.dp)
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Text("Searching lists", color = TextSecondary, style = ArflixTypography.body)
+                            }
+                        }
+                        error != null -> {
+                            Text(
+                                text = error,
+                                color = TextSecondary,
+                                style = ArflixTypography.body,
+                                modifier = Modifier.align(Alignment.Center)
+                            )
+                        }
+                        results.isEmpty() -> {
+                            Column(
+                                modifier = Modifier.align(Alignment.Center),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    text = "Start with a search",
+                                    color = TextPrimary,
+                                    style = ArflixTypography.bodyLarge
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = "Try top trending anime, best horror, Marvel chronological, or 2025 movies.",
+                                    color = TextSecondary,
+                                    style = ArflixTypography.body,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.padding(horizontal = 28.dp)
+                                )
+                            }
+                        }
+                        else -> {
+                            LazyColumn(
+                                modifier = Modifier.fillMaxSize(),
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                itemsIndexed(results, key = { _, item -> item.id }) { _, item ->
+                                    CatalogDiscoveryResultRow(
+                                        result = item,
+                                        onAdd = { onAddResult(item) },
+                                        compact = isCompact
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            }
+        }
+    }
+
+    editingInput?.let { target ->
+        CatalogDiscoveryTextInputDialog(
+            title = if (target == CatalogDiscoveryInputTarget.Search) "Search lists" else "Paste catalog URL",
+            initialValue = if (target == CatalogDiscoveryInputTarget.Search) query else manualUrl,
+            placeholder = if (target == CatalogDiscoveryInputTarget.Search) "top trending anime" else "https://trakt.tv/users/...",
+            confirmLabel = if (target == CatalogDiscoveryInputTarget.Search) "Use Search" else "Use URL",
+            onConfirm = { value ->
+                if (target == CatalogDiscoveryInputTarget.Search) {
+                    onQueryChange(value)
+                } else {
+                    onManualUrlChange(value)
+                }
+                editingInput = null
+            },
+            onDismiss = { editingInput = null }
+        )
+    }
+}
+
+private enum class CatalogDiscoveryInputTarget {
+    Search,
+    ManualUrl
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun CatalogDiscoveryInputButton(
+    label: String,
+    value: String,
+    placeholder: String,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (isFocused) Color.White else Color.Black.copy(alpha = 0.36f))
+            .border(
+                width = if (isFocused) 2.dp else 1.dp,
+                color = if (isFocused) Color.White else Color.White.copy(alpha = 0.55f),
+                shape = RoundedCornerShape(12.dp)
+            )
+            .onFocusChanged { isFocused = it.isFocused }
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 10.dp)
+    ) {
+        Text(
+            text = label,
+            style = ArflixTypography.caption,
+            color = if (isFocused) Color.Black.copy(alpha = 0.68f) else TextSecondary,
+            maxLines = 1
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = value.ifBlank { placeholder },
+            style = ArflixTypography.body,
+            color = when {
+                isFocused -> Color.Black
+                value.isBlank() -> TextSecondary.copy(alpha = 0.7f)
+                else -> TextPrimary
+            },
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun CatalogDiscoveryTextInputDialog(
+    title: String,
+    initialValue: String,
+    placeholder: String,
+    confirmLabel: String,
+    onConfirm: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var value by remember(initialValue) { mutableStateOf(initialValue) }
+    androidx.compose.ui.window.Dialog(
+        onDismissRequest = onDismiss,
+        properties = androidx.compose.ui.window.DialogProperties(
+            dismissOnBackPress = true,
+            dismissOnClickOutside = true,
+            usePlatformDefaultWidth = false
+        )
+    ) {
+        BoxWithConstraints(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            val isCompact = maxWidth < 720.dp
+            Column(
+                modifier = Modifier
+                    .widthIn(max = 680.dp)
+                    .fillMaxWidth(if (isCompact) 0.92f else 0.76f)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color(0xFF181818), RoundedCornerShape(16.dp))
+                    .border(1.dp, Color.White.copy(alpha = 0.14f), RoundedCornerShape(16.dp))
+                    .padding(if (isCompact) 16.dp else 20.dp)
+            ) {
+            Text(title, style = ArflixTypography.sectionTitle, color = TextPrimary)
+            Spacer(modifier = Modifier.height(14.dp))
+            androidx.compose.material3.TextField(
+                value = value,
+                onValueChange = { value = it },
+                placeholder = { androidx.compose.material3.Text(placeholder) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                colors = androidx.compose.material3.TextFieldDefaults.colors(
+                    focusedTextColor = TextPrimary,
+                    unfocusedTextColor = TextPrimary,
+                    focusedContainerColor = Color.White.copy(alpha = 0.08f),
+                    unfocusedContainerColor = Color.White.copy(alpha = 0.06f),
+                    focusedIndicatorColor = Color.White,
+                    unfocusedIndicatorColor = Color.White.copy(alpha = 0.18f),
+                    focusedPlaceholderColor = TextSecondary,
+                    unfocusedPlaceholderColor = TextSecondary
+                )
+            )
+            Spacer(modifier = Modifier.height(18.dp))
+            if (isCompact) {
+                Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    DiscoveryActionButton(
+                        label = confirmLabel,
+                        onClick = { onConfirm(value.trim()) },
+                        highlighted = true,
+                        enabled = value.isNotBlank(),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    DiscoveryActionButton(
+                        label = "Cancel",
+                        onClick = onDismiss,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    DiscoveryActionButton(label = "Cancel", onClick = onDismiss)
+                    Spacer(modifier = Modifier.width(10.dp))
+                    DiscoveryActionButton(
+                        label = confirmLabel,
+                        onClick = { onConfirm(value.trim()) },
+                        highlighted = true,
+                        enabled = value.isNotBlank()
+                    )
+                }
+            }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun CatalogDiscoveryResultRow(
+    result: CatalogDiscoveryResult,
+    onAdd: () -> Unit,
+    compact: Boolean = false
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    val creator = result.creatorName ?: result.creatorHandle
+    val creatorMeta = creator?.let { "by $it" }
+    val itemCountMeta = result.itemCount?.let { "$it items" }
+    val likesMeta = result.likes?.let { "$it likes" } ?: "0 likes"
+    val updatedMeta = result.updatedAt?.let { "Updated ${formatCatalogDiscoveryDate(it)}" }
+
+    if (compact) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(14.dp))
+                .background(
+                    if (isFocused) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.38f),
+                    RoundedCornerShape(14.dp)
+                )
+                .border(
+                    width = if (isFocused) 2.dp else 1.dp,
+                    color = if (isFocused) Color.White.copy(alpha = 0.9f) else Color.White.copy(alpha = 0.08f),
+                    shape = RoundedCornerShape(14.dp)
+                )
+                .onFocusChanged { isFocused = it.isFocused || it.hasFocus }
+                .focusable()
+                .padding(12.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                val posters = result.previewPosterUrls.take(5)
+                if (posters.isEmpty()) {
+                    repeat(5) {
+                        Box(
+                            modifier = Modifier
+                                .size(width = 52.dp, height = 78.dp)
+                                .background(Color.White.copy(alpha = 0.08f), RoundedCornerShape(7.dp))
+                        )
+                    }
+                } else {
+                    posters.forEach { posterUrl ->
+                        AsyncImage(
+                            model = posterUrl,
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .size(width = 52.dp, height = 78.dp)
+                                .clip(RoundedCornerShape(7.dp))
+                                .background(Color.White.copy(alpha = 0.08f))
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Text(
+                text = result.title,
+                style = ArflixTypography.bodyLarge,
+                color = TextPrimary,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            Spacer(modifier = Modifier.height(5.dp))
+
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                SourceChip(label = sourceLabel(result.sourceType), active = true, compact = true)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = listOfNotNull(itemCountMeta, likesMeta).joinToString("  |  "),
+                    style = ArflixTypography.caption,
+                    color = TextSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+
+            if (!creatorMeta.isNullOrBlank()) {
+                Text(
+                    text = creatorMeta,
+                    style = ArflixTypography.caption,
+                    color = TextSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 2.dp)
+                )
+            }
+            if (!updatedMeta.isNullOrBlank()) {
+                Text(
+                    text = updatedMeta,
+                    style = ArflixTypography.caption,
+                    color = TextSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 2.dp)
+                )
+            }
+            if (!result.description.isNullOrBlank()) {
+                Text(
+                    text = result.description,
+                    style = ArflixTypography.caption,
+                    color = TextSecondary.copy(alpha = 0.82f),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+            DiscoveryActionButton(
+                label = "Add",
+                onClick = onAdd,
+                highlighted = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+        return
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(
+                if (isFocused) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.38f),
+                RoundedCornerShape(14.dp)
+            )
+            .border(
+                width = if (isFocused) 2.dp else 1.dp,
+                color = if (isFocused) Color.White.copy(alpha = 0.9f) else Color.White.copy(alpha = 0.08f),
+                shape = RoundedCornerShape(14.dp)
+            )
+            .onFocusChanged { isFocused = it.isFocused || it.hasFocus }
+            .focusable()
+            .padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(
+            modifier = Modifier
+                .width(330.dp)
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(7.dp)
+        ) {
+            val posters = result.previewPosterUrls.take(5)
+            if (posters.isEmpty()) {
+                repeat(5) {
+                    Box(
+                        modifier = Modifier
+                            .size(width = 60.dp, height = 90.dp)
+                            .background(Color.White.copy(alpha = 0.08f), RoundedCornerShape(7.dp))
+                    )
+                }
+            } else {
+                posters.forEach { posterUrl ->
+                    AsyncImage(
+                        model = posterUrl,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .size(width = 60.dp, height = 90.dp)
+                            .clip(RoundedCornerShape(7.dp))
+                            .background(Color.White.copy(alpha = 0.08f))
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.width(18.dp))
+
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = result.title,
+                style = ArflixTypography.bodyLarge,
+                color = TextPrimary,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                SourceChip(label = sourceLabel(result.sourceType), active = true, compact = true)
+                if (!creatorMeta.isNullOrBlank()) {
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = creatorMeta,
+                        style = ArflixTypography.caption,
+                        color = TextSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                if (!itemCountMeta.isNullOrBlank()) {
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "|",
+                        style = ArflixTypography.caption,
+                        color = TextSecondary.copy(alpha = 0.65f),
+                        maxLines = 1
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = itemCountMeta,
+                        style = ArflixTypography.caption,
+                        color = TextSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.widthIn(max = 112.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "|",
+                    style = ArflixTypography.caption,
+                    color = TextSecondary.copy(alpha = 0.65f),
+                    maxLines = 1
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = likesMeta,
+                    style = ArflixTypography.caption,
+                    color = TextSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.widthIn(min = 64.dp, max = 86.dp)
+                )
+            }
+
+            if (!updatedMeta.isNullOrBlank()) {
+                Text(
+                    text = updatedMeta,
+                    style = ArflixTypography.caption,
+                    color = TextSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 2.dp)
+                )
+            }
+            if (!result.description.isNullOrBlank()) {
+                Text(
+                    text = result.description,
+                    style = ArflixTypography.caption,
+                    color = TextSecondary.copy(alpha = 0.82f),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.width(18.dp))
+        DiscoveryActionButton(
+            label = "Add",
+            onClick = onAdd,
+            highlighted = true
+        )
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun SourceChip(
+    label: String,
+    active: Boolean,
+    compact: Boolean = false
+) {
+    Text(
+        text = label,
+        style = if (compact) ArflixTypography.label else ArflixTypography.body,
+        color = if (active) TextPrimary else TextSecondary,
+        modifier = Modifier
+            .background(
+                if (active) Color.Black.copy(alpha = 0.30f) else Color.White.copy(alpha = 0.06f),
+                RoundedCornerShape(999.dp)
+            )
+            .border(
+                width = 1.dp,
+                color = if (active) Color.White.copy(alpha = 0.48f) else Color.White.copy(alpha = 0.12f),
+                shape = RoundedCornerShape(999.dp)
+            )
+            .padding(horizontal = if (compact) 8.dp else 12.dp, vertical = if (compact) 3.dp else 5.dp)
+    )
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun DiscoveryActionButton(
+    label: String,
+    onClick: () -> Unit,
+    highlighted: Boolean = false,
+    enabled: Boolean = true,
+    modifier: Modifier = Modifier
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    Box(
+        modifier = modifier
+            .widthIn(min = if (label.length <= 5) 112.dp else 132.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(
+                when {
+                    !enabled -> Color.Black.copy(alpha = 0.18f)
+                    isFocused -> Color.White
+                    highlighted -> Color.Black.copy(alpha = 0.46f)
+                    else -> Color.Black.copy(alpha = 0.36f)
+                },
+                RoundedCornerShape(10.dp)
+            )
+            .border(
+                width = if (isFocused) 2.dp else 1.dp,
+                color = when {
+                    !enabled -> Color.White.copy(alpha = 0.18f)
+                    isFocused -> Color.White
+                    highlighted -> Color.White.copy(alpha = 0.74f)
+                    else -> Color.White.copy(alpha = 0.55f)
+                },
+                shape = RoundedCornerShape(10.dp)
+            )
+            .onFocusChanged { isFocused = it.isFocused }
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 22.dp, vertical = 13.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = label,
+            style = ArflixTypography.button,
+            color = when {
+                !enabled -> TextSecondary.copy(alpha = 0.42f)
+                isFocused -> Color.Black
+                else -> TextPrimary
+            },
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+private fun sourceLabel(sourceType: CatalogSourceType): String {
+    return when (sourceType) {
+        CatalogSourceType.TRAKT -> "Trakt"
+        CatalogSourceType.MDBLIST -> "MDBList"
+        CatalogSourceType.PREINSTALLED -> "Built-in"
+        CatalogSourceType.ADDON -> "Addon"
+    }
+}
+
+private fun formatCatalogDiscoveryDate(raw: String): String {
+    return raw.substringBefore('T')
+        .takeIf { it.length == 10 }
+        ?: raw.replace('T', ' ').substringBefore('.').take(16)
 }
 
 @OptIn(ExperimentalTvMaterial3Api::class, ExperimentalFoundationApi::class)

@@ -134,6 +134,16 @@ interface TraktApi {
         @Query("type") type: String
     ): List<TraktSearchResult>
 
+    @GET("search/list")
+    suspend fun searchLists(
+        @Header("trakt-api-key") clientId: String,
+        @Header("trakt-api-version") version: String = "2",
+        @Query("query") query: String,
+        @Query("page") page: Int = 1,
+        @Query("limit") limit: Int = 20,
+        @Query("extended") extended: String = "full"
+    ): List<TraktListSearchResult>
+
     // ========== Collection ==========
 
     @GET("sync/collection/movies")
@@ -700,6 +710,46 @@ data class TraktSearchResult(
     val score: Float?,
     val movie: TraktMovieInfo?,
     val show: TraktShowInfo?
+)
+
+data class TraktListSearchResult(
+    val type: String,
+    val score: Float?,
+    val list: TraktSearchList?
+)
+
+data class TraktSearchList(
+    val name: String? = null,
+    val description: String? = null,
+    val privacy: String? = null,
+    val type: String? = null,
+    @SerializedName("created_at") val createdAt: String? = null,
+    @SerializedName("updated_at") val updatedAt: String? = null,
+    @SerializedName("item_count") val itemCount: Int? = null,
+    val likes: Int? = null,
+    val ids: TraktSearchListIds? = null,
+    val user: TraktSearchListUser? = null,
+    val images: TraktSearchListImages? = null
+)
+
+data class TraktSearchListIds(
+    val trakt: Int? = null,
+    val slug: String? = null
+)
+
+data class TraktSearchListUser(
+    val username: String? = null,
+    val name: String? = null,
+    val ids: TraktSearchListUserIds? = null
+)
+
+data class TraktSearchListUserIds(
+    val slug: String? = null,
+    val trakt: Int? = null
+)
+
+data class TraktSearchListImages(
+    val posters: List<String> = emptyList()
 )
 
 // ========== Collection Models ==========

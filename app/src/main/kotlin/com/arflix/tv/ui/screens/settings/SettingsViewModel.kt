@@ -11,6 +11,7 @@ import androidx.lifecycle.viewModelScope
 import com.arflix.tv.data.api.TraktDeviceCode
 import com.arflix.tv.data.model.Addon
 import com.arflix.tv.data.model.CatalogConfig
+import com.arflix.tv.data.model.CatalogDiscoveryResult
 import com.arflix.tv.data.model.CatalogKind
 import com.arflix.tv.data.model.CloudstreamPluginIndexEntry
 import com.arflix.tv.data.model.CloudstreamRepositoryManifest
@@ -18,6 +19,7 @@ import com.arflix.tv.data.model.Profile
 import com.arflix.tv.data.model.QualityFilterConfig
 import com.arflix.tv.data.repository.AuthRepository
 import com.arflix.tv.data.repository.AuthState
+import com.arflix.tv.data.repository.CatalogDiscoveryRepository
 import com.arflix.tv.data.repository.CatalogRepository
 import com.arflix.tv.data.repository.CollectionTemplateManifest
 import com.arflix.tv.data.repository.CloudSyncRepository
@@ -143,6 +145,10 @@ data class SettingsUiState(
     val appUpdateError: String? = null,
     // Catalogs
     val catalogs: List<CatalogConfig> = emptyList(),
+    val catalogSearchQuery: String = "",
+    val catalogSearchResults: List<CatalogDiscoveryResult> = emptyList(),
+    val isCatalogSearching: Boolean = false,
+    val catalogSearchError: String? = null,
     // Addons
     val addons: List<Addon> = emptyList(),
     val cloudstreamRepositories: List<CloudstreamRepositoryRecord> = emptyList(),
@@ -174,6 +180,7 @@ class SettingsViewModel @Inject constructor(
     private val streamRepository: StreamRepository,
     private val mediaRepository: MediaRepository,
     private val catalogRepository: CatalogRepository,
+    private val catalogDiscoveryRepository: CatalogDiscoveryRepository,
     private val iptvRepository: IptvRepository,
     private val watchlistRepository: WatchlistRepository,
     private val authRepository: AuthRepository,
@@ -240,6 +247,7 @@ class SettingsViewModel @Inject constructor(
 
     private var traktPollingJob: Job? = null
     private var iptvLoadJob: Job? = null
+    private var catalogSearchJob: Job? = null
     private var lastCloudSyncedUserId: String? = null
     private var cloudDeviceCode: String? = null
     private var cloudUserCode: String? = null
@@ -1400,6 +1408,76 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             val result = catalogRepository.addCustomCatalog(url)
             result.onSuccess { catalog ->
+                _uiState.value = _uiState.value.copy(
+                    toastMessage = "Added ${catalog.title}",
+                    toastType = ToastType.SUCCESS
+                )
+                syncLocalStateToCloud(silent = true)
+            }.onFailure { error ->
+                _uiState.value = _uiState.value.copy(
+                    toastMessage = error.message ?: "Failed to add catalog",
+                    toastType = ToastType.ERROR
+                )
+            }
+        }
+    }
+
+    fun setCatalogSearchQuery(query: String) {
+        _uiState.value = _uiState.value.copy(
+            catalogSearchQuery = query,
+            catalogSearchError = null
+        )
+    }
+
+    fun searchCatalogLists(query: String = _uiState.value.catalogSearchQuery) {
+        val normalizedQuery = query.trim()
+        catalogSearchJob?.cancel()
+        if (normalizedQuery.length < 2) {
+            _uiState.value = _uiState.value.copy(
+                catalogSearchResults = emptyList(),
+                isCatalogSearching = false,
+                catalogSearchError = if (normalizedQuery.isBlank()) null else "Type at least 2 characters"
+            )
+            return
+        }
+
+        catalogSearchJob = viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(
+                isCatalogSearching = true,
+                catalogSearchError = null
+            )
+            val result = catalogDiscoveryRepository.searchCatalogLists(normalizedQuery)
+            result.onSuccess { lists ->
+                _uiState.value = _uiState.value.copy(
+                    catalogSearchResults = lists,
+                    isCatalogSearching = false,
+                    catalogSearchError = if (lists.isEmpty()) "No public Trakt lists found" else null
+                )
+            }.onFailure { error ->
+                _uiState.value = _uiState.value.copy(
+                    catalogSearchResults = emptyList(),
+                    isCatalogSearching = false,
+                    catalogSearchError = error.message ?: "Failed to search catalogs"
+                )
+            }
+        }
+    }
+
+    fun clearCatalogDiscovery() {
+        catalogSearchJob?.cancel()
+        catalogSearchJob = null
+        _uiState.value = _uiState.value.copy(
+            catalogSearchQuery = "",
+            catalogSearchResults = emptyList(),
+            isCatalogSearching = false,
+            catalogSearchError = null
+        )
+    }
+
+    fun addDiscoveredCatalog(result: CatalogDiscoveryResult) {
+        viewModelScope.launch {
+            val addResult = catalogRepository.addCustomCatalog(result.sourceUrl)
+            addResult.onSuccess { catalog ->
                 _uiState.value = _uiState.value.copy(
                     toastMessage = "Added ${catalog.title}",
                     toastType = ToastType.SUCCESS

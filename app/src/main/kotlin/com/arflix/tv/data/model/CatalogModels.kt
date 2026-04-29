@@ -102,6 +102,20 @@ data class CatalogConfig(
     val requiredAddonUrls: List<String> = emptyList()
 ) : Serializable
 
+data class CatalogDiscoveryResult(
+    val id: String,
+    val title: String,
+    val description: String?,
+    val sourceType: CatalogSourceType,
+    val sourceUrl: String,
+    val creatorName: String?,
+    val creatorHandle: String?,
+    val updatedAt: String?,
+    val itemCount: Int?,
+    val likes: Int?,
+    val previewPosterUrls: List<String> = emptyList()
+)
+
 data class CatalogValidationResult(
     val isValid: Boolean,
     val normalizedUrl: String? = null,
