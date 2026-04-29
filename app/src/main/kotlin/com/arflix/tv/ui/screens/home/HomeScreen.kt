@@ -583,25 +583,27 @@ fun HomeScreen(
     val showCinematicHomeLayer = isMobile || allowHomeBackgroundWork
     val limitRowsDuringStartup = !isMobile && !allowHomeBackgroundWork && !focusState.userHasNavigated
 
-    LaunchedEffect(focusState.lastNavEventTime, focusState.isSidebarFocused) {
+    LaunchedEffect(isMobile, fastScrollThresholdMs) {
         if (isMobile) {
             suppressHeroVideoPlayback = false
             return@LaunchedEffect
         }
-        if (focusState.isSidebarFocused) {
-            suppressHeroVideoPlayback = true
-            return@LaunchedEffect
-        }
-        val anchor = focusState.lastNavEventTime
-        if (anchor <= 0L) {
-            suppressHeroVideoPlayback = false
-            return@LaunchedEffect
-        }
-        suppressHeroVideoPlayback = true
-        delay(fastScrollThresholdMs)
-        if (focusState.lastNavEventTime == anchor && !focusState.isSidebarFocused) {
-            suppressHeroVideoPlayback = false
-        }
+        snapshotFlow { focusState.lastNavEventTime to focusState.isSidebarFocused }
+            .collectLatest { (anchor, sidebarFocused) ->
+                if (sidebarFocused) {
+                    suppressHeroVideoPlayback = true
+                    return@collectLatest
+                }
+                if (anchor <= 0L) {
+                    suppressHeroVideoPlayback = false
+                    return@collectLatest
+                }
+                suppressHeroVideoPlayback = true
+                delay(fastScrollThresholdMs)
+                if (focusState.lastNavEventTime == anchor && !focusState.isSidebarFocused) {
+                    suppressHeroVideoPlayback = false
+                }
+            }
     }
 
     // Context menu state (Menu button only, no long-press)
@@ -616,62 +618,15 @@ fun HomeScreen(
         contextMenuIsContinueWatching = false
     }
 
-    // Preload logos for current and next rows when row changes
-    LaunchedEffect(allowHomeBackgroundWork) {
-        if (!allowHomeBackgroundWork) return@LaunchedEffect
-        snapshotFlow { focusState.currentRowIndex }
-            .distinctUntilChanged()
-            .collectLatest { rowIndex ->
-                val idleDelay = fastScrollThresholdMs -
-                    (SystemClock.elapsedRealtime() - focusState.lastNavEventTime)
-                if (idleDelay > 0L) {
-                    delay(idleDelay)
-                }
-                if (focusState.isSidebarFocused || focusState.currentRowIndex != rowIndex) {
-                    return@collectLatest
-                }
-                viewModel.preloadLogosForCategory(rowIndex, prioritizeVisible = true)
-                viewModel.preloadLogosForCategory(rowIndex + 1, prioritizeVisible = false)
-            }
-    }
+    val firstContentItemIdForEffects = displayCategories.firstOrNull()?.items?.firstOrNull()?.id ?: -1
 
-    // Update hero based on focused item with adaptive idle delay to avoid heavy churn while scrolling
-    LaunchedEffect(allowHomeBackgroundWork) {
-        if (!allowHomeBackgroundWork) return@LaunchedEffect
-        snapshotFlow {
-            Triple(
-                focusState.currentRowIndex,
-                focusState.currentItemIndex,
-                // Include first item ID so the flow re-emits when categories load or CW changes,
-                // preventing distinctUntilChanged from swallowing the initial (0,0) emission.
-                latestDisplayCategories.firstOrNull()?.items?.firstOrNull()?.id ?: -1
-            )
-        }
-            .distinctUntilChanged()
-            .collectLatest { (rowIndex, itemIndex, _) ->
-                val categoriesSnapshot = latestDisplayCategories
-                if (categoriesSnapshot.isEmpty() || focusState.isSidebarFocused) return@collectLatest
-                val now = SystemClock.elapsedRealtime()
-                val isFastScrolling = now - focusState.lastNavEventTime < fastScrollThresholdMs
-                viewModel.onFocusChanged(rowIndex, itemIndex, shouldPrefetch = !isFastScrolling)
-                delay(if (isFastScrolling) 700L else 220L)
-
-                val idleFor = SystemClock.elapsedRealtime() - focusState.lastNavEventTime
-                if (idleFor < fastScrollThresholdMs) return@collectLatest
-
-                val row = categoriesSnapshot.getOrNull(rowIndex)
-                val newHeroItem = row?.items?.getOrNull(itemIndex)
-                    ?: row?.items?.firstOrNull()
-                    ?: categoriesSnapshot.firstOrNull()?.items?.firstOrNull()
-
-                if (newHeroItem != null) {
-                    viewModel.updateHeroItem(newHeroItem)
-                }
-            }
-    }
-
-    // Infinite row pagination: keep initial Home fast, then append as user reaches row end.
-    LaunchedEffect(allowHomeBackgroundWork) {
+    // Preload, hero hydration, and row pagination should happen after D-pad
+    // movement idles. Running these pipelines on every row key press creates
+    // avoidable coroutine churn exactly during vertical navigation.
+    LaunchedEffect(
+        allowHomeBackgroundWork,
+        firstContentItemIdForEffects
+    ) {
         if (!allowHomeBackgroundWork) return@LaunchedEffect
         snapshotFlow {
             Triple(
@@ -680,9 +635,9 @@ fun HomeScreen(
                 focusState.isSidebarFocused
             )
         }
-            .distinctUntilChanged()
             .collectLatest { (rowIndex, itemIndex, sidebarFocused) ->
                 if (sidebarFocused) return@collectLatest
+
                 val idleDelay = fastScrollThresholdMs -
                     (SystemClock.elapsedRealtime() - focusState.lastNavEventTime)
                 if (idleDelay > 0L) {
@@ -694,8 +649,24 @@ fun HomeScreen(
                 ) {
                     return@collectLatest
                 }
-                val category = latestDisplayCategories.getOrNull(rowIndex) ?: return@collectLatest
-                viewModel.maybeLoadNextPageForCategory(category.id, itemIndex)
+
+                val categoriesSnapshot = latestDisplayCategories
+                if (categoriesSnapshot.isEmpty()) return@collectLatest
+
+                viewModel.preloadLogosForCategory(rowIndex, prioritizeVisible = true)
+                viewModel.preloadLogosForCategory(rowIndex + 1, prioritizeVisible = false)
+                viewModel.onFocusChanged(rowIndex, itemIndex, shouldPrefetch = true)
+                categoriesSnapshot.getOrNull(rowIndex)?.let { category ->
+                    viewModel.maybeLoadNextPageForCategory(category.id, itemIndex)
+                }
+
+                val row = categoriesSnapshot.getOrNull(rowIndex)
+                val newHeroItem = row?.items?.getOrNull(itemIndex)
+                    ?: row?.items?.firstOrNull()
+                    ?: categoriesSnapshot.firstOrNull()?.items?.firstOrNull()
+                if (newHeroItem != null) {
+                    viewModel.updateHeroItem(newHeroItem)
+                }
             }
     }
 
@@ -733,6 +704,14 @@ fun HomeScreen(
 
     var heroPlaybackHandles by remember { mutableStateOf<HomeHeroPlaybackHandles?>(null) }
     val heroExoPlayer = heroPlaybackHandles?.player
+    LaunchedEffect(suppressHeroVideoPlayback, heroExoPlayer) {
+        val player = heroExoPlayer ?: return@LaunchedEffect
+        if (suppressHeroVideoPlayback) {
+            player.pause()
+        } else if (heroVideoUrl != null) {
+            player.play()
+        }
+    }
     DisposableEffect(Unit) {
         onDispose {
             heroPlaybackHandles?.player?.release()
@@ -881,6 +860,7 @@ fun HomeScreen(
             suppressSelectUntilMs = suppressSelectUntilMs,
             contentStartPadding = contentStartPadding,
             fastScrollThresholdMs = fastScrollThresholdMs,
+            deferFocusArtworkDuringNav = suppressHeroVideoPlayback,
             usePosterCards = usePosterCards,
             isContextMenuOpen = showContextMenu,
             isMobile = isMobile,
@@ -913,6 +893,7 @@ fun HomeScreen(
             clockFormat = uiState.clockFormat,
             syncStatus = uiState.syncStatus,
             onItemFocusedPrefetch = {},
+            onNavigationStarted = { suppressHeroVideoPlayback = true },
             onNavigateToDetails = onNavigateToDetails,
             onNavigateToCollection = onNavigateToCollection,
             onNavigateToSearch = onNavigateToSearch,
@@ -1990,6 +1971,7 @@ private fun HomeInputLayer(
     suppressSelectUntilMs: Long,
     contentStartPadding: androidx.compose.ui.unit.Dp,
     fastScrollThresholdMs: Long,
+    deferFocusArtworkDuringNav: Boolean,
     usePosterCards: Boolean,
     isContextMenuOpen: Boolean,
     isMobile: Boolean = false,
@@ -2002,6 +1984,7 @@ private fun HomeInputLayer(
     clockFormat: String = "24h",
     syncStatus: com.arflix.tv.data.repository.CloudSyncStatus = com.arflix.tv.data.repository.CloudSyncStatus.NOT_SIGNED_IN,
     onItemFocusedPrefetch: (MediaItem) -> Unit = {},
+    onNavigationStarted: () -> Unit = {},
     onNavigateToDetails: (MediaType, Int, Int?, Int?) -> Unit,
     onNavigateToCollection: (String) -> Unit,
     onNavigateToSearch: () -> Unit,
@@ -2129,6 +2112,7 @@ private fun HomeInputLayer(
                         selectPressedInHome = false
                         selectDownAtMs = 0L
                         focusState.userHasNavigated = true
+                        onNavigationStarted()
                         if (!focusState.isSidebarFocused) {
                             if (focusState.currentItemIndex == 0) {
                                 true
@@ -2149,6 +2133,7 @@ private fun HomeInputLayer(
                         selectPressedInHome = false
                         selectDownAtMs = 0L
                         focusState.userHasNavigated = true
+                        onNavigationStarted()
                         if (focusState.isSidebarFocused) {
                             if (focusState.sidebarFocusIndex < maxSidebarIndex) {
                                 focusState.sidebarFocusIndex++
@@ -2168,6 +2153,7 @@ private fun HomeInputLayer(
                         selectPressedInHome = false
                         selectDownAtMs = 0L
                         focusState.userHasNavigated = true
+                        onNavigationStarted()
                         if (focusState.isSidebarFocused) {
                             true
                         } else if (focusState.currentRowIndex > 0) {
@@ -2187,6 +2173,7 @@ private fun HomeInputLayer(
                         selectPressedInHome = false
                         selectDownAtMs = 0L
                         focusState.userHasNavigated = true
+                        onNavigationStarted()
                         if (focusState.isSidebarFocused) {
                             focusState.isSidebarFocused = false
                             true
@@ -2309,6 +2296,7 @@ private fun HomeInputLayer(
             limitRowsDuringStartup = limitRowsDuringStartup,
             contentStartPadding = contentStartPadding,
             fastScrollThresholdMs = fastScrollThresholdMs,
+            deferFocusArtworkDuringNav = deferFocusArtworkDuringNav,
             usePosterCards = usePosterCards,
             isMobile = isMobile,
             onItemFocusedPrefetch = onItemFocusedPrefetch,
@@ -2344,6 +2332,7 @@ private fun HomeRowsLayer(
     limitRowsDuringStartup: Boolean,
     contentStartPadding: androidx.compose.ui.unit.Dp,
     fastScrollThresholdMs: Long,
+    deferFocusArtworkDuringNav: Boolean,
     usePosterCards: Boolean,
     isMobile: Boolean = false,
     onItemFocusedPrefetch: (MediaItem) -> Unit = {},
@@ -2373,6 +2362,7 @@ private fun HomeRowsLayer(
             limitRowsDuringStartup = limitRowsDuringStartup,
             contentStartPadding = contentStartPadding,
             fastScrollThresholdMs = fastScrollThresholdMs,
+            deferFocusArtworkDuringNav = deferFocusArtworkDuringNav,
             usePosterCards = usePosterCards,
             onItemFocusedPrefetch = onItemFocusedPrefetch,
             onItemClick = onItemClick
@@ -2513,6 +2503,7 @@ private fun TvHomeRowsLayer(
     limitRowsDuringStartup: Boolean,
     contentStartPadding: androidx.compose.ui.unit.Dp,
     fastScrollThresholdMs: Long,
+    deferFocusArtworkDuringNav: Boolean,
     usePosterCards: Boolean,
     onItemFocusedPrefetch: (MediaItem) -> Unit = {},
     onItemClick: (MediaItem) -> Unit
@@ -2574,17 +2565,6 @@ private fun TvHomeRowsLayer(
         }
         val listState = rememberLazyListState()
         var lastAppliedTargetIndex by remember { mutableIntStateOf(-1) }
-        // Only scroll the LazyColumn in response to actual user D-pad navigation,
-        // NOT when categories change during loading. The previous implementation
-        // scrolled on every `targetIndex` change, which meant when `publishMerged()`
-        // inserted new rows (custom catalogs) and the focus-stabilizer
-        // updated `currentRowIndex`, the viewport would jump to the new index — even
-        // though the user hadn't pressed anything. This caused the visible "trip"
-        // where the screen would suddenly show a different row than expected.
-        //
-        // `userScrollNonce` is incremented only when the user physically presses
-        // Up/Down on the D-pad (in the key handler). The LaunchedEffect keys on
-        // this nonce AND the target index, so it only fires on real user navigation.
         val targetIndex = localCurrentRowIndex.coerceIn(0, (renderedCategories.size - 1).coerceAtLeast(0))
         LaunchedEffect(targetIndex, focusState.lastNavEventTime) {
             val currentIndex = listState.firstVisibleItemIndex
@@ -2599,7 +2579,9 @@ private fun TvHomeRowsLayer(
             if (!initialPlacement && !recentUserNav) return@LaunchedEffect
 
             val jumpDistance = kotlin.math.abs(targetIndex - currentIndex)
-            if (!initialPlacement && jumpDistance <= 2) {
+            if (!initialPlacement && recentUserNav) {
+                listState.scrollToItem(index = targetIndex, scrollOffset = 0)
+            } else if (!initialPlacement && jumpDistance <= 2) {
                 val currentOffset = listState.firstVisibleItemScrollOffset
                 val visibleRowPitchPx = listState.layoutInfo.visibleItemsInfo
                     .firstOrNull()
@@ -2638,11 +2620,11 @@ private fun TvHomeRowsLayer(
                     .clipToBounds(),
                 verticalArrangement = Arrangement.spacedBy(0.dp)
             ) {
-            itemsIndexed(
-                items = renderedCategories,
-                key = { _, category -> category.id },
-                contentType = { _, _ -> "home_category_row" }
-            ) { index, category ->
+                itemsIndexed(
+                    items = renderedCategories,
+                    key = { _, category -> category.id },
+                    contentType = { _, _ -> "home_category_row" }
+                ) { index, category ->
                     val actualRowIndex = rowWindowStart + index
                     val rowHeight = if (usePosterCards) 252.dp else 202.dp
                     Box(
@@ -2661,6 +2643,7 @@ private fun TvHomeRowsLayer(
                             focusedItemIndex = if (!focusState.isSidebarFocused && actualRowIndex == focusState.currentRowIndex) focusState.currentItemIndex else -1,
                             lastNavEventTime = focusState.lastNavEventTime,
                             fastScrollThresholdMs = fastScrollThresholdMs,
+                            deferFocusArtworkDuringNav = deferFocusArtworkDuringNav,
                             onItemClick = onItemClick,
                             onItemFocused = { item, itemIdx ->
                                 focusState.currentRowIndex = actualRowIndex
@@ -2670,7 +2653,7 @@ private fun TvHomeRowsLayer(
                             }
                         )
                     }
-            }
+                }
             }
         }
     }
@@ -2821,6 +2804,7 @@ private fun ContentRow(
     focusedItemIndex: Int,
     lastNavEventTime: Long,
     fastScrollThresholdMs: Long,
+    deferFocusArtworkDuringNav: Boolean,
     onItemClick: (MediaItem) -> Unit,
     onItemFocused: (MediaItem, Int) -> Unit
 ) {
@@ -2863,23 +2847,6 @@ private fun ContentRow(
     val itemSpanPx = remember(density, itemWidth, itemSpacing) {
         with(density) { (itemWidth + itemSpacing).toPx().coerceAtLeast(1f) }
     }
-    val rowIdleLiftPx = with(density) { 8.dp.toPx() }
-    val rowAlpha by animateFloatAsState(
-        targetValue = if (isCurrentRow) 1f else 0.9f,
-        animationSpec = tween(durationMillis = 170, easing = LinearOutSlowInEasing),
-        label = "home_row_alpha"
-    )
-    val rowScale by animateFloatAsState(
-        targetValue = if (isCurrentRow) 1f else 0.985f,
-        animationSpec = tween(durationMillis = 190, easing = FastOutSlowInEasing),
-        label = "home_row_scale"
-    )
-    val rowTranslationY by animateFloatAsState(
-        targetValue = if (isCurrentRow) 0f else rowIdleLiftPx,
-        animationSpec = tween(durationMillis = 190, easing = FastOutSlowInEasing),
-        label = "home_row_translation"
-    )
-
     // Keep focused card anchored by scrolling the row on every focus change.
     // Use smooth scroll (animated) for D-pad moves to avoid abrupt jumps.
     var lastScrollIndex by remember { mutableIntStateOf(-1) }
@@ -2905,8 +2872,15 @@ private fun ContentRow(
 
         if (lastScrollIndex == scrollTargetIndex && lastScrollOffset == extraOffset) return@LaunchedEffect
         if (lastScrollIndex == -1) {
-            // First time we jump directly to the correct position (no animation)
-            rowState.scrollToItem(index = scrollTargetIndex, scrollOffset = extraOffset)
+            // First time this row becomes current, only jump if restoration is actually needed.
+            // Most stock rows start at item 0; issuing scrollToItem(0) for every vertical
+            // D-pad move still schedules measure/placement work on the critical focus frame.
+            if (
+                rowState.firstVisibleItemIndex != scrollTargetIndex ||
+                rowState.firstVisibleItemScrollOffset != extraOffset
+            ) {
+                rowState.scrollToItem(index = scrollTargetIndex, scrollOffset = extraOffset)
+            }
             lastScrollIndex = scrollTargetIndex
             lastScrollOffset = extraOffset
             return@LaunchedEffect
@@ -2949,12 +2923,6 @@ private fun ContentRow(
 
     Column(
         modifier = Modifier
-            .graphicsLayer {
-                alpha = rowAlpha
-                scaleX = rowScale
-                scaleY = rowScale
-                translationY = rowTranslationY
-            }
             .padding(bottom = 12.dp)
     ) {
         // Section title - clean white text, aligned with cards
@@ -2999,6 +2967,7 @@ private fun ContentRow(
                     isCollectionRow = isCollectionRow,
                     isContinueWatching = isContinueWatching,
                     cardLogoUrls = cardLogoUrls,
+                    deferFocusArtwork = deferFocusArtworkDuringNav && isCollectionRow,
                     focusedItemIndexState = focusedItemIndexState,
                     isCurrentRowState = isCurrentRowState,
                     onItemClick = onItemClick,
@@ -3020,6 +2989,7 @@ private fun HomeRowCardItem(
     isCollectionRow: Boolean,
     isContinueWatching: Boolean,
     cardLogoUrls: Map<String, String>,
+    deferFocusArtwork: Boolean,
     focusedItemIndexState: State<Int>,
     isCurrentRowState: State<Boolean>,
     onItemClick: (MediaItem) -> Unit,
@@ -3029,6 +2999,14 @@ private fun HomeRowCardItem(
         derivedStateOf { isCurrentRowState.value && focusedItemIndexState.value == index }
     }
     val cardLogoUrl = if (isCollectionRow) null else cardLogoUrls["${item.mediaType}_${item.id}"]
+    val latestOnItemClick by rememberUpdatedState(onItemClick)
+    val latestOnItemFocused by rememberUpdatedState(onItemFocused)
+    val handleItemClick = remember(item, index) {
+        { latestOnItemClick(item) }
+    }
+    val handleItemFocused = remember(item, index) {
+        { latestOnItemFocused(item, index) }
+    }
 
     if (isRanked && index < 10) {
         // Top 10 rows should use the SAME card sizing as every other row.
@@ -3044,12 +3022,14 @@ private fun HomeRowCardItem(
                 width = itemWidth,
                 isLandscape = isLandscape,
                 logoImageUrl = cardLogoUrl,
+                deferFocusArtwork = deferFocusArtwork,
+                enableSystemFocus = false,
+                enableClickHandling = false,
                 showProgress = false,
                 showTitle = isCollectionRow && !item.collectionHideTitle,
                 isFocusedOverride = itemIsFocused,
-                enableSystemFocus = false,
-                onFocused = { onItemFocused(item, index) },
-                onClick = { onItemClick(item) },
+                onFocused = handleItemFocused,
+                onClick = handleItemClick,
             )
 
             TopRankRibbon(
@@ -3069,12 +3049,14 @@ private fun HomeRowCardItem(
             width = itemWidth,
             isLandscape = isLandscape,
             logoImageUrl = cardLogoUrl,
+            deferFocusArtwork = deferFocusArtwork,
+            enableSystemFocus = false,
+            enableClickHandling = false,
             showProgress = isContinueWatching,
             showTitle = isCollectionRow && !item.collectionHideTitle,
             isFocusedOverride = itemIsFocused,
-            enableSystemFocus = false,
-            onFocused = { onItemFocused(item, index) },
-            onClick = { onItemClick(item) },
+            onFocused = handleItemFocused,
+            onClick = handleItemClick,
         )
     }
 }

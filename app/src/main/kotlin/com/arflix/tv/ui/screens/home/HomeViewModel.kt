@@ -2,6 +2,7 @@ package com.arflix.tv.ui.screens.home
 
 import android.app.ActivityManager
 import android.content.Context
+import android.content.res.Configuration
 import com.arflix.tv.util.settingsDataStore
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.datastore.preferences.core.booleanPreferencesKey
@@ -478,6 +479,8 @@ class HomeViewModel @Inject constructor(
 
     private val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
     private val isLowRamDevice = activityManager.isLowRamDevice || activityManager.memoryClass <= 256
+    private val isTelevisionDevice =
+        (context.resources.configuration.uiMode and Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION
     private val gson = com.google.gson.Gson()
 
     // Disk cache key for the home categories — profile-scoped so each profile gets
@@ -557,9 +560,14 @@ class HomeViewModel @Inject constructor(
 
     private val FOCUS_PREFETCH_COALESCE_MS = if (isLowRamDevice) 70L else 45L
 
-    private val logoPreloadWidth = if (isLowRamDevice) 260 else 300
-    private val logoPreloadHeight = if (isLowRamDevice) 60 else 70
-    private val cardBackdropWidth = (240 * context.resources.displayMetrics.density)
+    private val displayDensity = context.resources.displayMetrics.density
+    private val logoPreloadWidth = (220 * displayDensity)
+        .toInt()
+        .coerceAtLeast(1)
+    private val logoPreloadHeight = (64 * displayDensity)
+        .toInt()
+        .coerceAtLeast(1)
+    private val cardBackdropWidth = (210 * displayDensity)
         .toInt()
         .coerceAtLeast(1)
     private val cardBackdropHeight = (cardBackdropWidth / (16f / 9f))
@@ -572,10 +580,10 @@ class HomeViewModel @Inject constructor(
     // Prefetch enough backdrops to fill the first visible row on the home screen
     // (typically 6-8 cards on a TV). Was 2, which left the majority of the first
     // row unpreloaded on cold start, causing visible black -> image pop-in.
-    private val initialBackdropPrefetchItems = if (isLowRamDevice) 2 else 3
+    private val initialBackdropPrefetchItems = if (isLowRamDevice) 3 else 5
     private val incrementalLogoPrefetchItems = if (isLowRamDevice) 4 else 6
     private val prioritizedLogoPrefetchItems = if (isLowRamDevice) 5 else 7
-    private val incrementalBackdropPrefetchItems = 1
+    private val incrementalBackdropPrefetchItems = if (isLowRamDevice) 2 else 4
     private val initialCategoryItemCap = if (isLowRamDevice) 12 else 16
     private val categoryPageSize = if (isLowRamDevice) 12 else 16
     private val initialMdblistCatalogCount = if (isLowRamDevice) 2 else 3
@@ -1483,7 +1491,7 @@ class HomeViewModel @Inject constructor(
                     // catalog ordering from Settings > Catalogs.
                     // Addon-provided service-branded catalogs (Netflix, Disney+,
                     // Hulu etc. rows contributed by aio-metadata / org.kris /
-                    // nuvio addons) are suppressed here — we already surface
+                    // local scraper addons) are suppressed here - we already surface
                     // those services via the collection-tile Services row, so
                     // having a second identically-named catalog row below it
                     // was duplicative per user feedback. Preinstalled catalogs
@@ -1722,7 +1730,7 @@ class HomeViewModel @Inject constructor(
 
                 // On mobile/touch devices, prefetch logos for ALL categories in the background
                 // since there's no D-pad focus to trigger incremental loading.
-                if (!isLowRamDevice) {
+                if (!isLowRamDevice && !isTelevisionDevice) {
                     viewModelScope.launch(networkDispatcher) {
                         delay(1_500L) // Let initial UI settle first
                         for (i in initialLogoPrefetchRows until categories.size) {
@@ -2089,8 +2097,8 @@ class HomeViewModel @Inject constructor(
         preloadImagesWithCoil(urls, logoPreloadWidth, logoPreloadHeight, batchLimit)
     }
 
-    private fun preloadBackdropImages(urls: List<String>) {
-        preloadImagesWithCoil(urls, backdropPreloadWidth, backdropPreloadHeight)
+    private fun preloadBackdropImages(urls: List<String>, batchLimit: Int = 0) {
+        preloadImagesWithCoil(urls, backdropPreloadWidth, backdropPreloadHeight, batchLimit)
     }
 
     fun refresh() {
@@ -2909,15 +2917,28 @@ class HomeViewModel @Inject constructor(
             val category = categories[rowIndex]
 
             if (category.items.isEmpty()) return@launch
-            if (category.id.startsWith("collection_row_")) return@launch
 
             // Ensure focused card + next 4 cards get logo priority.
             val startIndex = itemIndex.coerceIn(0, category.items.lastIndex)
             val endIndex = minOf(itemIndex + 4, category.items.lastIndex)
             if (startIndex > endIndex) return@launch
 
-            val focusWindowItems = (startIndex..endIndex)
+            val focusedWindow = (startIndex..endIndex)
                 .mapNotNull { category.items.getOrNull(it) }
+            val backdropUrls = focusedWindow
+                .take(incrementalBackdropPrefetchItems + 1)
+                .mapNotNull { item ->
+                    if (item.status?.startsWith("collection:") == true) {
+                        item.image.takeIf { it.isNotBlank() } ?: item.backdrop?.takeIf { it.isNotBlank() }
+                    } else {
+                        (item.backdrop ?: item.image).takeIf { it.isNotBlank() }
+                    }
+                }
+            preloadBackdropImages(backdropUrls, batchLimit = incrementalBackdropPrefetchItems + 1)
+
+            if (category.id.startsWith("collection_row_")) return@launch
+
+            val focusWindowItems = focusedWindow
                 .filter { isActionableMediaItem(it) }
 
             val itemsToLoad = focusWindowItems.filter { item ->
@@ -2951,11 +2972,6 @@ class HomeViewModel @Inject constructor(
                 preloadLogoImages(newLogos.values.toList())
             }
 
-            // Also preload backdrops for focused window
-            val backdropUrls = focusWindowItems
-                .take(incrementalBackdropPrefetchItems + 1)
-                .mapNotNull { it.backdrop ?: it.image }
-            preloadBackdropImages(backdropUrls)
         }
     }
 
@@ -2979,6 +2995,21 @@ class HomeViewModel @Inject constructor(
             val categories = _uiState.value.categories
             if (categoryIndex < 0 || categoryIndex >= categories.size) return@launch
             val category = categories[categoryIndex]
+
+            val backdropItems = if (prioritizeVisible) {
+                incrementalBackdropPrefetchItems + 1
+            } else {
+                incrementalBackdropPrefetchItems
+            }
+            val backdropUrls = category.items.take(backdropItems).mapNotNull { item ->
+                if (item.status?.startsWith("collection:") == true) {
+                    item.image.takeIf { it.isNotBlank() } ?: item.backdrop?.takeIf { it.isNotBlank() }
+                } else {
+                    (item.backdrop ?: item.image).takeIf { it.isNotBlank() }
+                }
+            }
+            preloadBackdropImages(backdropUrls, batchLimit = backdropItems)
+
             if (category.id.startsWith("collection_row_")) return@launch
             val maxLogoItems = if (prioritizeVisible) prioritizedLogoPrefetchItems else incrementalLogoPrefetchItems
 
@@ -3013,14 +3044,6 @@ class HomeViewModel @Inject constructor(
                 }
             }
 
-            // Also preload backdrops
-            val backdropItems = if (prioritizeVisible) {
-                incrementalBackdropPrefetchItems + 1
-            } else {
-                incrementalBackdropPrefetchItems
-            }
-            val backdropUrls = category.items.take(backdropItems).mapNotNull { it.backdrop ?: it.image }
-            preloadBackdropImages(backdropUrls)
         }
         if (prioritizeVisible) {
             preloadCategoryPriorityJob = targetJob

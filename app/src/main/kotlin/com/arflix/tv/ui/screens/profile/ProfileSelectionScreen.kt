@@ -44,6 +44,11 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
@@ -60,6 +65,7 @@ import com.arflix.tv.data.model.Profile
 import com.arflix.tv.data.model.ProfileColors
 import com.arflix.tv.ui.components.AvatarIcon
 import com.arflix.tv.ui.components.AvatarRegistry
+import com.arflix.tv.ui.components.TextInputModal
 import com.arflix.tv.ui.components.Toast
 import com.arflix.tv.ui.theme.BackgroundGradientCenter
 import com.arflix.tv.ui.theme.BackgroundGradientEnd
@@ -101,6 +107,23 @@ fun ProfileSelectionScreen(
             isReadyForInput = false
             delay(300)
             isReadyForInput = true
+        }
+    }
+
+    fun unlockProfile(profile: Profile) {
+        if (uiState.activeProfile?.id == profile.id) {
+            onProfileSelected()
+        } else {
+            navigateTriggered = true
+            viewModel.selectProfile(profile)
+        }
+    }
+
+    fun requestProfileOpen(profile: Profile) {
+        if (profile.hasPin) {
+            viewModel.showPinPrompt(profile)
+        } else {
+            unlockProfile(profile)
         }
     }
 
@@ -202,12 +225,7 @@ fun ProfileSelectionScreen(
                                 if (uiState.isManageMode) {
                                     viewModel.showEditDialog(profile)
                                 } else {
-                                    if (uiState.activeProfile?.id == profile.id) {
-                                        onProfileSelected()
-                                    } else {
-                                        navigateTriggered = true
-                                        viewModel.selectProfile(profile)
-                                    }
+                                    requestProfileOpen(profile)
                                 }
                             },
                             onFocus = { viewModel.preloadForProfile(profile) },
@@ -246,12 +264,7 @@ fun ProfileSelectionScreen(
                                 if (uiState.isManageMode) {
                                     viewModel.showEditDialog(profile)
                                 } else {
-                                    if (uiState.activeProfile?.id == profile.id) {
-                                        onProfileSelected()
-                                    } else {
-                                        navigateTriggered = true
-                                        viewModel.selectProfile(profile)
-                                    }
+                                    requestProfileOpen(profile)
                                 }
                             },
                             onFocus = { viewModel.preloadForProfile(profile) },
@@ -268,7 +281,7 @@ fun ProfileSelectionScreen(
                         AddProfileButton(
                             avatarSize = avatarSize,
                             modifier = Modifier.focusRequester(focusRequesters[uiState.profiles.size]),
-                            onClick = { if (isReadyForInput && !uiState.isSwitchingProfile) viewModel.showAddDialog() }
+                            onClick = { if (!uiState.isSwitchingProfile) viewModel.showAddDialog() }
                         )
                     }
                 }
@@ -319,6 +332,10 @@ fun ProfileSelectionScreen(
                 onColorSelected = { viewModel.setSelectedColorIndex(it) },
                 selectedAvatarId = uiState.selectedAvatarId,
                 onAvatarSelected = { viewModel.setSelectedAvatarId(it) },
+                profilePin = uiState.profilePin,
+                onProfilePinChange = { viewModel.setProfilePin(it) },
+                onClearProfilePin = { viewModel.clearProfilePin() },
+                onVerifyExistingPin = { true },
                 onConfirm = { viewModel.createProfile() },
                 onDismiss = { viewModel.hideAddDialog() }
             )
@@ -334,9 +351,30 @@ fun ProfileSelectionScreen(
                 onColorSelected = { viewModel.setSelectedColorIndex(it) },
                 selectedAvatarId = uiState.selectedAvatarId,
                 onAvatarSelected = { viewModel.setSelectedAvatarId(it) },
+                profilePin = uiState.profilePin,
+                onProfilePinChange = { viewModel.setProfilePin(it) },
+                onClearProfilePin = { viewModel.clearProfilePin() },
+                onVerifyExistingPin = { pin -> viewModel.verifyProfilePin(profile, pin) },
                 onConfirm = { viewModel.updateProfile() },
                 onDelete = { viewModel.deleteProfile(profile); viewModel.hideEditDialog() },
                 onDismiss = { viewModel.hideEditDialog() }
+            )
+        }
+
+        uiState.pinPromptProfile?.let { profile ->
+            TextInputModal(
+                isVisible = true,
+                title = "${profile.name} PIN",
+                hint = "Enter PIN",
+                isPassword = true,
+                isNumeric = true,
+                onConfirm = { pin ->
+                    if (viewModel.verifyProfilePin(profile, pin)) {
+                        viewModel.hidePinPrompt()
+                        unlockProfile(profile)
+                    }
+                },
+                onCancel = { viewModel.hidePinPrompt() }
             )
         }
 
@@ -371,8 +409,7 @@ private fun ProfileAvatar(
 
     val isTouchDevice = LocalDeviceType.current.isTouchDevice()
     Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = modifier
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Box(contentAlignment = Alignment.Center) {
             val avatarContent: @Composable () -> Unit = {
@@ -404,7 +441,7 @@ private fun ProfileAvatar(
 
             if (isTouchDevice) {
                 Box(
-                    modifier = Modifier
+                    modifier = modifier
                         .size(avatarSize)
                         .scale(scale)
                         .clip(RoundedCornerShape(8.dp))
@@ -413,9 +450,20 @@ private fun ProfileAvatar(
             } else {
                 Surface(
                     onClick = onClick,
-                    modifier = Modifier
+                    modifier = modifier
                         .size(avatarSize)
                         .scale(scale)
+                        .onPreviewKeyEvent { event ->
+                            if (
+                                event.type == KeyEventType.KeyDown &&
+                                (event.key == Key.DirectionCenter || event.key == Key.Enter || event.key == Key.NumPadEnter)
+                            ) {
+                                onClick()
+                                true
+                            } else {
+                                false
+                            }
+                        }
                         .onFocusChanged { focusState ->
                             val wasFocused = isFocused > 0
                             isFocused = if (focusState.isFocused) 1 else 0
@@ -455,6 +503,26 @@ private fun ProfileAvatar(
                     )
                 }
             }
+
+            if (profile.hasPin && !isManageMode) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(6.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(Color.Black.copy(alpha = 0.62f))
+                        .border(1.dp, Color.White.copy(alpha = 0.35f), RoundedCornerShape(4.dp))
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "PIN",
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White.copy(alpha = 0.9f)
+                    )
+                }
+            }
         }
 
         Spacer(modifier = Modifier.height(12.dp))
@@ -486,8 +554,7 @@ private fun AddProfileButton(
 
     val isTouchDevice = LocalDeviceType.current.isTouchDevice()
     Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = modifier
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
         val addContent: @Composable () -> Unit = {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -496,7 +563,7 @@ private fun AddProfileButton(
         }
         if (isTouchDevice) {
             Box(
-                modifier = Modifier
+                modifier = modifier
                     .size(avatarSize)
                     .scale(scale)
                     .clip(RoundedCornerShape(8.dp))
@@ -507,9 +574,20 @@ private fun AddProfileButton(
         } else {
             Surface(
                 onClick = onClick,
-                modifier = Modifier
+                modifier = modifier
                     .size(avatarSize)
                     .scale(scale)
+                    .onPreviewKeyEvent { event ->
+                        if (
+                            event.type == KeyEventType.KeyDown &&
+                            (event.key == Key.DirectionCenter || event.key == Key.Enter || event.key == Key.NumPadEnter)
+                        ) {
+                            onClick()
+                            true
+                        } else {
+                            false
+                        }
+                    }
                     .onFocusChanged { isFocused = if (it.isFocused) 1 else 0 },
                 shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(8.dp)),
                 colors = ClickableSurfaceDefaults.colors(

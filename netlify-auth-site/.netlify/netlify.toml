@@ -1,15 +1,15 @@
+redirectsOrigin = "config"
 plugins = []
 headers = []
-redirects = []
 
 [functions]
 
 [functions."*"]
 
 [build]
-publish = "C:\\Users\\arvin\\ARVIO-APP\\netlify-auth-site"
-publishOrigin = "default"
-base = "C:\\Users\\arvin\\ARVIO-APP\\netlify-auth-site"
+publish = "C:\\Users\\arvin\\ARVIO-FRESH\\netlify-auth-site"
+publishOrigin = "config"
+base = "C:\\Users\\arvin\\ARVIO-FRESH\\netlify-auth-site"
 
 [build.environment]
 
@@ -24,3 +24,27 @@ base = "C:\\Users\\arvin\\ARVIO-APP\\netlify-auth-site"
 [build.processing.js]
 
 [build.services]
+
+[[redirects]]
+from = "/account-deletion"
+to = "/delete-account.html"
+status = 200.0
+force = false
+
+[redirects.query]
+
+[redirects.conditions]
+
+[redirects.headers]
+
+[[redirects]]
+from = "/delete-account"
+to = "/delete-account.html"
+status = 200.0
+force = false
+
+[redirects.query]
+
+[redirects.conditions]
+
+[redirects.headers]

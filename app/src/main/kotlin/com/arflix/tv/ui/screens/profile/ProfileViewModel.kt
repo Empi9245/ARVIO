@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.security.MessageDigest
 import javax.inject.Inject
 
 data class ProfileUiState(
@@ -33,6 +34,9 @@ data class ProfileUiState(
     val selectedColorIndex: Int = 0,
     val selectedAvatarId: Int = 0, // 0 = legacy letter, 1-24 = cartoon avatar
     val isKidsProfile: Boolean = false,
+    val profilePin: String = "",
+    val clearProfilePin: Boolean = false,
+    val pinPromptProfile: Profile? = null,
     // Edit profile dialog state
     val editingProfile: Profile? = null,
     // Toast state
@@ -180,7 +184,9 @@ class ProfileViewModel @Inject constructor(
             newProfileName = "",
             selectedColorIndex = (_uiState.value.profiles.size) % ProfileColors.colors.size,
             selectedAvatarId = 0,
-            isKidsProfile = false
+            isKidsProfile = false,
+            profilePin = "",
+            clearProfilePin = false
         )
     }
 
@@ -200,16 +206,48 @@ class ProfileViewModel @Inject constructor(
         _uiState.value = _uiState.value.copy(selectedAvatarId = id)
     }
 
+    fun setProfilePin(pin: String) {
+        val digits = pin.filter { it.isDigit() }.take(MAX_PIN_LENGTH)
+        _uiState.value = _uiState.value.copy(profilePin = digits, clearProfilePin = false)
+    }
+
+    fun clearProfilePin() {
+        _uiState.value = _uiState.value.copy(profilePin = "", clearProfilePin = true)
+    }
+
+    fun showPinPrompt(profile: Profile) {
+        _uiState.value = _uiState.value.copy(pinPromptProfile = profile)
+    }
+
+    fun hidePinPrompt() {
+        _uiState.value = _uiState.value.copy(pinPromptProfile = null)
+    }
+
+    fun verifyProfilePin(profile: Profile, pin: String): Boolean {
+        val digits = pin.filter { it.isDigit() }
+        val isValid = digits.isNotBlank() && hashPin(digits) == profile.pinHash
+        if (!isValid) {
+            showToast("Incorrect profile PIN", ToastType.ERROR)
+        }
+        return isValid
+    }
+
     fun createProfile() {
         val state = _uiState.value
         if (state.newProfileName.isBlank()) return
+        val pinHash = if (state.profilePin.isBlank()) {
+            null
+        } else {
+            profilePinHashOrNull(state.profilePin) ?: return
+        }
 
         viewModelScope.launch {
             profileRepository.createProfile(
                 name = state.newProfileName.trim(),
                 avatarColor = ProfileColors.getByIndex(state.selectedColorIndex),
                 avatarId = state.selectedAvatarId,
-                isKidsProfile = false
+                isKidsProfile = false,
+                pinHash = pinHash
             )
             _uiState.value = _uiState.value.copy(showAddDialog = false)
             showToast("Profile created successfully", ToastType.SUCCESS)
@@ -225,7 +263,9 @@ class ProfileViewModel @Inject constructor(
             newProfileName = profile.name,
             selectedColorIndex = ProfileColors.colors.indexOf(profile.avatarColor).takeIf { it >= 0 } ?: 0,
             selectedAvatarId = profile.avatarId,
-            isKidsProfile = false
+            isKidsProfile = false,
+            profilePin = "",
+            clearProfilePin = false
         )
     }
 
@@ -237,6 +277,11 @@ class ProfileViewModel @Inject constructor(
         val state = _uiState.value
         val editing = state.editingProfile ?: return
         if (state.newProfileName.isBlank()) return
+        val newPinHash = when {
+            state.profilePin.isNotBlank() -> profilePinHashOrNull(state.profilePin) ?: return
+            state.clearProfilePin -> null
+            else -> editing.pinHash
+        }
 
         viewModelScope.launch {
             profileRepository.updateProfile(
@@ -244,7 +289,8 @@ class ProfileViewModel @Inject constructor(
                     name = state.newProfileName.trim(),
                     avatarColor = ProfileColors.getByIndex(state.selectedColorIndex),
                     avatarId = state.selectedAvatarId,
-                    isKidsProfile = false
+                    isKidsProfile = false,
+                    pinHash = newPinHash
                 )
             )
             _uiState.value = _uiState.value.copy(editingProfile = null)
@@ -277,5 +323,25 @@ class ProfileViewModel @Inject constructor(
             }
             runCatching { cloudSyncRepository.pushToCloud() }
         }
+    }
+
+    private fun profilePinHashOrNull(pin: String): String? {
+        if (pin.isBlank()) return null
+        if (pin.length !in MIN_PIN_LENGTH..MAX_PIN_LENGTH) {
+            showToast("PIN must be 4 to 8 digits", ToastType.ERROR)
+            return null
+        }
+        return hashPin(pin)
+    }
+
+    private fun hashPin(pin: String): String {
+        val bytes = MessageDigest.getInstance("SHA-256")
+            .digest("arvio-profile-pin-v1:$pin".toByteArray(Charsets.UTF_8))
+        return bytes.joinToString(separator = "") { "%02x".format(it.toInt() and 0xff) }
+    }
+
+    companion object {
+        private const val MIN_PIN_LENGTH = 4
+        private const val MAX_PIN_LENGTH = 8
     }
 }

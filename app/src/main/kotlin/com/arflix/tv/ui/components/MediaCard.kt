@@ -79,7 +79,9 @@ fun MediaCard(
     titleMaxLines: Int = 1,
     subtitleMaxLines: Int = 1,
     isFocusedOverride: Boolean = false,
+    deferFocusArtwork: Boolean = false,
     enableSystemFocus: Boolean = true,
+    enableClickHandling: Boolean = true,
     focusedScale: Float = 1.07f,
     pressedScale: Float = 0.97f,
     onFocused: () -> Unit = {},
@@ -126,7 +128,7 @@ fun MediaCard(
     } else null
     val showCollectionTitleOverlay = isCollectionTile && showTitle
     val isGenreCollectionTile = item.collectionGroup == CollectionGroupKind.GENRE
-    val rawImageUrl = if (visualFocused) {
+    val rawImageUrl = if (visualFocused && !deferFocusArtwork) {
         explicitFocusUrl ?: collectionFocusUrl ?: baseImageUrl
     } else {
         baseImageUrl
@@ -186,8 +188,8 @@ fun MediaCard(
             focusedTransformOriginX = 0.5f,
             enableSystemFocus = enableSystemFocus,
             isFocusedOverride = isFocusedOverride,
-            onClick = onClick,
-            onLongClick = onLongClick,
+            onClick = if (enableClickHandling) onClick else null,
+            onLongClick = if (enableClickHandling) onLongClick else null,
             onFocusChanged = {
                 isFocused = it
                 if (it) onFocused()

@@ -53,8 +53,14 @@ fun Modifier.arvioFocusable(
     onLongClick: (() -> Unit)? = null,
     onFocusChanged: (Boolean) -> Unit = {},
 ): Modifier = composed {
-    val interactionSource = remember { MutableInteractionSource() }
-    val isPressed by interactionSource.collectIsPressedAsState()
+    val handlesClick = onClick != null || onLongClick != null
+    val interactionSource = if (handlesClick) {
+        remember { MutableInteractionSource() }
+    } else {
+        null
+    }
+    val pressedState = interactionSource?.collectIsPressedAsState()
+    val isPressed = pressedState?.value == true
 
     var isFocused by remember { mutableStateOf(false) }
     val visualFocused = isFocusedOverride || isFocused
@@ -86,7 +92,7 @@ fun Modifier.arvioFocusable(
         Modifier.combinedClickable(
             enabled = enabled,
             role = Role.Button,
-            interactionSource = interactionSource,
+            interactionSource = interactionSource!!,
             indication = null,
             onClick = onClick,
             onLongClick = onLongClick,
@@ -95,7 +101,7 @@ fun Modifier.arvioFocusable(
         Modifier.clickable(
             enabled = enabled,
             role = Role.Button,
-            interactionSource = interactionSource,
+            interactionSource = interactionSource!!,
             indication = null,
             onClick = onClick,
         )
@@ -121,47 +127,52 @@ fun Modifier.arvioFocusable(
         Modifier
     }
 
-    // Always apply graphicsLayer and drawWithContent — toggling modifier
-    // structure between frames forces Compose to diff different chains,
-    // causing micro-jank on the focus/unfocus edge. The GPU skips identity
-    // transforms (scale=1) for free, so the always-on approach has zero
-    // cost when unfocused.
-    val layerModifier = Modifier.graphicsLayer {
-        scaleX = scale
-        scaleY = scale
-        transformOrigin = focusTransformOrigin
+    // Avoid keeping draw/transform layers on every unfocused card. The home
+    // screen can keep many stock catalog tiles composed while navigating rows.
+    val layerModifier = if (scale != 1f || visualFocused || isPressed) {
+        Modifier.graphicsLayer {
+            scaleX = scale
+            scaleY = scale
+            transformOrigin = focusTransformOrigin
+        }
+    } else {
+        Modifier
     }
 
-    val borderModifier = Modifier.drawWithContent {
-        drawContent()
-        if (highlightAlpha > 0f) {
-            val outline = shape.createOutline(size, layoutDirection, this)
-            val borderWidth = outlineWidth.toPx()
-            val ringColor = outlineColor.copy(alpha = highlightAlpha)
-            val glowColor = outlineColor.copy(alpha = highlightAlpha * 0.4f)
+    val borderModifier = if (highlightAlpha > 0.01f || visualFocused) {
+        Modifier.drawWithContent {
+            drawContent()
+            if (highlightAlpha > 0f) {
+                val outline = shape.createOutline(size, layoutDirection, this)
+                val borderWidth = outlineWidth.toPx()
+                val ringColor = outlineColor.copy(alpha = highlightAlpha)
+                val glowColor = outlineColor.copy(alpha = highlightAlpha * 0.4f)
 
-            when (outline) {
-                is Outline.Rounded -> {
-                    val path = Path().apply { addRoundRect(outline.roundRect) }
-                    // Draw outer glow (softer, larger stroke)
-                    drawPath(path, glowColor, style = Stroke(width = borderWidth + 2.dp.toPx()))
-                    // Draw inner bright border
-                    drawPath(path, ringColor, style = Stroke(width = borderWidth))
-                }
-                is Outline.Rectangle -> {
-                    // Draw outer glow (softer, larger stroke)
-                    drawRect(color = glowColor, style = Stroke(width = borderWidth + 2.dp.toPx()))
-                    // Draw inner bright border
-                    drawRect(color = ringColor, style = Stroke(width = borderWidth))
-                }
-                is Outline.Generic -> {
-                    // Draw outer glow (softer, larger stroke)
-                    drawPath(path = outline.path, color = glowColor, style = Stroke(width = borderWidth + 2.dp.toPx()))
-                    // Draw inner bright border
-                    drawPath(path = outline.path, color = ringColor, style = Stroke(width = borderWidth))
+                when (outline) {
+                    is Outline.Rounded -> {
+                        val path = Path().apply { addRoundRect(outline.roundRect) }
+                        // Draw outer glow (softer, larger stroke)
+                        drawPath(path, glowColor, style = Stroke(width = borderWidth + 2.dp.toPx()))
+                        // Draw inner bright border
+                        drawPath(path, ringColor, style = Stroke(width = borderWidth))
+                    }
+                    is Outline.Rectangle -> {
+                        // Draw outer glow (softer, larger stroke)
+                        drawRect(color = glowColor, style = Stroke(width = borderWidth + 2.dp.toPx()))
+                        // Draw inner bright border
+                        drawRect(color = ringColor, style = Stroke(width = borderWidth))
+                    }
+                    is Outline.Generic -> {
+                        // Draw outer glow (softer, larger stroke)
+                        drawPath(path = outline.path, color = glowColor, style = Stroke(width = borderWidth + 2.dp.toPx()))
+                        // Draw inner bright border
+                        drawPath(path = outline.path, color = ringColor, style = Stroke(width = borderWidth))
+                    }
                 }
             }
         }
+    } else {
+        Modifier
     }
 
     this

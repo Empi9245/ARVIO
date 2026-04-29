@@ -76,12 +76,19 @@ class ProfileRepository @Inject constructor(
     /**
      * Create a new profile
      */
-    suspend fun createProfile(name: String, avatarColor: Long, avatarId: Int = 0, isKidsProfile: Boolean = false): Profile {
+    suspend fun createProfile(
+        name: String,
+        avatarColor: Long,
+        avatarId: Int = 0,
+        isKidsProfile: Boolean = false,
+        pinHash: String? = null
+    ): Profile {
         val profile = Profile(
             name = name,
             avatarColor = avatarColor,
             avatarId = avatarId,
-            isKidsProfile = isKidsProfile
+            isKidsProfile = isKidsProfile,
+            pinHash = pinHash?.takeIf { it.isNotBlank() }
         )
 
         context.profilesDataStore.edit { prefs ->

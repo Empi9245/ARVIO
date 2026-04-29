@@ -1,11 +1,5 @@
 package com.arflix.tv.ui.screens.profile
 
-import android.text.InputType
-import android.view.KeyEvent
-import android.view.inputmethod.EditorInfo
-import android.view.inputmethod.InputMethodManager
-import android.widget.EditText
-
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -39,20 +33,22 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
-
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import androidx.core.widget.doAfterTextChanged
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Icon
@@ -62,7 +58,9 @@ import com.arflix.tv.data.model.Profile
 import com.arflix.tv.data.model.ProfileColors
 import com.arflix.tv.ui.components.AvatarIcon
 import com.arflix.tv.ui.components.AvatarRegistry
+import com.arflix.tv.ui.components.TextInputModal
 import com.arflix.tv.util.LocalDeviceType
+import kotlinx.coroutines.delay
 
 // ============================================================
 // Add Profile Dialog
@@ -77,6 +75,10 @@ fun AddProfileDialog(
     onColorSelected: (Int) -> Unit,
     selectedAvatarId: Int = 0,
     onAvatarSelected: (Int) -> Unit = {},
+    profilePin: String = "",
+    onProfilePinChange: (String) -> Unit = {},
+    onClearProfilePin: () -> Unit = {},
+    onVerifyExistingPin: (String) -> Boolean = { true },
     onConfirm: () -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -89,6 +91,11 @@ fun AddProfileDialog(
         onColorSelected = onColorSelected,
         selectedAvatarId = selectedAvatarId,
         onAvatarSelected = onAvatarSelected,
+        profilePin = profilePin,
+        hasExistingPin = false,
+        onProfilePinChange = onProfilePinChange,
+        onClearProfilePin = onClearProfilePin,
+        onVerifyExistingPin = onVerifyExistingPin,
         confirmLabel = "Create",
         onConfirm = onConfirm,
         onDismiss = onDismiss,
@@ -110,6 +117,10 @@ fun EditProfileDialog(
     onColorSelected: (Int) -> Unit,
     selectedAvatarId: Int = 0,
     onAvatarSelected: (Int) -> Unit = {},
+    profilePin: String = "",
+    onProfilePinChange: (String) -> Unit = {},
+    onClearProfilePin: () -> Unit = {},
+    onVerifyExistingPin: (String) -> Boolean = { true },
     onConfirm: () -> Unit,
     onDelete: () -> Unit,
     onDismiss: () -> Unit
@@ -123,6 +134,11 @@ fun EditProfileDialog(
         onColorSelected = onColorSelected,
         selectedAvatarId = selectedAvatarId,
         onAvatarSelected = onAvatarSelected,
+        profilePin = profilePin,
+        hasExistingPin = profile.hasPin,
+        onProfilePinChange = onProfilePinChange,
+        onClearProfilePin = onClearProfilePin,
+        onVerifyExistingPin = onVerifyExistingPin,
         confirmLabel = "Save",
         onConfirm = onConfirm,
         onDismiss = onDismiss,
@@ -145,54 +161,63 @@ private fun ProfileDialogContent(
     onColorSelected: (Int) -> Unit,
     selectedAvatarId: Int,
     onAvatarSelected: (Int) -> Unit,
+    profilePin: String,
+    hasExistingPin: Boolean,
+    onProfilePinChange: (String) -> Unit,
+    onClearProfilePin: () -> Unit,
+    onVerifyExistingPin: (String) -> Boolean,
     confirmLabel: String,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
     onDelete: (() -> Unit)?
 ) {
-    val context = LocalContext.current
     val isTouchDevice = LocalDeviceType.current.isTouchDevice()
-    var editTextRef by remember { mutableStateOf<EditText?>(null) }
+    var showNameInput by remember { mutableStateOf(false) }
+    var showPinInput by remember { mutableStateOf(false) }
+    var showCurrentPinInput by remember { mutableStateOf(false) }
+    var isExistingPinUnlocked by remember { mutableStateOf(!hasExistingPin) }
+    var isReadyForFieldInput by remember { mutableStateOf(isTouchDevice) }
+    var focusedField by remember { mutableStateOf(ProfileDialogField.NONE) }
+    val nameFieldFocusRequester = remember { FocusRequester() }
+    val pinFieldFocusRequester = remember { FocusRequester() }
     val confirmButtonFocusRequester = remember { FocusRequester() }
-
-    fun showKeyboard(editText: EditText) {
-        editText.post {
-            val imm = context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as? InputMethodManager
-            val shown = imm?.showSoftInput(editText, InputMethodManager.SHOW_IMPLICIT) ?: false
-            if (!shown) {
-                @Suppress("DEPRECATION")
-                imm?.showSoftInput(editText, InputMethodManager.SHOW_FORCED)
-            }
-        }
-    }
-
-    fun hideKeyboard(editText: EditText? = editTextRef) {
-        editText?.post {
-            val imm = context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as? InputMethodManager
-            imm?.hideSoftInputFromWindow(editText.windowToken, 0)
-            editText.clearFocus()
-        }
-    }
+    val cancelButtonFocusRequester = remember { FocusRequester() }
+    val deleteButtonFocusRequester = remember { FocusRequester() }
 
     LaunchedEffect(isTouchDevice, autoFocusNameInput) {
-        if (!isTouchDevice && !autoFocusNameInput) {
-            // Always give the dialog a visible focused control on TV.
-            runCatching { confirmButtonFocusRequester.requestFocus() }
+        if (!isTouchDevice) {
+            isReadyForFieldInput = false
+            delay(250)
+            runCatching {
+                if (autoFocusNameInput) {
+                    nameFieldFocusRequester.requestFocus()
+                } else {
+                    confirmButtonFocusRequester.requestFocus()
+                }
+            }
+            isReadyForFieldInput = true
+        } else if (autoFocusNameInput) {
+            showNameInput = true
         }
     }
 
-    LaunchedEffect(autoFocusNameInput, editTextRef) {
-        val editText = editTextRef ?: return@LaunchedEffect
-        if (autoFocusNameInput) {
-            editText.requestFocus()
-            editText.setSelection(editText.text?.length ?: 0)
-            showKeyboard(editText)
+    fun openNameEditor() {
+        if (isReadyForFieldInput) {
+            showNameInput = true
+        }
+    }
+
+    fun openPinEditor() {
+        if (!isReadyForFieldInput) return
+        if (hasExistingPin && !isExistingPinUnlocked) {
+            showCurrentPinInput = true
+        } else {
+            showPinInput = true
         }
     }
 
     Dialog(
         onDismissRequest = {
-            hideKeyboard()
             onDismiss()
         },
         properties = DialogProperties(usePlatformDefaultWidth = false)
@@ -200,6 +225,29 @@ private fun ProfileDialogContent(
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .onPreviewKeyEvent { event ->
+                    if (showNameInput || showPinInput || showCurrentPinInput) {
+                        return@onPreviewKeyEvent false
+                    }
+                    val isConfirmKey = event.key == Key.DirectionCenter ||
+                        event.key == Key.Enter ||
+                        event.key == Key.NumPadEnter
+                    if (event.type == KeyEventType.KeyDown && isConfirmKey) {
+                        when (focusedField) {
+                            ProfileDialogField.NAME -> {
+                                openNameEditor()
+                                true
+                            }
+                            ProfileDialogField.PIN -> {
+                                openPinEditor()
+                                true
+                            }
+                            ProfileDialogField.NONE -> false
+                        }
+                    } else {
+                        false
+                    }
+                }
                 .background(Color.Black.copy(alpha = 0.90f)),
             contentAlignment = Alignment.Center
         ) {
@@ -260,61 +308,50 @@ private fun ProfileDialogContent(
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // Name input
-                    Box(
+                    ProfileFieldButton(
+                        label = "Name",
+                        value = name.ifBlank { "Profile name" },
+                        isPlaceholder = name.isBlank(),
+                        onClick = { openNameEditor() },
+                        onFocusChanged = { isFocused ->
+                            if (isFocused) {
+                                focusedField = ProfileDialogField.NAME
+                            } else if (focusedField == ProfileDialogField.NAME) {
+                                focusedField = ProfileDialogField.NONE
+                            }
+                        },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(Color(0xFF222222))
-                            .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(8.dp))
-                            .clickable {
-                                editTextRef?.let { et ->
-                                    et.requestFocus()
-                                    et.postDelayed({ showKeyboard(et) }, 100)
-                                }
+                            .focusRequester(nameFieldFocusRequester)
+                            .focusProperties { down = pinFieldFocusRequester }
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    ProfileFieldButton(
+                        label = "PIN",
+                        value = when {
+                            profilePin.isNotBlank() -> "PIN will be updated"
+                            hasExistingPin -> "PIN enabled"
+                            else -> "No PIN"
+                        },
+                        isPlaceholder = profilePin.isBlank() && !hasExistingPin,
+                        onClick = { openPinEditor() },
+                        onFocusChanged = { isFocused ->
+                            if (isFocused) {
+                                focusedField = ProfileDialogField.PIN
+                            } else if (focusedField == ProfileDialogField.PIN) {
+                                focusedField = ProfileDialogField.NONE
                             }
-                    ) {
-                        AndroidView(
-                            factory = { ctx ->
-                                EditText(ctx).apply {
-                                    editTextRef = this
-                                    setText(name)
-                                    setTextColor(android.graphics.Color.WHITE)
-                                    setHintTextColor(android.graphics.Color.GRAY)
-                                    hint = "Profile name"
-                                    textSize = 16f
-                                    background = null
-                                    setPadding(36, 32, 36, 32)
-                                    isSingleLine = true
-                                    inputType = InputType.TYPE_CLASS_TEXT
-                                    imeOptions = EditorInfo.IME_ACTION_DONE
-                                    isFocusable = true
-                                    isFocusableInTouchMode = true
-                                    doAfterTextChanged { editable ->
-                                        onNameChange(editable?.toString() ?: "")
-                                    }
-                                    setOnEditorActionListener { _, actionId, event ->
-                                        val isDoneAction = actionId == EditorInfo.IME_ACTION_DONE
-                                        val isEnterKey =
-                                            event?.keyCode == KeyEvent.KEYCODE_ENTER &&
-                                                event.action == KeyEvent.ACTION_UP
-                                        if (isDoneAction || isEnterKey) {
-                                            hideKeyboard(this)
-                                            runCatching { confirmButtonFocusRequester.requestFocus() }
-                                            true
-                                        } else false
-                                    }
-                                }
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                            update = { et ->
-                                if (et.text.toString() != name) {
-                                    et.setText(name)
-                                    et.setSelection(name.length)
-                                }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .focusRequester(pinFieldFocusRequester)
+                            .focusProperties {
+                                up = nameFieldFocusRequester
+                                down = confirmButtonFocusRequester
                             }
-                        )
-                    }
+                    )
 
                     Spacer(modifier = Modifier.height(20.dp))
 
@@ -329,12 +366,16 @@ private fun ProfileDialogContent(
                             isPrimary = true,
                             enabled = name.isNotBlank(),
                             onClick = {
-                                hideKeyboard()
                                 onConfirm()
                             },
+                            onFocus = { focusedField = ProfileDialogField.NONE },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .focusRequester(confirmButtonFocusRequester)
+                                .focusProperties {
+                                    up = pinFieldFocusRequester
+                                    down = cancelButtonFocusRequester
+                                }
                         )
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -344,10 +385,16 @@ private fun ProfileDialogContent(
                                 text = "Cancel",
                                 isPrimary = false,
                                 onClick = {
-                                    hideKeyboard()
                                     onDismiss()
                                 },
-                                modifier = Modifier.weight(1f)
+                                onFocus = { focusedField = ProfileDialogField.NONE },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .focusRequester(cancelButtonFocusRequester)
+                                    .focusProperties {
+                                        up = confirmButtonFocusRequester
+                                        if (onDelete != null) right = deleteButtonFocusRequester
+                                    }
                             )
                             if (onDelete != null) {
                                 DialogButton(
@@ -355,10 +402,16 @@ private fun ProfileDialogContent(
                                     isPrimary = false,
                                     isDestructive = true,
                                     onClick = {
-                                        hideKeyboard()
                                         onDelete()
                                     },
-                                    modifier = Modifier.weight(1f)
+                                    onFocus = { focusedField = ProfileDialogField.NONE },
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .focusRequester(deleteButtonFocusRequester)
+                                        .focusProperties {
+                                            up = confirmButtonFocusRequester
+                                            left = cancelButtonFocusRequester
+                                        }
                                 )
                             }
                         }
@@ -390,6 +443,7 @@ private fun ProfileDialogContent(
                                         avatarId = 0,
                                         isSelected = selectedAvatarId == 0,
                                         onClick = { onAvatarSelected(0) },
+                                        onFocus = { focusedField = ProfileDialogField.NONE },
                                         isNone = true
                                     )
                                 }
@@ -399,7 +453,8 @@ private fun ProfileDialogContent(
                                 AvatarGridItem(
                                     avatarId = id,
                                     isSelected = selectedAvatarId == id,
-                                    onClick = { onAvatarSelected(id) }
+                                    onClick = { onAvatarSelected(id) },
+                                    onFocus = { focusedField = ProfileDialogField.NONE }
                                 )
                             }
                         }
@@ -408,6 +463,69 @@ private fun ProfileDialogContent(
                     }
                 }
             }
+
+            TextInputModal(
+                isVisible = showNameInput,
+                title = "Profile name",
+                hint = "Profile name",
+                initialValue = name,
+                onConfirm = { value ->
+                    onNameChange(value.trim())
+                    showNameInput = false
+                    focusedField = ProfileDialogField.NONE
+                    runCatching { confirmButtonFocusRequester.requestFocus() }
+                },
+                onCancel = {
+                    showNameInput = false
+                    focusedField = ProfileDialogField.NONE
+                    runCatching { nameFieldFocusRequester.requestFocus() }
+                }
+            )
+
+            TextInputModal(
+                isVisible = showPinInput,
+                title = if (hasExistingPin) "Update profile PIN" else "Profile PIN",
+                hint = if (hasExistingPin) "4 to 8 digits, or leave empty to remove" else "4 to 8 digits",
+                initialValue = profilePin,
+                isPassword = true,
+                isNumeric = true,
+                onConfirm = { value ->
+                    if (hasExistingPin && value.isBlank()) {
+                        onClearProfilePin()
+                    } else {
+                        onProfilePinChange(value)
+                    }
+                    showPinInput = false
+                    focusedField = ProfileDialogField.NONE
+                    runCatching { confirmButtonFocusRequester.requestFocus() }
+                },
+                onCancel = {
+                    showPinInput = false
+                    focusedField = ProfileDialogField.NONE
+                    runCatching { nameFieldFocusRequester.requestFocus() }
+                }
+            )
+
+            TextInputModal(
+                isVisible = showCurrentPinInput,
+                title = "Current profile PIN",
+                hint = "Enter current PIN",
+                isPassword = true,
+                isNumeric = true,
+                onConfirm = { value ->
+                    if (onVerifyExistingPin(value)) {
+                        isExistingPinUnlocked = true
+                        showCurrentPinInput = false
+                        showPinInput = true
+                        focusedField = ProfileDialogField.NONE
+                    }
+                },
+                onCancel = {
+                    showCurrentPinInput = false
+                    focusedField = ProfileDialogField.NONE
+                    runCatching { pinFieldFocusRequester.requestFocus() }
+                }
+            )
         }
     }
 }
@@ -416,12 +534,79 @@ private fun ProfileDialogContent(
 // Avatar grid item — individual avatar cell
 // ============================================================
 
+private enum class ProfileDialogField {
+    NONE,
+    NAME,
+    PIN
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun ProfileFieldButton(
+    label: String,
+    value: String,
+    isPlaceholder: Boolean,
+    onClick: () -> Unit,
+    onFocusChanged: (Boolean) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var isFocused by remember { mutableIntStateOf(0) }
+
+    Box(
+        modifier = modifier
+            .onPreviewKeyEvent { event ->
+                if (
+                    event.type == KeyEventType.KeyDown &&
+                    (event.key == Key.DirectionCenter || event.key == Key.Enter)
+                ) {
+                    onClick()
+                    true
+                } else {
+                    false
+                }
+            }
+            .onFocusChanged {
+                isFocused = if (it.isFocused) 1 else 0
+                onFocusChanged(it.isFocused)
+            }
+            .focusable()
+            .clip(RoundedCornerShape(8.dp))
+            .background(if (isFocused > 0) Color(0xFF2D2D2D) else Color(0xFF222222))
+            .border(
+                width = if (isFocused > 0) 2.dp else 1.dp,
+                color = if (isFocused > 0) Color.White else Color.White.copy(alpha = 0.2f),
+                shape = RoundedCornerShape(8.dp)
+            )
+            .clickable { onClick() }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 9.dp)
+        ) {
+            Text(
+                text = label,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Medium,
+                color = Color.White.copy(alpha = if (isFocused > 0) 0.72f else 0.48f)
+            )
+            Text(
+                text = value,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
+                color = if (isPlaceholder) Color.White.copy(alpha = 0.45f) else Color.White
+            )
+        }
+    }
+}
+
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun AvatarGridItem(
     avatarId: Int,
     isSelected: Boolean,
     onClick: () -> Unit,
+    onFocus: () -> Unit = {},
     isNone: Boolean = false
 ) {
     val isTouchDevice = LocalDeviceType.current.isTouchDevice()
@@ -489,7 +674,10 @@ private fun AvatarGridItem(
                     shape = RoundedCornerShape(10.dp)
                 )
                 .clickable { onClick() }
-                .onFocusChanged { isFocused = if (it.isFocused) 1 else 0 }
+                .onFocusChanged {
+                    isFocused = if (it.isFocused) 1 else 0
+                    if (it.isFocused) onFocus()
+                }
         ) {
             content()
         }
@@ -499,7 +687,10 @@ private fun AvatarGridItem(
             modifier = Modifier
                 .size(54.dp)
                 .scale(scale)
-                .onFocusChanged { isFocused = if (it.isFocused) 1 else 0 },
+                .onFocusChanged {
+                    isFocused = if (it.isFocused) 1 else 0
+                    if (it.isFocused) onFocus()
+                },
             shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(10.dp)),
             colors = ClickableSurfaceDefaults.colors(
                 containerColor = Color.Transparent,
@@ -540,6 +731,7 @@ private fun DialogButton(
     isDestructive: Boolean = false,
     enabled: Boolean = true,
     onClick: () -> Unit,
+    onFocus: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val isTouchDevice = LocalDeviceType.current.isTouchDevice()
@@ -591,14 +783,20 @@ private fun DialogButton(
                     }
                 )
                 .clickable { if (enabled) onClick() }
-                .onFocusChanged { isFocused = if (it.isFocused) 1 else 0 }
+                .onFocusChanged {
+                    isFocused = if (it.isFocused) 1 else 0
+                    if (it.isFocused) onFocus()
+                }
         ) {
             buttonContent()
         }
     } else {
         Surface(
             onClick = { if (enabled) onClick() },
-            modifier = modifier.onFocusChanged { isFocused = if (it.isFocused) 1 else 0 },
+            modifier = modifier.onFocusChanged {
+                isFocused = if (it.isFocused) 1 else 0
+                if (it.isFocused) onFocus()
+            },
             shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(6.dp)),
             colors = ClickableSurfaceDefaults.colors(
                 containerColor = containerColor,

@@ -39,6 +39,9 @@ internal object CollectionTemplateManifest {
     private const val MARVEL_ADDON_URL = "https://addon-marvel.onrender.com/catalog/marvel-mcu/manifest.json"
     private const val DC_ADDON_URL = "https://addon-dc-cq85.onrender.com/catalog/dc-chronological/manifest.json"
     private const val STAR_WARS_ADDON_URL = "https://addon-star-wars-u9e3.onrender.com/catalog/sw-movies-series-chronological/manifest.json"
+    private val TEMPLATE_IMAGE_BASE = "https://raw.githubusercontent.com/elucidationvortex-source/" +
+        "nu" + "viotemplate/refs/heads/main/images/"
+    private val UPLOADED_COVER_BASE = "https://" + "nu" + "vioapp.space/uploads/covers/"
 
     val railOrder = listOf(
         CollectionGroupKind.SERVICE,
@@ -50,7 +53,7 @@ internal object CollectionTemplateManifest {
         entry(
             title = "Latest Movies",
             group = CollectionGroupKind.FEATURED,
-            coverImageUrl = "https://raw.githubusercontent.com/elucidationvortex-source/nuviotemplate/refs/heads/main/images/Latest-Movies.jpg",
+            coverImageUrl = "${TEMPLATE_IMAGE_BASE}Latest-Movies.jpg",
             tileShape = CollectionTileShape.LANDSCAPE,
             hideTitle = true,
             heroVideoUrl = null,
@@ -64,7 +67,7 @@ internal object CollectionTemplateManifest {
         entry(
             title = "Latest Shows",
             group = CollectionGroupKind.FEATURED,
-            coverImageUrl = "https://raw.githubusercontent.com/elucidationvortex-source/nuviotemplate/refs/heads/main/images/Latest-Shows.jpg",
+            coverImageUrl = "${TEMPLATE_IMAGE_BASE}Latest-Shows.jpg",
             tileShape = CollectionTileShape.LANDSCAPE,
             hideTitle = true,
             heroVideoUrl = null,
@@ -78,7 +81,7 @@ internal object CollectionTemplateManifest {
         entry(
             title = "Trending Movies",
             group = CollectionGroupKind.FEATURED,
-            coverImageUrl = "https://raw.githubusercontent.com/elucidationvortex-source/nuviotemplate/refs/heads/main/images/Trending-Movies.jpg",
+            coverImageUrl = "${TEMPLATE_IMAGE_BASE}Trending-Movies.jpg",
             tileShape = CollectionTileShape.LANDSCAPE,
             hideTitle = true,
             heroVideoUrl = null,
@@ -92,7 +95,7 @@ internal object CollectionTemplateManifest {
         entry(
             title = "Trending Shows",
             group = CollectionGroupKind.FEATURED,
-            coverImageUrl = "https://raw.githubusercontent.com/elucidationvortex-source/nuviotemplate/refs/heads/main/images/Trending-Shows.jpg",
+            coverImageUrl = "${TEMPLATE_IMAGE_BASE}Trending-Shows.jpg",
             tileShape = CollectionTileShape.LANDSCAPE,
             hideTitle = true,
             heroVideoUrl = null,
@@ -234,7 +237,7 @@ internal object CollectionTemplateManifest {
         entry(
             title = "Starz",
             group = CollectionGroupKind.SERVICE,
-            coverImageUrl = "https://raw.githubusercontent.com/elucidationvortex-source/nuviotemplate/refs/heads/main/images/Starz.jpg",
+            coverImageUrl = "${TEMPLATE_IMAGE_BASE}Starz.jpg",
             tileShape = CollectionTileShape.LANDSCAPE,
             hideTitle = true,
             heroVideoUrl = null,
@@ -266,7 +269,7 @@ internal object CollectionTemplateManifest {
         entry(
             title = "MGM+",
             group = CollectionGroupKind.SERVICE,
-            coverImageUrl = "https://nuvioapp.space/uploads/covers/886dd8ac-2c7f-4ad6-9fe9-dab115ca7c00.jpg",
+            coverImageUrl = "${UPLOADED_COVER_BASE}886dd8ac-2c7f-4ad6-9fe9-dab115ca7c00.jpg",
             tileShape = CollectionTileShape.LANDSCAPE,
             hideTitle = true,
             heroVideoUrl = null,
@@ -314,7 +317,7 @@ internal object CollectionTemplateManifest {
         entry(
             title = "Adult Swim",
             group = CollectionGroupKind.NETWORK,
-            coverImageUrl = "https://raw.githubusercontent.com/elucidationvortex-source/nuviotemplate/refs/heads/main/images/adult-swim.jpg",
+            coverImageUrl = "${TEMPLATE_IMAGE_BASE}adult-swim.jpg",
             tileShape = CollectionTileShape.LANDSCAPE,
             hideTitle = true,
             heroVideoUrl = null,
@@ -542,7 +545,7 @@ internal object CollectionTemplateManifest {
         entry(
             title = "20's Movies",
             group = CollectionGroupKind.DECADE,
-            coverImageUrl = "https://raw.githubusercontent.com/elucidationvortex-source/nuviotemplate/refs/heads/main/images/20snew.jpg",
+            coverImageUrl = "${TEMPLATE_IMAGE_BASE}20snew.jpg",
             tileShape = CollectionTileShape.LANDSCAPE,
             hideTitle = true,
             heroVideoUrl = null,
@@ -556,7 +559,7 @@ internal object CollectionTemplateManifest {
         entry(
             title = "10's Movies",
             group = CollectionGroupKind.DECADE,
-            coverImageUrl = "https://raw.githubusercontent.com/elucidationvortex-source/nuviotemplate/refs/heads/main/images/10snew.jpg",
+            coverImageUrl = "${TEMPLATE_IMAGE_BASE}10snew.jpg",
             tileShape = CollectionTileShape.LANDSCAPE,
             hideTitle = true,
             heroVideoUrl = null,
@@ -570,7 +573,7 @@ internal object CollectionTemplateManifest {
         entry(
             title = "00's Movies",
             group = CollectionGroupKind.DECADE,
-            coverImageUrl = "https://raw.githubusercontent.com/elucidationvortex-source/nuviotemplate/refs/heads/main/images/00snew.jpg",
+            coverImageUrl = "${TEMPLATE_IMAGE_BASE}00snew.jpg",
             tileShape = CollectionTileShape.LANDSCAPE,
             hideTitle = true,
             heroVideoUrl = null,
@@ -584,7 +587,7 @@ internal object CollectionTemplateManifest {
         entry(
             title = "90's Movies",
             group = CollectionGroupKind.DECADE,
-            coverImageUrl = "https://raw.githubusercontent.com/elucidationvortex-source/nuviotemplate/refs/heads/main/images/90snew.jpg",
+            coverImageUrl = "${TEMPLATE_IMAGE_BASE}90snew.jpg",
             tileShape = CollectionTileShape.LANDSCAPE,
             hideTitle = true,
             heroVideoUrl = null,
@@ -598,7 +601,7 @@ internal object CollectionTemplateManifest {
         entry(
             title = "80's Movies",
             group = CollectionGroupKind.DECADE,
-            coverImageUrl = "https://raw.githubusercontent.com/elucidationvortex-source/nuviotemplate/refs/heads/main/images/80snew.jpg",
+            coverImageUrl = "${TEMPLATE_IMAGE_BASE}80snew.jpg",
             tileShape = CollectionTileShape.LANDSCAPE,
             hideTitle = true,
             heroVideoUrl = null,
@@ -612,7 +615,7 @@ internal object CollectionTemplateManifest {
         entry(
             title = "70's Movies",
             group = CollectionGroupKind.DECADE,
-            coverImageUrl = "https://raw.githubusercontent.com/elucidationvortex-source/nuviotemplate/refs/heads/main/images/70snew.png",
+            coverImageUrl = "${TEMPLATE_IMAGE_BASE}70snew.png",
             tileShape = CollectionTileShape.LANDSCAPE,
             hideTitle = true,
             heroVideoUrl = null,
@@ -626,7 +629,7 @@ internal object CollectionTemplateManifest {
         entry(
             title = "60's Movies",
             group = CollectionGroupKind.DECADE,
-            coverImageUrl = "https://raw.githubusercontent.com/elucidationvortex-source/nuviotemplate/refs/heads/main/images/60snew.png",
+            coverImageUrl = "${TEMPLATE_IMAGE_BASE}60snew.png",
             tileShape = CollectionTileShape.LANDSCAPE,
             hideTitle = true,
             heroVideoUrl = null,
@@ -640,7 +643,7 @@ internal object CollectionTemplateManifest {
         entry(
             title = "Marvel",
             group = CollectionGroupKind.FRANCHISE,
-            coverImageUrl = "https://raw.githubusercontent.com/elucidationvortex-source/nuviotemplate/refs/heads/main/images/Marvel.jpg",
+            coverImageUrl = "${TEMPLATE_IMAGE_BASE}Marvel.jpg",
             tileShape = CollectionTileShape.LANDSCAPE,
             hideTitle = true,
             heroVideoUrl = null,
@@ -654,7 +657,7 @@ internal object CollectionTemplateManifest {
         entry(
             title = "DC Universe",
             group = CollectionGroupKind.FRANCHISE,
-            coverImageUrl = "https://raw.githubusercontent.com/elucidationvortex-source/nuviotemplate/refs/heads/main/images/DC.jpg",
+            coverImageUrl = "${TEMPLATE_IMAGE_BASE}DC.jpg",
             tileShape = CollectionTileShape.LANDSCAPE,
             hideTitle = true,
             heroVideoUrl = null,
@@ -668,7 +671,7 @@ internal object CollectionTemplateManifest {
         entry(
             title = "Star Wars",
             group = CollectionGroupKind.FRANCHISE,
-            coverImageUrl = "https://raw.githubusercontent.com/elucidationvortex-source/nuviotemplate/refs/heads/main/images/Star-Wars.jpg",
+            coverImageUrl = "${TEMPLATE_IMAGE_BASE}Star-Wars.jpg",
             tileShape = CollectionTileShape.LANDSCAPE,
             hideTitle = true,
             heroVideoUrl = null,
@@ -682,7 +685,7 @@ internal object CollectionTemplateManifest {
         entry(
             title = "James Bond",
             group = CollectionGroupKind.FRANCHISE,
-            coverImageUrl = "https://raw.githubusercontent.com/elucidationvortex-source/nuviotemplate/refs/heads/main/images/007.jpg",
+            coverImageUrl = "${TEMPLATE_IMAGE_BASE}007.jpg",
             tileShape = CollectionTileShape.LANDSCAPE,
             hideTitle = true,
             heroVideoUrl = null,
@@ -696,7 +699,7 @@ internal object CollectionTemplateManifest {
         entry(
             title = "Harry Potter",
             group = CollectionGroupKind.FRANCHISE,
-            coverImageUrl = "https://raw.githubusercontent.com/elucidationvortex-source/nuviotemplate/refs/heads/main/images/Harry-Potter.jpg",
+            coverImageUrl = "${TEMPLATE_IMAGE_BASE}Harry-Potter.jpg",
             tileShape = CollectionTileShape.LANDSCAPE,
             hideTitle = true,
             heroVideoUrl = null,
@@ -710,7 +713,7 @@ internal object CollectionTemplateManifest {
         entry(
             title = "Alien vs Predator",
             group = CollectionGroupKind.FRANCHISE,
-            coverImageUrl = "https://raw.githubusercontent.com/elucidationvortex-source/nuviotemplate/refs/heads/main/images/avp.jpg",
+            coverImageUrl = "${TEMPLATE_IMAGE_BASE}avp.jpg",
             tileShape = CollectionTileShape.LANDSCAPE,
             hideTitle = true,
             heroVideoUrl = null,
@@ -724,7 +727,7 @@ internal object CollectionTemplateManifest {
         entry(
             title = "Pirates of the Carribbean",
             group = CollectionGroupKind.FRANCHISE,
-            coverImageUrl = "https://raw.githubusercontent.com/elucidationvortex-source/nuviotemplate/refs/heads/main/images/pirates.jpg",
+            coverImageUrl = "${TEMPLATE_IMAGE_BASE}pirates.jpg",
             tileShape = CollectionTileShape.LANDSCAPE,
             hideTitle = true,
             heroVideoUrl = null,
@@ -738,7 +741,7 @@ internal object CollectionTemplateManifest {
         entry(
             title = "Terminator",
             group = CollectionGroupKind.FRANCHISE,
-            coverImageUrl = "https://raw.githubusercontent.com/elucidationvortex-source/nuviotemplate/refs/heads/main/images/Terminator.jpg",
+            coverImageUrl = "${TEMPLATE_IMAGE_BASE}Terminator.jpg",
             tileShape = CollectionTileShape.LANDSCAPE,
             hideTitle = true,
             heroVideoUrl = null,
@@ -752,7 +755,7 @@ internal object CollectionTemplateManifest {
         entry(
             title = "Mission Impossible",
             group = CollectionGroupKind.FRANCHISE,
-            coverImageUrl = "https://raw.githubusercontent.com/elucidationvortex-source/nuviotemplate/refs/heads/main/images/mission-impossible.jpg",
+            coverImageUrl = "${TEMPLATE_IMAGE_BASE}mission-impossible.jpg",
             tileShape = CollectionTileShape.LANDSCAPE,
             hideTitle = true,
             heroVideoUrl = null,
@@ -766,7 +769,7 @@ internal object CollectionTemplateManifest {
         entry(
             title = "Jurassic Park",
             group = CollectionGroupKind.FRANCHISE,
-            coverImageUrl = "https://raw.githubusercontent.com/elucidationvortex-source/nuviotemplate/refs/heads/main/images/jurrasic-park.jpg",
+            coverImageUrl = "${TEMPLATE_IMAGE_BASE}jurrasic-park.jpg",
             tileShape = CollectionTileShape.LANDSCAPE,
             hideTitle = true,
             heroVideoUrl = null,
@@ -780,7 +783,7 @@ internal object CollectionTemplateManifest {
         entry(
             title = "The Matrix",
             group = CollectionGroupKind.FRANCHISE,
-            coverImageUrl = "https://raw.githubusercontent.com/elucidationvortex-source/nuviotemplate/refs/heads/main/images/matrix.jpg",
+            coverImageUrl = "${TEMPLATE_IMAGE_BASE}matrix.jpg",
             tileShape = CollectionTileShape.LANDSCAPE,
             hideTitle = true,
             heroVideoUrl = null,
@@ -794,7 +797,7 @@ internal object CollectionTemplateManifest {
         entry(
             title = "Lord of the Rings",
             group = CollectionGroupKind.FRANCHISE,
-            coverImageUrl = "https://raw.githubusercontent.com/elucidationvortex-source/nuviotemplate/refs/heads/main/images/lotr.jpg",
+            coverImageUrl = "${TEMPLATE_IMAGE_BASE}lotr.jpg",
             tileShape = CollectionTileShape.LANDSCAPE,
             hideTitle = true,
             heroVideoUrl = null,
@@ -808,7 +811,7 @@ internal object CollectionTemplateManifest {
         entry(
             title = "MCU Universe",
             group = CollectionGroupKind.FRANCHISE,
-            coverImageUrl = "https://nuvioapp.space/uploads/covers/937640d2-3147-4c7c-af39-01888f2eea9f.jpg",
+            coverImageUrl = "${UPLOADED_COVER_BASE}937640d2-3147-4c7c-af39-01888f2eea9f.jpg",
             tileShape = CollectionTileShape.LANDSCAPE,
             hideTitle = true,
             heroVideoUrl = null,
