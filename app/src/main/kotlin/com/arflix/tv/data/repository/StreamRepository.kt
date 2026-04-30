@@ -1375,6 +1375,7 @@ class StreamRepository @Inject constructor(
     private val STREAM_RESULT_CACHE_TTL_MS = 10 * 60_000L
     private val STREAM_RESULT_CACHE_HTTP_TTL_MS = 90_000L
     private val STREAM_RESULT_CACHE_HTTP_EPHEMERAL_TTL_MS = 30_000L
+    private val EPISODE_STREAM_CACHE_TYPE = "series_v2"
 
     private fun streamCacheKey(
         profileId: String,
@@ -1583,18 +1584,23 @@ class StreamRepository @Inject constructor(
                     addon.url.contains("mediafusion") ||
                     addon.url.contains("comet")
 
-                val useKitsu = isAnime && supportsKitsu && animeQuery != null
-                val contentId = if (useKitsu) animeQuery else seriesId
-
-                val url = if (queryParams != null) {
-                    "$baseUrl/stream/series/$contentId.json?$queryParams"
-                } else {
-                    "$baseUrl/stream/series/$contentId.json"
+                val useKitsuFallback = isAnime && supportsKitsu && animeQuery != null && animeQuery != seriesId
+                fun streamUrl(contentId: String): String {
+                    return if (queryParams != null) {
+                        "$baseUrl/stream/series/$contentId.json?$queryParams"
+                    } else {
+                        "$baseUrl/stream/series/$contentId.json"
+                    }
                 }
+
+                // For anime debrid addons, prefer the exact app season/episode request first.
+                // Kitsu mappings are still useful as fallback, but split cours can remap
+                // episodes like TMDB S4E29 to Kitsu E7 and surface the wrong debrid files.
+                val url = streamUrl(seriesId)
 
                 Log.d(
                     TAG,
-                    "[StreamFetch][Episode] request addon=${addon.name} addonId=${addon.id} url=${sanitizeLogUrl(url)} kitsu=$useKitsu"
+                    "[StreamFetch][Episode] request addon=${addon.name} addonId=${addon.id} url=${sanitizeLogUrl(url)} kitsu=false"
                 )
 
                 val response = streamApi.getAddonStreams(url)
@@ -1604,27 +1610,23 @@ class StreamRepository @Inject constructor(
                     "[StreamFetch][Episode] response addon=${addon.name} addonId=${addon.id} streams=${addonStreams.size} elapsedMs=${System.currentTimeMillis() - startedAt}"
                 )
 
-                if (addonStreams.isEmpty() && useKitsu && contentId != seriesId) {
-                    val fallbackUrl = if (queryParams != null) {
-                        "$baseUrl/stream/series/$seriesId.json?$queryParams"
-                    } else {
-                        "$baseUrl/stream/series/$seriesId.json"
-                    }
+                if (addonStreams.isEmpty() && useKitsuFallback) {
+                    val fallbackUrl = streamUrl(animeQuery)
                     Log.d(
                         TAG,
-                        "[StreamFetch][Episode] fallback request addon=${addon.name} addonId=${addon.id} url=${sanitizeLogUrl(fallbackUrl)}"
+                        "[StreamFetch][Episode] kitsu fallback request addon=${addon.name} addonId=${addon.id} url=${sanitizeLogUrl(fallbackUrl)}"
                     )
                     try {
                         val fallbackResponse = streamApi.getAddonStreams(fallbackUrl)
                         addonStreams = processStreams(fallbackResponse.streams ?: emptyList(), addon)
                         Log.d(
                             TAG,
-                            "[StreamFetch][Episode] fallback response addon=${addon.name} addonId=${addon.id} streams=${addonStreams.size}"
+                            "[StreamFetch][Episode] kitsu fallback response addon=${addon.name} addonId=${addon.id} streams=${addonStreams.size}"
                         )
                     } catch (fallbackError: Exception) {
                         Log.w(
                             TAG,
-                            "[StreamFetch][Episode] fallback failure addon=${addon.name} addonId=${addon.id} error=${fallbackError.toShortLogMessage()}"
+                            "[StreamFetch][Episode] kitsu fallback failure addon=${addon.name} addonId=${addon.id} error=${fallbackError.toShortLogMessage()}"
                         )
                     }
                 }
@@ -2053,7 +2055,7 @@ class StreamRepository @Inject constructor(
         val cloudstreamAddons = allAddons.filter { it.isInstalled && it.isEnabled && it.runtimeKind == RuntimeKind.CLOUDSTREAM }
         val cacheKey = streamCacheKey(
             profileId = profileManager.getProfileIdSync(),
-            type = "series",
+            type = EPISODE_STREAM_CACHE_TYPE,
             imdbId = imdbId,
             season = season,
             episode = episode
@@ -2115,7 +2117,7 @@ class StreamRepository @Inject constructor(
             val cloudstreamAddons = allAddons.filter { it.isInstalled && it.isEnabled && it.runtimeKind == RuntimeKind.CLOUDSTREAM }
             val cacheKey = streamCacheKey(
                 profileId = profileManager.getProfileIdSync(),
-                type = "series",
+                type = EPISODE_STREAM_CACHE_TYPE,
                 imdbId = imdbId,
                 season = season,
                 episode = episode
