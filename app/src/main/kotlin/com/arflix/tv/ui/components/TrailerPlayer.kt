@@ -24,6 +24,10 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.arflix.tv.data.api.InAppYouTubeExtractor
 import com.arflix.tv.data.api.YoutubeChunkedDataSourceFactory
+import dagger.hilt.EntryPoint
+import dagger.hilt.InstallIn
+import dagger.hilt.android.EntryPointAccessors
+import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -33,17 +37,33 @@ import kotlinx.coroutines.withContext
  * Waits [delayMs] before resolving and playing (shows static backdrop first).
  * Uses InAppYouTubeExtractor to get direct googlevideo.com CDN URLs.
  */
+@EntryPoint
+@InstallIn(SingletonComponent::class)
+interface TrailerPlayerEntryPoint {
+    fun inAppYouTubeExtractor(): InAppYouTubeExtractor
+}
+
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable
 fun TrailerPlayer(
     youtubeKey: String,
     modifier: Modifier = Modifier,
-    delayMs: Long = 3000L
+    delayMs: Long = 3000L,
+    volume: Float = 0f
 ) {
     val context = LocalContext.current
     var shouldPlay by remember { mutableStateOf(false) }
     var videoUrl by remember { mutableStateOf<String?>(null) }
     var audioUrl by remember { mutableStateOf<String?>(null) }
+
+    // Get singleton extractor from DI
+    val entryPoint = remember {
+        EntryPointAccessors.fromApplication(
+            context,
+            TrailerPlayerEntryPoint::class.java
+        )
+    }
+    val extractor = remember { entryPoint.inAppYouTubeExtractor() }
 
     // Delay, then extract YouTube direct URL
     LaunchedEffect(youtubeKey) {
@@ -53,7 +73,6 @@ fun TrailerPlayer(
         delay(delayMs)
         withContext(Dispatchers.IO) {
             try {
-                val extractor = InAppYouTubeExtractor()
                 val source = extractor.extractPlaybackSource("https://www.youtube.com/watch?v=$youtubeKey")
                 if (source != null) {
                     videoUrl = source.videoUrl
@@ -72,7 +91,7 @@ fun TrailerPlayer(
     ) {
         val player = remember(youtubeKey) {
             ExoPlayer.Builder(context).build().apply {
-                volume = 0.5f // Half volume for background trailer
+                this.volume = volume.coerceIn(0f, 1f)
                 repeatMode = Player.REPEAT_MODE_ONE
                 playWhenReady = true
             }
