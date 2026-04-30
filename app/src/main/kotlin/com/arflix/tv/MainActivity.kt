@@ -114,6 +114,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.arflix.tv.worker.TraktSyncWorker
 import dagger.hilt.android.AndroidEntryPoint
 import dagger.Lazy
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import kotlin.math.PI
@@ -242,9 +243,11 @@ class MainActivity : ComponentActivity() {
             val deviceModeOverride by remember {
                 this@MainActivity.settingsDataStore.data.map { it[DEVICE_MODE_OVERRIDE_KEY] }
             }.collectAsStateWithLifecycle(initialValue = null)
-            val skipProfileSelection by remember {
-                this@MainActivity.settingsDataStore.data.map { it[SKIP_PROFILE_SELECTION_KEY] ?: false }
-            }.collectAsStateWithLifecycle(initialValue = null as Boolean?)
+            var skipProfileSelection by remember { mutableStateOf<Boolean?>(null) }
+            LaunchedEffect(Unit) {
+                skipProfileSelection =
+                    this@MainActivity.settingsDataStore.data.first()[SKIP_PROFILE_SELECTION_KEY] ?: false
+            }
             val activeProfileId by remember {
                 profileRepository.get().activeProfileId
             }.collectAsStateWithLifecycle(initialValue = null)
