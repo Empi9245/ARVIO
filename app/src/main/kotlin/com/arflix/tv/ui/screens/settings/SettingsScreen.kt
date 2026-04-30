@@ -6956,7 +6956,7 @@ private fun InputModalLegacy(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = stringResource(R.string.cancel),
+                        text = tr("Cancel"),
                         style = ArflixTypography.button,
                         color = if (isCancelFocused) TextPrimary else TextSecondary
                     )
@@ -6980,7 +6980,7 @@ private fun InputModalLegacy(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = stringResource(R.string.confirm),
+                        text = tr("Confirm"),
                         style = ArflixTypography.button,
                         color = Color.White
                     )
@@ -7425,7 +7425,7 @@ private fun InputModal(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = stringResource(R.string.cancel),
+                            text = tr("Cancel"),
                             style = ArflixTypography.button,
                             color = if (isCancelFocused) Color.Black else Color.White
                         )
@@ -7453,7 +7453,7 @@ private fun InputModal(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = stringResource(R.string.confirm),
+                            text = tr("Confirm"),
                             style = ArflixTypography.button,
                             color = if (isConfirmFocused) Color.Black else Color.White
                         )
@@ -7706,7 +7706,7 @@ private fun UiModeWarningDialog(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = stringResource(R.string.confirm),
+                            text = tr("Confirm"),
                             style = ArflixTypography.button,
                             color = Color.White
                         )
@@ -7730,7 +7730,7 @@ private fun UiModeWarningDialog(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = stringResource(R.string.cancel),
+                            text = tr("Cancel"),
                             style = ArflixTypography.button,
                             color = if (isCancelFocused) TextPrimary else TextSecondary
                         )

@@ -2340,41 +2340,89 @@ class TraktRepository @Inject constructor(
         val listedAtMs = parseTraktListedAtMs(item.listedAt)
         return when (item.type) {
             "movie" -> item.movie?.let { movie ->
-                val details = resolveWatchlistMovieDetails(movie) ?: return null
-                MediaItem(
-                    id = details.id,
-                    title = details.title,
-                    subtitle = "Movie",
-                    overview = details.overview ?: "",
-                    year = details.releaseDate?.take(4) ?: "",
-                    imdbRating = String.format("%.1f", details.voteAverage),
-                    mediaType = MediaType.MOVIE,
-                    image = details.posterPath?.let { "${Constants.IMAGE_BASE}$it" }
-                        ?: details.backdropPath?.let { "${Constants.BACKDROP_BASE}$it" } ?: "",
-                    backdrop = details.backdropPath?.let { "${Constants.BACKDROP_BASE_LARGE}$it" },
-                    addedAt = listedAtMs,
-                    sourceOrder = sourceOrder
-                )
+                val details = resolveWatchlistMovieDetails(movie)
+                if (details != null) {
+                    MediaItem(
+                        id = details.id,
+                        title = details.title,
+                        subtitle = "Movie",
+                        overview = details.overview ?: "",
+                        year = details.releaseDate?.take(4) ?: "",
+                        imdbRating = String.format("%.1f", details.voteAverage),
+                        mediaType = MediaType.MOVIE,
+                        image = details.posterPath?.let { "${Constants.IMAGE_BASE}$it" }
+                            ?: details.backdropPath?.let { "${Constants.BACKDROP_BASE}$it" } ?: "",
+                        backdrop = details.backdropPath?.let { "${Constants.BACKDROP_BASE_LARGE}$it" },
+                        addedAt = listedAtMs,
+                        sourceOrder = sourceOrder
+                    )
+                } else {
+                    fallbackWatchlistItem(movie, listedAtMs, sourceOrder)
+                }
             }
             "show" -> item.show?.let { show ->
-                val details = resolveWatchlistShowDetails(show) ?: return null
-                MediaItem(
-                    id = details.id,
-                    title = details.name,
-                    subtitle = "TV Series",
-                    overview = details.overview ?: "",
-                    year = details.firstAirDate?.take(4) ?: "",
-                    imdbRating = String.format("%.1f", details.voteAverage),
-                    mediaType = MediaType.TV,
-                    image = details.posterPath?.let { "${Constants.IMAGE_BASE}$it" }
-                        ?: details.backdropPath?.let { "${Constants.BACKDROP_BASE}$it" } ?: "",
-                    backdrop = details.backdropPath?.let { "${Constants.BACKDROP_BASE_LARGE}$it" },
-                    addedAt = listedAtMs,
-                    sourceOrder = sourceOrder
-                )
+                val details = resolveWatchlistShowDetails(show)
+                if (details != null) {
+                    MediaItem(
+                        id = details.id,
+                        title = details.name,
+                        subtitle = "TV Series",
+                        overview = details.overview ?: "",
+                        year = details.firstAirDate?.take(4) ?: "",
+                        imdbRating = String.format("%.1f", details.voteAverage),
+                        mediaType = MediaType.TV,
+                        image = details.posterPath?.let { "${Constants.IMAGE_BASE}$it" }
+                            ?: details.backdropPath?.let { "${Constants.BACKDROP_BASE}$it" } ?: "",
+                        backdrop = details.backdropPath?.let { "${Constants.BACKDROP_BASE_LARGE}$it" },
+                        addedAt = listedAtMs,
+                        sourceOrder = sourceOrder
+                    )
+                } else {
+                    fallbackWatchlistItem(show, listedAtMs, sourceOrder)
+                }
             }
             else -> null
         }
+    }
+
+    private fun fallbackWatchlistItem(
+        movie: TraktMovieInfo,
+        listedAtMs: Long,
+        sourceOrder: Int
+    ): MediaItem? {
+        val tmdbId = movie.ids.tmdb?.takeIf { it > 0 } ?: return null
+        return MediaItem(
+            id = tmdbId,
+            title = movie.title,
+            subtitle = "Movie",
+            overview = "",
+            year = movie.year?.toString().orEmpty(),
+            mediaType = MediaType.MOVIE,
+            image = "",
+            backdrop = null,
+            addedAt = listedAtMs,
+            sourceOrder = sourceOrder
+        )
+    }
+
+    private fun fallbackWatchlistItem(
+        show: TraktShowInfo,
+        listedAtMs: Long,
+        sourceOrder: Int
+    ): MediaItem? {
+        val tmdbId = show.ids.tmdb?.takeIf { it > 0 } ?: return null
+        return MediaItem(
+            id = tmdbId,
+            title = show.title,
+            subtitle = "TV Series",
+            overview = "",
+            year = show.year?.toString().orEmpty(),
+            mediaType = MediaType.TV,
+            image = "",
+            backdrop = null,
+            addedAt = listedAtMs,
+            sourceOrder = sourceOrder
+        )
     }
 
     private suspend fun resolveWatchlistMovieDetails(movie: TraktMovieInfo): TmdbMovieDetails? {
