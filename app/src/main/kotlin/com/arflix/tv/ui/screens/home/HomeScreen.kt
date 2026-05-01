@@ -2678,6 +2678,19 @@ private fun TvHomeRowsLayer(
     }
     val localCurrentRowIndex = (currentRowIndex - rowWindowStart)
         .coerceIn(0, (renderedCategories.size - 1).coerceAtLeast(0))
+
+    val density = LocalDensity.current
+    val rowHeightsPx = remember(renderedCategories.size) { FloatArray(renderedCategories.size) }
+    renderedCategories.forEachIndexed { index, category ->
+        androidx.compose.runtime.key(category.id) {
+            val rowKey = remember(category.id) { "home:${category.id}" }
+            val mode = rememberCatalogueRowLayoutMode(rowKey)
+            val isPoster = mode == CardLayoutMode.POSTER
+            val dp = if (isPoster) 252.dp else 202.dp
+            rowHeightsPx[index] = with(density) { dp.toPx() }
+        }
+    }
+
     var isFastScrolling by remember { mutableStateOf(false) }
     LaunchedEffect(focusState.lastNavEventTime) {
         val anchor = focusState.lastNavEventTime
@@ -2726,13 +2739,22 @@ private fun TvHomeRowsLayer(
             val jumpDistance = kotlin.math.abs(targetIndex - currentIndex)
             if (!initialPlacement && jumpDistance <= 2) {
                 val currentOffset = listState.firstVisibleItemScrollOffset
-                val visibleRowPitchPx = listState.layoutInfo.visibleItemsInfo
-                    .firstOrNull()
-                    ?.size
-                    ?.toFloat()
-                    ?.takeIf { it > 0f }
-                    ?: estimatedRowPitchPx
-                val deltaPx = ((targetIndex - currentIndex) * visibleRowPitchPx) - currentOffset
+                val deltaPx = if (targetIndex > currentIndex) {
+                    var dist = -currentOffset.toFloat()
+                    for (i in currentIndex until targetIndex) {
+                        dist += rowHeightsPx.getOrElse(i) { estimatedRowPitchPx }
+                    }
+                    dist
+                } else if (targetIndex < currentIndex) {
+                    var dist = -currentOffset.toFloat()
+                    for (i in targetIndex until currentIndex) {
+                        dist -= rowHeightsPx.getOrElse(i) { estimatedRowPitchPx }
+                    }
+                    dist
+                } else {
+                    -currentOffset.toFloat()
+                }
+                
                 listState.animateHomeScrollDelta(
                     deltaPx = deltaPx,
                     durationMillis = if (jumpDistance == 1) 150 else 180
@@ -2818,18 +2840,22 @@ private fun TvHomeRowsLayer(
             val focusedCategory = categories.getOrNull(focusState.currentRowIndex)
             if (
                 !focusState.isSidebarFocused &&
-                focusedCategory != null &&
-                homeViewportFocusOverlayActive(
+                focusedCategory != null
+            ) {
+                val focusedRowKey = remember(focusedCategory.id) { "home:${focusedCategory.id}" }
+                val focusedRowUsePosterCards = rememberCatalogueRowLayoutMode(focusedRowKey) == CardLayoutMode.POSTER
+                
+                if (homeViewportFocusOverlayActive(
                     category = focusedCategory,
                     focusedItemIndex = focusState.currentItemIndex,
-                    usePosterCards = usePosterCards
-                )
-            ) {
-                HomeViewportRailFocusOverlay(
-                    category = focusedCategory,
-                    usePosterCards = usePosterCards,
-                    startPadding = contentStartPadding
-                )
+                    usePosterCards = focusedRowUsePosterCards
+                )) {
+                    HomeViewportRailFocusOverlay(
+                        category = focusedCategory,
+                        usePosterCards = focusedRowUsePosterCards,
+                        startPadding = contentStartPadding
+                    )
+                }
             }
         }
     }
