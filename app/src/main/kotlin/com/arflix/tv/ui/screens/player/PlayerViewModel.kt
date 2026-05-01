@@ -1804,14 +1804,12 @@ class PlayerViewModel @Inject constructor(
         episodeNumber: Int?,
         timeoutMs: Long
     ) {
-        val currentStreams = _uiState.value.streams
-        if (currentStreams.any { it.addonId == "iptv_xtream_vod" }) return
         val lookupTitle = currentItemTitle
             .ifBlank { currentTitle }
             .ifBlank { mediaRepository.getCachedItem(mediaType, currentMediaId)?.title.orEmpty() }
 
-        val vod = if (mediaType == MediaType.MOVIE) {
-            streamRepository.resolveMovieVodOnly(
+        val vodSources = if (mediaType == MediaType.MOVIE) {
+            streamRepository.resolveMovieVodSources(
                 imdbId = imdbId,
                 title = lookupTitle,
                 year = null,
@@ -1819,7 +1817,7 @@ class PlayerViewModel @Inject constructor(
                 timeoutMs = timeoutMs
             )
         } else {
-            streamRepository.resolveEpisodeVodOnly(
+            streamRepository.resolveEpisodeVodSources(
                 imdbId = imdbId,
                 season = seasonNumber ?: 1,
                 episode = episodeNumber ?: 1,
@@ -1827,13 +1825,14 @@ class PlayerViewModel @Inject constructor(
                 tmdbId = currentMediaId,
                 timeoutMs = timeoutMs
             )
-        } ?: return
+        }
 
-        if (vod.url.isNullOrBlank()) return
+        val validVodSources = vodSources.filter { !it.url.isNullOrBlank() }
+        if (validVodSources.isEmpty()) return
         val latest = _uiState.value.streams
-        if (latest.any { it.url == vod.url && it.source == vod.source }) return
 
-        val updated = latest + vod
+        val updated = (latest + validVodSources)
+            .distinctBy { "${it.url?.trim().orEmpty()}|${it.source}" }
         _uiState.value = _uiState.value.copy(
             streams = updated,
             isLoadingStreams = false

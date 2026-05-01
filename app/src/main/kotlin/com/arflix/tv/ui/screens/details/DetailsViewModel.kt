@@ -1838,14 +1838,10 @@ class DetailsViewModel @Inject constructor(
         ) {
             return
         }
-        val currentStreams = _uiState.value.streams
-        if (currentStreams.any { it.addonId == "iptv_xtream_vod" }) {
-            return
-        }
         val itemTitle = _uiState.value.item?.title.orEmpty()
 
-        val vod = if (currentMediaType == MediaType.MOVIE) {
-            streamRepository.resolveMovieVodOnly(
+        val vodSources = if (currentMediaType == MediaType.MOVIE) {
+            streamRepository.resolveMovieVodSources(
                 imdbId = imdbId,
                 title = itemTitle,
                 year = _uiState.value.item?.year?.toIntOrNull(),
@@ -1853,7 +1849,7 @@ class DetailsViewModel @Inject constructor(
                 timeoutMs = timeoutMs
             )
         } else {
-            streamRepository.resolveEpisodeVodOnly(
+            streamRepository.resolveEpisodeVodSources(
                 imdbId = imdbId,
                 season = season ?: 1,
                 episode = episode ?: 1,
@@ -1862,25 +1858,23 @@ class DetailsViewModel @Inject constructor(
                 timeoutMs = timeoutMs
             )
         }
-        if (vod == null) {
-            return
-        }
-
-        if (vod.url.isNullOrBlank()) {
+        val validVodSources = vodSources.filter { !it.url.isNullOrBlank() }
+        if (validVodSources.isEmpty()) {
             return
         }
         val latest = _uiState.value.streams
-        if (latest.any { it.url == vod.url && it.source == vod.source }) {
-            return
-        }
         if (requestId != loadStreamsRequestId ||
             currentMediaType != requestMediaType ||
             currentMediaId != requestMediaId
         ) {
             return
         }
+        val mergedStreams = sortPlayableStreamsFirst(
+            (latest + validVodSources)
+                .distinctBy { "${it.url?.trim().orEmpty()}|${it.source}" }
+        )
         _uiState.value = _uiState.value.copy(
-            streams = latest + vod,
+            streams = mergedStreams,
             isLoadingStreams = false
         )
     }

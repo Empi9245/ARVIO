@@ -1914,10 +1914,24 @@ class StreamRepository @Inject constructor(
         year: Int? = null,
         tmdbId: Int? = null,
         timeoutMs: Long = 15_000L
-    ): StreamSource? = withContext(Dispatchers.IO) {
+    ): StreamSource? = resolveMovieVodSources(
+        imdbId = imdbId,
+        title = title,
+        year = year,
+        tmdbId = tmdbId,
+        timeoutMs = timeoutMs
+    ).firstOrNull()
+
+    suspend fun resolveMovieVodSources(
+        imdbId: String?,
+        title: String = "",
+        year: Int? = null,
+        tmdbId: Int? = null,
+        timeoutMs: Long = 15_000L
+    ): List<StreamSource> = withContext(Dispatchers.IO) {
         withTimeoutOrNull(timeoutMs.coerceIn(500L, 90_000L)) {
             runCatching {
-                iptvRepository.findMovieVodSource(
+                iptvRepository.findMovieVodSources(
                     title = title,
                     year = year,
                     imdbId = imdbId,
@@ -1925,9 +1939,9 @@ class StreamRepository @Inject constructor(
                     allowNetwork = true
                 )
             }.onFailure { e ->
-                System.err.println("[VOD] resolveMovieVodOnly failed: ${e.message}")
-            }.getOrNull()
-        }
+                System.err.println("[VOD] resolveMovieVodSources failed: ${e.message}")
+            }.getOrDefault(emptyList())
+        }.orEmpty()
     }
 
     /**
@@ -2278,10 +2292,26 @@ class StreamRepository @Inject constructor(
         title: String = "",
         tmdbId: Int? = null,
         timeoutMs: Long = 45_000L
-    ): StreamSource? = withContext(Dispatchers.IO) {
-        val result = withTimeoutOrNull(timeoutMs.coerceIn(500L, 90_000L)) {
+    ): StreamSource? = resolveEpisodeVodSources(
+        imdbId = imdbId,
+        season = season,
+        episode = episode,
+        title = title,
+        tmdbId = tmdbId,
+        timeoutMs = timeoutMs
+    ).firstOrNull()
+
+    suspend fun resolveEpisodeVodSources(
+        imdbId: String?,
+        season: Int,
+        episode: Int,
+        title: String = "",
+        tmdbId: Int? = null,
+        timeoutMs: Long = 45_000L
+    ): List<StreamSource> = withContext(Dispatchers.IO) {
+        withTimeoutOrNull(timeoutMs.coerceIn(500L, 90_000L)) {
             runCatching {
-                iptvRepository.findEpisodeVodSource(
+                iptvRepository.findEpisodeVodSources(
                     title = title,
                     season = season,
                     episode = episode,
@@ -2290,10 +2320,9 @@ class StreamRepository @Inject constructor(
                     allowNetwork = true
                 )
             }.onFailure { e ->
-                System.err.println("[VOD] resolveEpisodeVodOnly failed: ${e.message}")
-            }.getOrNull()
-        }
-        result
+                System.err.println("[VOD] resolveEpisodeVodSources failed: ${e.message}")
+            }.getOrDefault(emptyList())
+        }.orEmpty()
     }
 
     suspend fun prefetchEpisodeVod(
