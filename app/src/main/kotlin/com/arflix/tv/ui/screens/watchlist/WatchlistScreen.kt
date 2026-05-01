@@ -178,7 +178,7 @@ fun WatchlistScreen(
             .background(BackgroundDark)
             .focusRequester(rootFocusRequester)
             .onFocusChanged {
-                if (it.hasFocus && uiState.items.isEmpty()) {
+                if (it.isFocused) {
                     isSidebarFocused = true
                 }
             }
@@ -242,9 +242,9 @@ fun WatchlistScreen(
                         Key.DirectionDown -> {
                             if (isSidebarFocused) {
                                 if (uiState.items.isNotEmpty()) {
-                                    isSidebarFocused = false
+                                    // Don't set isSidebarFocused = false yet; let onFocusChanged handle it
+                                    // when the grid actually receives focus.
                                     scope.launch {
-                                        delay(40)
                                         runCatching { gridFocusRequester.requestFocus() }
                                     }
                                 }
