@@ -41,7 +41,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import com.arflix.tv.util.settingsDataStore
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
@@ -85,9 +87,14 @@ class ArflixApplication : Application(), Configuration.Provider, ImageLoaderFact
         // later acquire the client through the same lazy path, so ordering is
         // preserved without blocking here.
         //
-        // Warm DNS for TMDB image CDN so the very first image request on the
-        // home screen doesn't block on DoH bootstrap + resolution.
+        // Initialize global DNS provider from DataStore before network calls
         appScope.launch(Dispatchers.IO) {
+            val prefs = settingsDataStore.data.first()
+            val dnsKey = androidx.datastore.preferences.core.stringPreferencesKey(OkHttpProvider.DNS_PROVIDER_PREF_KEY)
+            val dnsPref = prefs[dnsKey]
+            val provider = OkHttpProvider.parseDnsProvider(dnsPref)
+            OkHttpProvider.setDnsProvider(provider)
+
             runCatching {
                 com.arflix.tv.cloudstream.initCloudstream(OkHttpProvider.client)
             }
