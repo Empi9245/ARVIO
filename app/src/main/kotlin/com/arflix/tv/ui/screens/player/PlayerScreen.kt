@@ -1995,23 +1995,26 @@ fun PlayerScreen(
             }
         }
 
-        // Skip intro/recap overlay (independent of controls)
-        val activeSkip = uiState.activeSkipInterval
-        SkipIntroButton(
-            interval = activeSkip,
-            dismissed = uiState.skipIntervalDismissed,
-            controlsVisible = showControls,
-            onSkip = {
-                val end = activeSkip?.endMs ?: return@SkipIntroButton
-                exoPlayer.seekTo((end + 500L).coerceAtLeast(0L))
-                viewModel.dismissSkipInterval()
-            },
-            focusRequester = skipIntroFocusRequester,
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .zIndex(5f) // Ensure it's above the controls overlay scrim.
-                .padding(end = if (isTouchDevice) 24.dp else 48.dp, bottom = if (showControls) 90.dp else 32.dp)
-        )
+        // Skip intro/recap overlay — only after playback has started to avoid showing
+        // on the loading screen (background art + pulsing logo).
+        if (hasPlaybackStarted) {
+            val activeSkip = uiState.activeSkipInterval
+            SkipIntroButton(
+                interval = activeSkip,
+                dismissed = uiState.skipIntervalDismissed,
+                controlsVisible = showControls,
+                onSkip = {
+                    val end = activeSkip?.endMs ?: return@SkipIntroButton
+                    exoPlayer.seekTo((end + 500L).coerceAtLeast(0L))
+                    viewModel.dismissSkipInterval()
+                },
+                focusRequester = skipIntroFocusRequester,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .zIndex(5f) // Ensure it's above the controls overlay scrim.
+                    .padding(end = if (isTouchDevice) 24.dp else 48.dp, bottom = if (showControls) 90.dp else 32.dp)
+            )
+        }
 
         // Netflix-style Controls Overlay
         AnimatedVisibility(
