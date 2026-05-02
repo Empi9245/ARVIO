@@ -5,6 +5,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.clipToBounds
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -732,7 +733,7 @@ private fun CollectionItemsGrid(
     TvLazyVerticalGrid(
         columns = TvGridCells.Fixed(gridColumns),
         state = gridState,
-        modifier = Modifier.fillMaxSize().arvioDpadFocusGroup(),
+        modifier = Modifier.fillMaxSize().arvioDpadFocusGroup().clipToBounds(),
         contentPadding = PaddingValues(
             start = 42.dp,
             top = topContentPadding,
