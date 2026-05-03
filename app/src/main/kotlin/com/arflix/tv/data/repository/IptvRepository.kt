@@ -1372,7 +1372,7 @@ class IptvRepository @Inject constructor(
         val raw = prefs[favoriteGroupsKey()].orEmpty()
         if (raw.isBlank()) return emptyList()
         return runCatching {
-            val type = object : TypeToken<List<String>>() {}.type
+            val type = TypeToken.getParameterized(List::class.java, String::class.java).type
             gson.fromJson<List<String>>(raw, type)
                 ?.map { it.trim() }
                 ?.filter { it.isNotBlank() }
@@ -1384,7 +1384,7 @@ class IptvRepository @Inject constructor(
     private fun decodePlaylists(raw: String): List<IptvPlaylistEntry> {
         if (raw.isBlank()) return emptyList()
         return runCatching {
-            val type = object : TypeToken<List<IptvPlaylistEntry>>() {}.type
+            val type = TypeToken.getParameterized(List::class.java, IptvPlaylistEntry::class.java).type
             gson.fromJson<List<IptvPlaylistEntry>>(raw, type)
                 ?.filter { it.m3uUrl.isNotBlank() }
                 ?: emptyList()
@@ -1407,7 +1407,7 @@ class IptvRepository @Inject constructor(
         val raw = prefs[hiddenGroupsKey()].orEmpty()
         if (raw.isBlank()) return emptyList()
         return runCatching {
-            val type = object : TypeToken<List<String>>() {}.type
+            val type = TypeToken.getParameterized(List::class.java, String::class.java).type
             gson.fromJson<List<String>>(raw, type)?.map { it.trim() }?.filter { it.isNotBlank() }?.distinct() ?: emptyList()
         }.getOrDefault(emptyList())
     }
@@ -1416,7 +1416,7 @@ class IptvRepository @Inject constructor(
         val raw = prefs[groupOrderKey()].orEmpty()
         if (raw.isBlank()) return emptyList()
         return runCatching {
-            val type = object : TypeToken<List<String>>() {}.type
+            val type = TypeToken.getParameterized(List::class.java, String::class.java).type
             gson.fromJson<List<String>>(raw, type)?.map { it.trim() }?.filter { it.isNotBlank() }?.distinct() ?: emptyList()
         }.getOrDefault(emptyList())
     }
@@ -1425,7 +1425,7 @@ class IptvRepository @Inject constructor(
         val raw = prefs[favoriteChannelsKey()].orEmpty()
         if (raw.isBlank()) return emptyList()
         return runCatching {
-            val type = object : TypeToken<List<String>>() {}.type
+            val type = TypeToken.getParameterized(List::class.java, String::class.java).type
             gson.fromJson<List<String>>(raw, type)
                 ?.map { it.trim() }
                 ?.filter { it.isNotBlank() }
@@ -1453,7 +1453,7 @@ class IptvRepository @Inject constructor(
     private fun decodeFavoriteGroups(raw: String): List<String> {
         if (raw.isBlank()) return emptyList()
         return runCatching {
-            val type = object : TypeToken<List<String>>() {}.type
+            val type = TypeToken.getParameterized(List::class.java, String::class.java).type
             gson.fromJson<List<String>>(raw, type)
                 ?.map { it.trim() }
                 ?.filter { it.isNotBlank() }
@@ -1465,7 +1465,7 @@ class IptvRepository @Inject constructor(
     private fun decodeFavoriteChannels(raw: String): List<String> {
         if (raw.isBlank()) return emptyList()
         return runCatching {
-            val type = object : TypeToken<List<String>>() {}.type
+            val type = TypeToken.getParameterized(List::class.java, String::class.java).type
             gson.fromJson<List<String>>(raw, type)
                 ?.map { it.trim() }
                 ?.filter { it.isNotBlank() }
@@ -1488,19 +1488,19 @@ class IptvRepository @Inject constructor(
             favoriteChannels = decodeFavoriteChannels(prefs[favoriteChannelsKeyFor(safeProfileId)].orEmpty()),
             hiddenGroups = if (hiddenRaw.isNotBlank()) {
                 runCatching {
-                    val type = object : TypeToken<List<String>>() {}.type
+                    val type = TypeToken.getParameterized(List::class.java, String::class.java).type
                     gson.fromJson<List<String>>(hiddenRaw, type) ?: emptyList()
                 }.getOrDefault(emptyList())
             } else emptyList(),
             groupOrder = if (orderRaw.isNotBlank()) {
                 runCatching {
-                    val type = object : TypeToken<List<String>>() {}.type
+                    val type = TypeToken.getParameterized(List::class.java, String::class.java).type
                     gson.fromJson<List<String>>(orderRaw, type) ?: emptyList()
                 }.getOrDefault(emptyList())
             } else emptyList(),
             playlists = if (playlistsRaw.isNotBlank()) {
                 runCatching {
-                    val type = object : TypeToken<List<IptvPlaylistEntry>>() {}.type
+                    val type = TypeToken.getParameterized(List::class.java, IptvPlaylistEntry::class.java).type
                     gson.fromJson<List<IptvPlaylistEntry>>(playlistsRaw, type) ?: emptyList()
                 }.getOrDefault(emptyList())
             } else emptyList(),
@@ -2791,10 +2791,10 @@ class IptvRepository @Inject constructor(
     }
 
     private val vodDiskCacheType: Type by lazy {
-        object : TypeToken<XtreamDiskCache<XtreamVodStream>>() {}.type
+        TypeToken.getParameterized(XtreamDiskCache::class.java, XtreamVodStream::class.java).type
     }
     private val seriesDiskCacheType: Type by lazy {
-        object : TypeToken<XtreamDiskCache<XtreamSeriesItem>>() {}.type
+        TypeToken.getParameterized(XtreamDiskCache::class.java, XtreamSeriesItem::class.java).type
     }
 
     // ── Restructured load methods: disk cache + non-blocking network ─────
@@ -2828,7 +2828,7 @@ class IptvRepository @Inject constructor(
             val vod: List<XtreamVodStream> =
                 requestJson(
                     url,
-                    object : TypeToken<List<XtreamVodStream>>() {}.type,
+                    TypeToken.getParameterized(List::class.java, XtreamVodStream::class.java).type,
                     client = if (fast) xtreamLookupHttpClient else iptvHttpClient
                 ) ?: emptyList()
             val elapsed = System.currentTimeMillis() - downloadStart
@@ -2905,7 +2905,7 @@ class IptvRepository @Inject constructor(
             val series: List<XtreamSeriesItem> =
                 requestJson(
                     url,
-                    object : TypeToken<List<XtreamSeriesItem>>() {}.type,
+                    TypeToken.getParameterized(List::class.java, XtreamSeriesItem::class.java).type,
                     client = if (fast) xtreamLookupHttpClient else iptvHttpClient
                 ) ?: emptyList()
             val elapsed = System.currentTimeMillis() - downloadStart
@@ -3446,7 +3446,7 @@ class IptvRepository @Inject constructor(
         val categories: List<XtreamLiveCategory> =
             requestJson(
                 categoriesUrl,
-                object : TypeToken<List<XtreamLiveCategory>>() {}.type,
+                TypeToken.getParameterized(List::class.java, XtreamLiveCategory::class.java).type,
                 client = iptvCatalogHttpClient
             ) ?: emptyList()
         val categoryMap = categories
@@ -3456,7 +3456,7 @@ class IptvRepository @Inject constructor(
         val streams: List<XtreamLiveStream> =
             requestJson(
                 streamsUrl,
-                object : TypeToken<List<XtreamLiveStream>>() {}.type,
+                TypeToken.getParameterized(List::class.java, XtreamLiveStream::class.java).type,
                 client = iptvCatalogHttpClient
             ) ?: emptyList()
         if (streams.isEmpty()) return emptyList()

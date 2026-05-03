@@ -1516,9 +1516,7 @@ class TraktRepository @Inject constructor(
             val cacheKey = stringPreferencesKey("profile_${profileId}_trakt_continue_watching_cache_v1")
             val json = prefs[cacheKey] ?: return
 
-            val type = com.google.gson.reflect.TypeToken
-                .getParameterized(MutableList::class.java, ContinueWatchingItem::class.java)
-                .type
+            val type = TypeToken.getParameterized(MutableList::class.java, ContinueWatchingItem::class.java).type
             val parsed: List<ContinueWatchingItem> = gson.fromJson(json, type)
             val filtered = filterDismissedContinueWatchingItems(parsed, profileId)
             preloadedProfileCache[profileId] = filtered
@@ -2119,9 +2117,7 @@ class TraktRepository @Inject constructor(
         val prefs = context.traktDataStore.data.first()
         val json = prefs[continueWatchingCacheKey()] ?: return emptyList()
         return try {
-            val type = com.google.gson.reflect.TypeToken
-                .getParameterized(MutableList::class.java, ContinueWatchingItem::class.java)
-                .type
+            val type = TypeToken.getParameterized(MutableList::class.java, ContinueWatchingItem::class.java).type
             val parsed: List<ContinueWatchingItem> = gson.fromJson(json, type)
             parsed
         } catch (_: Exception) {
