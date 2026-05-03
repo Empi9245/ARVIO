@@ -2979,6 +2979,13 @@ private fun MobileSettingsSubPage(
                         onClick = { viewModel.setTrailerAutoPlay(!uiState.trailerAutoPlay) }
                     )
                     MobileSettingsRow(
+                        icon = Icons.Default.VolumeUp,
+                        title = stringResource(R.string.trailer_sound),
+                        value = if (uiState.trailerSoundEnabled) "On" else "Off",
+                        isFocused = false,
+                        onClick = { viewModel.setTrailerSoundEnabled(!uiState.trailerSoundEnabled) }
+                    )
+                    MobileSettingsRow(
                         icon = Icons.Default.Settings,
                         title = stringResource(R.string.frame_rate),
                         value = uiState.frameRateMatchingMode,
