@@ -516,12 +516,13 @@ class PlayerViewModel @Inject constructor(
                         mergedStreams.isNotEmpty() -> "Found ${mergedStreams.size} sources ($completed/$total)"
                         else -> "Searching $completed/$total sources"
                     }
+                    val filteredSubtitles = filterSubsByPreferredLanguage(progressive.subtitles)
 
                     _uiState.value = _uiState.value.copy(
                         isLoading = false,
                         isLoadingStreams = !progressive.isFinal && mergedStreams.isEmpty(),
                         streams = mergedStreams,
-                        subtitles = progressive.subtitles,
+                        subtitles = filteredSubtitles,
                         error = errorMessage,
                         isSetupError = progressive.isFinal && mergedStreams.isEmpty() && streamingAddonCount == 0,
                         streamProgress = if (progressive.isFinal) null else progressFraction,
@@ -763,9 +764,13 @@ class PlayerViewModel @Inject constructor(
         val enabled = prefs[filterSubtitlesByLanguageKey()] ?: true
         if (!enabled) return subs
         val preferred = prefs[defaultSubtitleKey()]?.trim().orEmpty()
-        if (isSubtitleDisabledPreference(preferred)) return subs
-        val normalizedPref = normalizeLanguage(preferred)
-        if (normalizedPref.isBlank()) return subs
+        val secondary = prefs[secondarySubtitleKey()]?.trim().orEmpty()
+        val targetLanguages = listOf(preferred, secondary)
+            .filterNot { isSubtitleDisabledPreference(it) }
+            .map { normalizeLanguage(it) }
+            .filter { it.isNotBlank() }
+            .distinct()
+        if (targetLanguages.isEmpty()) return subs
 
         fun matchesLang(sub: Subtitle, lang: String): Boolean {
             val tokens = buildSet {
@@ -784,18 +789,9 @@ class PlayerViewModel @Inject constructor(
             return false
         }
 
-        val primary = subs.filter { matchesLang(it, normalizedPref) }
-
-        val secondary = prefs[secondarySubtitleKey()]?.trim().orEmpty()
-        val secondaryFiltered = if (!isSubtitleDisabledPreference(secondary)) {
-            val normalizedSecondary = normalizeLanguage(secondary)
-            if (normalizedSecondary.isNotBlank() && normalizedSecondary != normalizedPref) {
-                subs.filter { matchesLang(it, normalizedSecondary) }
-            } else emptyList()
-        } else emptyList()
-
-        val embeddedSubs = subs.filter { it.isEmbedded }
-        val combined = (embeddedSubs + primary + secondaryFiltered).distinctBy { it.id }
+        val combined = subs.filter { sub ->
+            targetLanguages.any { lang -> matchesLang(sub, lang) }
+        }.distinctBy { it.id }
         return combined.ifEmpty { subs }
     }
 
