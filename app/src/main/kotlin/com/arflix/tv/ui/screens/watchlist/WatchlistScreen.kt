@@ -128,6 +128,7 @@ fun WatchlistScreen(
     val scope = rememberCoroutineScope()
     val gridState = rememberTvLazyGridState()
     var focusedGridIndex by remember { mutableIntStateOf(0) }
+    var gridHasFocus by remember { mutableStateOf(false) }
 
     // Keep the focused card in view with smooth animated scrolling.
     LaunchedEffect(focusedGridIndex, uiState.items.size) {
@@ -242,10 +243,18 @@ fun WatchlistScreen(
                         Key.DirectionDown -> {
                             if (isSidebarFocused) {
                                 if (uiState.items.isNotEmpty()) {
-                                    // Don't set isSidebarFocused = false yet; let onFocusChanged handle it
-                                    // when the grid actually receives focus.
+                                    isSidebarFocused = false
                                     scope.launch {
                                         runCatching { gridFocusRequester.requestFocus() }
+                                        delay(50)
+                                        if (!gridHasFocus) {
+                                            runCatching { gridFocusRequester.requestFocus() }
+                                            delay(80)
+                                        }
+                                        if (!gridHasFocus) {
+                                            isSidebarFocused = true
+                                            runCatching { rootFocusRequester.requestFocus() }
+                                        }
                                     }
                                 }
                                 true
@@ -349,6 +358,7 @@ fun WatchlistScreen(
                                 .focusRequester(gridFocusRequester)
                                 .arvioDpadFocusGroup()
                                 .onFocusChanged { 
+                                    gridHasFocus = it.hasFocus
                                     if (it.hasFocus) {
                                         isSidebarFocused = false
                                     }
