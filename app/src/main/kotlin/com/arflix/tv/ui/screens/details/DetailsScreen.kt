@@ -5,6 +5,7 @@ import android.net.Uri
 import android.os.SystemClock
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateDpAsState
@@ -1922,6 +1923,8 @@ private fun DetailsTvRows(
     onSimilarClick: (Int) -> Unit
 ) {
     val contentScrollState = rememberTvLazyListState()
+    val detailsStackOffsetPx = remember { Animatable(0f) }
+    val density = LocalDensity.current
     val isTV = item.mediaType == MediaType.TV
     val hasEpisodes = isTV && episodes.isNotEmpty()
     val hasSeasons = isTV && totalSeasons > 1
@@ -1962,13 +1965,28 @@ private fun DetailsTvRows(
             focusSectionForUi == FocusSection.SEASONS
         ) {
             if (firstVisible > topClusterMaxIndex || contentScrollState.firstVisibleItemScrollOffset != 0) {
+                val travelPx = with(density) { 96.dp.toPx() }
+                detailsStackOffsetPx.stop()
+                detailsStackOffsetPx.snapTo(-travelPx)
                 contentScrollState.scrollToItem(0, 0)
+                detailsStackOffsetPx.animateTo(
+                    targetValue = 0f,
+                    animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing)
+                )
             }
             return@LaunchedEffect
         }
 
         if (firstVisible != targetIndex) {
+            val direction = if (targetIndex > firstVisible) 1f else -1f
+            val travelPx = with(density) { 96.dp.toPx() }
+            detailsStackOffsetPx.stop()
+            detailsStackOffsetPx.snapTo(direction * travelPx)
             contentScrollState.scrollToItem(targetIndex)
+            detailsStackOffsetPx.animateTo(
+                targetValue = 0f,
+                animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing)
+            )
         }
     }
 
@@ -1981,6 +1999,7 @@ private fun DetailsTvRows(
             .fillMaxWidth()
             .height(contentRowHeight)
             .padding(start = 24.dp, bottom = contentRowBottomPadding)
+            .graphicsLayer { translationY = detailsStackOffsetPx.value }
             .arvioManualBringIntoViewBoundary()
             .arvioDpadFocusGroup(enableFocusRestorer = false)
             .clipToBounds(),

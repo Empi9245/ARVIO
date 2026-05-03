@@ -2733,6 +2733,7 @@ private fun TvHomeRowsLayer(
             (if (usePosterCards) 240.dp else 190.dp).toPx().coerceAtLeast(1f)
         }
         val listState = rememberLazyListState()
+        val rowStackOffsetPx = remember { Animatable(0f) }
         var lastAppliedTargetIndex by remember { mutableIntStateOf(-1) }
         // Only scroll the LazyColumn in response to actual user D-pad navigation,
         // NOT when categories change during loading. The previous implementation
@@ -2760,32 +2761,37 @@ private fun TvHomeRowsLayer(
             if (!initialPlacement && !recentUserNav) return@LaunchedEffect
 
             val jumpDistance = kotlin.math.abs(targetIndex - currentIndex)
-        if (!initialPlacement && jumpDistance <= 2) {
-                val deltaPx = if (targetIndex > currentIndex) {
-                    var dist = -currentOffset.toFloat()
+            if (!initialPlacement && jumpDistance <= 2) {
+                val travelPx = if (targetIndex > currentIndex) {
+                    var dist = 0f
                     for (i in currentIndex until targetIndex) {
                         dist += rowHeightsPx.getOrElse(i) { estimatedRowPitchPx }
                     }
                     dist
                 } else if (targetIndex < currentIndex) {
-                    var dist = -currentOffset.toFloat()
+                    var dist = 0f
                     for (i in targetIndex until currentIndex) {
-                        dist -= rowHeightsPx.getOrElse(i) { estimatedRowPitchPx }
+                        dist += rowHeightsPx.getOrElse(i) { estimatedRowPitchPx }
                     }
                     dist
                 } else {
-                    -currentOffset.toFloat()
+                    currentOffset.toFloat()
+                }.coerceIn(0f, with(density) { rowsViewportHeight.toPx() })
+
+                val direction = when {
+                    targetIndex > currentIndex -> 1f
+                    targetIndex < currentIndex -> -1f
+                    else -> 0f
                 }
-                
+                rowStackOffsetPx.stop()
+                rowStackOffsetPx.snapTo(direction * travelPx)
                 listState.scrollToItem(index = targetIndex, scrollOffset = 0)
-                if (!recentUserNav && (
-                    listState.firstVisibleItemIndex != targetIndex ||
-                        listState.firstVisibleItemScrollOffset != 0
-                    )
-                ) {
-                    listState.scrollToItem(index = targetIndex, scrollOffset = 0)
-                }
+                rowStackOffsetPx.animateTo(
+                    targetValue = 0f,
+                    animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing)
+                )
             } else {
+                rowStackOffsetPx.snapTo(0f)
                 listState.scrollToItem(index = targetIndex, scrollOffset = 0)
             }
             lastAppliedTargetIndex = targetIndex
@@ -2805,6 +2811,7 @@ private fun TvHomeRowsLayer(
                 contentPadding = PaddingValues(bottom = rowsViewportHeight),
                 modifier = Modifier
                     .fillMaxSize()
+                    .graphicsLayer { translationY = rowStackOffsetPx.value }
                     .arvioDpadFocusGroup(enableFocusRestorer = false)
                     .clipToBounds(),
                 verticalArrangement = Arrangement.spacedBy(0.dp)
