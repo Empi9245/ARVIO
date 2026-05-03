@@ -32,7 +32,9 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import com.google.gson.Gson
@@ -117,6 +119,9 @@ class TraktRepository @Inject constructor(
     private var lastContinueWatchingFetch = 0L
     private val CONTINUE_WATCHING_CACHE_MS = 300_000L // 5 minute cache to reduce API calls and improve performance
     private val TRAKT_UP_NEXT_RECENT_WINDOW_MS = 548L * 24L * 60L * 60L * 1000L // 18 months
+    @Volatile private var tokenRefreshBackoffUntilMs: Long = 0L
+    private val TOKEN_REFRESH_RETRY_BACKOFF_MS = 5 * 60 * 1000L
+    private val tokenRefreshMutex = Mutex()
 
     private fun currentProfileId(): String = profileManager.getProfileIdSync().ifBlank { "default" }
 
@@ -205,28 +210,59 @@ class TraktRepository @Inject constructor(
             return accessToken
         }
 
-        // Check if token is expired (with 1 hour buffer)
-        val now = System.currentTimeMillis() / 1000
-        if (now < expiresAt - 3600) {
-            return accessToken
-        }
+        return tokenRefreshMutex.withLock {
+            val lockedPrefs = context.traktDataStore.data.first()
+            val lockedAccessToken = lockedPrefs[accessTokenKey()] ?: return@withLock null
+            val lockedRefreshToken = lockedPrefs[refreshTokenKey()] ?: return@withLock lockedAccessToken
+            val lockedExpiresAt = lockedPrefs[expiresAtKey()] ?: return@withLock lockedAccessToken
+            val nowSeconds = System.currentTimeMillis() / 1000
 
-        // Refresh token
-        return try {
-            val newToken = traktApi.refreshToken(
-                RefreshTokenRequest(
-                    refreshToken = refreshToken,
-                    clientId = clientId,
-                    clientSecret = clientSecret
+            if (nowSeconds < lockedExpiresAt - 3600) {
+                return@withLock lockedAccessToken
+            }
+
+            fun usableExistingToken(): String? {
+                return if (nowSeconds < lockedExpiresAt) lockedAccessToken else null
+            }
+
+            val nowMs = System.currentTimeMillis()
+            if (nowMs < tokenRefreshBackoffUntilMs) {
+                return@withLock usableExistingToken()
+            }
+
+            try {
+                val newToken = traktApi.refreshToken(
+                    RefreshTokenRequest(
+                        refreshToken = lockedRefreshToken,
+                        clientId = clientId,
+                        clientSecret = clientSecret
+                    )
                 )
-            )
-            saveToken(newToken)
-            newToken.accessToken
-        } catch (e: Exception) {
-            System.err.println("TraktRepo: token refresh failed: ${e.message}")
-            // Token is expired and refresh failed – return null so getAuthHeader()
-            // can try loading a fresh token from Supabase profile.
-            null
+                saveToken(newToken)
+                tokenRefreshBackoffUntilMs = 0L
+                newToken.accessToken
+            } catch (e: HttpException) {
+                val code = e.code()
+                if (code == 429 || code >= 500) {
+                    val retryAfterMs = e.response()
+                        ?.headers()
+                        ?.get("Retry-After")
+                        ?.toLongOrNull()
+                        ?.times(1000L)
+                        ?.coerceAtLeast(30_000L)
+                        ?: TOKEN_REFRESH_RETRY_BACKOFF_MS
+                    tokenRefreshBackoffUntilMs = System.currentTimeMillis() + retryAfterMs
+                    System.err.println("TraktRepo: token refresh deferred after HTTP $code")
+                    usableExistingToken()
+                } else {
+                    System.err.println("TraktRepo: token refresh failed: HTTP $code")
+                    null
+                }
+            } catch (e: Exception) {
+                System.err.println("TraktRepo: token refresh failed: ${e.message}")
+                tokenRefreshBackoffUntilMs = System.currentTimeMillis() + TOKEN_REFRESH_RETRY_BACKOFF_MS
+                usableExistingToken()
+            }
         }
     }
 
@@ -293,6 +329,7 @@ class TraktRepository @Inject constructor(
                 token.expiresAt?.let { prefs[profileManager.profileLongKeyFor(profileId, "trakt_expires_at")] = it }
             }
         }
+        clearProfileScopedMemoryCaches(clearPreloaded = false)
     }
 
     suspend fun exportDismissedContinueWatchingForProfiles(profileIds: List<String>): Map<String, String> {
@@ -410,6 +447,12 @@ class TraktRepository @Inject constructor(
         ensureProfileCacheScope()
         val token = refreshTokenIfNeeded() ?: return null
         return "Bearer $token"
+    }
+
+    private suspend fun hasStoredTraktTokenForCurrentProfile(): Boolean {
+        ensureProfileCacheScope()
+        val prefs = context.traktDataStore.data.first()
+        return !prefs[accessTokenKey()].isNullOrBlank()
     }
 
     // ========== Watched History ==========
@@ -1062,8 +1105,16 @@ class TraktRepository @Inject constructor(
         val requestProfileId = currentProfileId()
         val auth = getAuthHeader()
 
-        // If no Trakt auth, use local Continue Watching for this profile
+        // If this profile has Trakt stored but refresh is temporarily unavailable
+        // (rate limit/offline), keep the Trakt cache instead of falling back to
+        // local non-Trakt progress and polluting the row.
         if (auth == null) {
+            if (hasStoredTraktTokenForCurrentProfile()) {
+                val cached = loadContinueWatchingCache()
+                cachedContinueWatching = cached
+                cachedContinueWatchingProfileId = requestProfileId
+                return@coroutineScope cached
+            }
             val localItems = loadLocalContinueWatching()
             cachedContinueWatching = localItems
             cachedContinueWatchingProfileId = requestProfileId

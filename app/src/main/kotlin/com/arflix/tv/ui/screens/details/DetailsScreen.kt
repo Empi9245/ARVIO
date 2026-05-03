@@ -2575,7 +2575,17 @@ private fun HomeStyleRowAutoScroll(
         if (abs(delta) > 6) {
             rowState.scrollToItem(index = scrollTargetIndex, scrollOffset = extraOffset)
         } else if (delta != 0 || targetOutsideViewport || lastScrollOffset != extraOffset) {
-            rowState.scrollToItem(index = scrollTargetIndex, scrollOffset = extraOffset)
+            val deltaPx = (delta * itemSpanPx) + (extraOffset - currentOffset)
+            rowState.animateDetailsScrollDelta(
+                deltaPx = deltaPx,
+                durationMillis = if (abs(delta) >= 3) 180 else 150
+            )
+            if (
+                rowState.firstVisibleItemIndex != scrollTargetIndex ||
+                abs(rowState.firstVisibleItemScrollOffset - extraOffset) > 8
+            ) {
+                rowState.scrollToItem(index = scrollTargetIndex, scrollOffset = extraOffset)
+            }
         }
         lastScrollIndex = scrollTargetIndex
         lastScrollOffset = extraOffset

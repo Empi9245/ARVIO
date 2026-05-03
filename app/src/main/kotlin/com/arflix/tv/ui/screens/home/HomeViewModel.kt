@@ -2729,11 +2729,15 @@ class HomeViewModel @Inject constructor(
             }
             val localItems = runCatching { traktRepository.getLocalContinueWatching() }.getOrDefault(emptyList())
             val historyItems = loadContinueWatchingFromHistoryStable()
-            mergeTraktAndRecentLocalContinueWatching(
-                traktItems = traktItems,
-                localItems = localItems,
-                historyItems = historyItems
-            )
+            if (traktItems.isEmpty() && historyItems.isNotEmpty()) {
+                historyItems
+            } else {
+                mergeTraktAndRecentLocalContinueWatching(
+                    traktItems = traktItems,
+                    localItems = localItems,
+                    historyItems = historyItems
+                )
+            }
         } else {
             val historyItems = loadContinueWatchingFromHistoryStable()
             if (historyItems.isNotEmpty()) {

@@ -3222,7 +3222,23 @@ private fun ContentRow(
             targetOutsideViewport ||
             offsetDelta > 1
         ) {
-            rowState.scrollToItem(index = scrollTargetIndex, scrollOffset = extraOffset)
+            val deltaPx = ((scrollTargetIndex - currentFirstIndex) * itemSpanPx) + (extraOffset - currentFirstOffset)
+            rowState.animateHomeScrollDelta(
+                deltaPx = deltaPx,
+                durationMillis = when {
+                    isFastScrolling -> 115
+                    jumpDistance >= 3 -> 180
+                    else -> 150
+                }
+            )
+            if (
+                !isFastScrolling && (
+                    rowState.firstVisibleItemIndex != scrollTargetIndex ||
+                        kotlin.math.abs(rowState.firstVisibleItemScrollOffset - extraOffset) > 6
+                    )
+            ) {
+                rowState.scrollToItem(index = scrollTargetIndex, scrollOffset = extraOffset)
+            }
         } else {
             rowState.scrollToItem(index = scrollTargetIndex, scrollOffset = extraOffset)
         }
