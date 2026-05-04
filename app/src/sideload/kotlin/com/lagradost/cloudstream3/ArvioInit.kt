@@ -1,6 +1,5 @@
 package com.lagradost.cloudstream3
 
-import android.content.Context
 import okhttp3.OkHttpClient
 
 /**
@@ -15,8 +14,4 @@ import okhttp3.OkHttpClient
  */
 fun setCloudstreamHttpClient(client: OkHttpClient) {
     app.baseClient = client
-}
-
-fun setCloudstreamContext(context: Context) {
-    CloudStreamApp.context = context.applicationContext
 }
