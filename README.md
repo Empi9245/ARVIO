@@ -28,6 +28,22 @@ It is not intended as an advertising page, download landing page, or content dis
 - User-configured addon/source support
 - ExoPlayer/Media3 playback with broad codec support
 
+## Availability
+
+ARVIO is available on Google Play:
+
+[<img src="https://play.google.com/intl/en_us/badges/static/images/badges/en_badge_web_generic.png" alt="Get it on Google Play" width="160">](https://play.google.com/store/apps/details?id=com.arvio.tv)
+
+## Screenshots
+
+| Home | Details |
+|------|---------|
+| ![Home screen](screenshots/home_v190.png) | ![Details screen](screenshots/details_v190.png) |
+
+| Mobile | Live TV |
+|--------|---------|
+| ![Mobile screen](screenshots/mobile_home.webp) | ![Live TV screen](screenshots/live_tv_v184.png) |
+
 ## Content And Source Policy
 
 ARVIO is a player and organizer for user-configured sources. The repository does not include hosted media content, bundled playlists, IPTV credentials, debrid accounts, or third-party streaming catalogs.
