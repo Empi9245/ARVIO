@@ -40,9 +40,13 @@ ARVIO is available on Google Play:
 |------|---------|
 | ![Home screen](screenshots/home_v190.png) | ![Details screen](screenshots/details_v190.png) |
 
-| Mobile | Live TV |
-|--------|---------|
-| ![Mobile screen](screenshots/mobile_home.webp) | ![Live TV screen](screenshots/live_tv_v184.png) |
+| Live TV | Collections |
+|---------|-------------|
+| ![Live TV screen](screenshots/live_tv_v1991.png) | ![Collections screen](screenshots/collections_v1991.png) |
+
+| Mobile | Profiles |
+|--------|----------|
+| ![Mobile screen](screenshots/mobile_home.webp) | ![Profiles screen](screenshots/profiles_v1991.png) |
 
 ## Content And Source Policy
 
