@@ -147,11 +147,14 @@ fun MediaCard(
         if (rawImageUrl == null) return@remember null
         val widthPx = with(density) { width.roundToPx() }
         val heightPx = (widthPx / aspectRatio).toInt().coerceAtLeast(1)
+        val cacheKey = "$rawImageUrl|${widthPx}x$heightPx"
         ImageRequest.Builder(context)
             .data(rawImageUrl)
             .size(widthPx, heightPx)
             .precision(Precision.INEXACT)
             .allowHardware(true)
+            .memoryCacheKey(cacheKey)
+            .placeholderMemoryCacheKey(cacheKey)
             .crossfade(false)
             .build()
     }
@@ -163,11 +166,14 @@ fun MediaCard(
         if (effectiveLogoImageUrl.isNullOrBlank()) {
             null
         } else {
+            val cacheKey = "$effectiveLogoImageUrl|${logoWidthPx}x$logoHeightPx"
             ImageRequest.Builder(context)
                 .data(effectiveLogoImageUrl)
                 .size(logoWidthPx, logoHeightPx)
                 .precision(Precision.INEXACT)
                 .allowHardware(true)
+                .memoryCacheKey(cacheKey)
+                .placeholderMemoryCacheKey(cacheKey)
                 .crossfade(false)
                 .build()
         }
@@ -210,9 +216,7 @@ fun MediaCard(
                         model = imageRequest,
                         contentDescription = item.title,
                         contentScale = ContentScale.Crop,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(ArvioSkin.colors.surface),
+                        modifier = Modifier.fillMaxSize(),
                     )
                 } else {
                     Box(
@@ -481,11 +485,14 @@ fun PosterCard(
         if (posterUrl == null) return@remember null
         val widthPx = with(density) { width.roundToPx() }
         val heightPx = (widthPx / aspectRatio).toInt().coerceAtLeast(1)
+        val cacheKey = "$posterUrl|${widthPx}x$heightPx"
         ImageRequest.Builder(context)
             .data(posterUrl)
             .size(widthPx, heightPx)
             .precision(Precision.INEXACT)
             .allowHardware(true)
+            .memoryCacheKey(cacheKey)
+            .placeholderMemoryCacheKey(cacheKey)
             .crossfade(false)
             .build()
     }
@@ -512,9 +519,7 @@ fun PosterCard(
                     model = imageRequest,
                     contentDescription = item.title,
                     contentScale = ContentScale.Crop,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(ArvioSkin.colors.surface),
+                    modifier = Modifier.fillMaxSize(),
                 )
             }
         }

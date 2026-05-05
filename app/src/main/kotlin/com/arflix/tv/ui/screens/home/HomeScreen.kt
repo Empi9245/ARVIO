@@ -2821,7 +2821,13 @@ private fun TvHomeRowsLayer(
                 contentPadding = PaddingValues(bottom = rowsViewportHeight),
                 modifier = Modifier
                     .fillMaxSize()
-                    .graphicsLayer { translationY = rowStackOffsetPx.value }
+                    .then(
+                        if (kotlin.math.abs(rowStackOffsetPx.value) > 0.01f) {
+                            Modifier.graphicsLayer { translationY = rowStackOffsetPx.value }
+                        } else {
+                            Modifier
+                        }
+                    )
                     .arvioDpadFocusGroup(enableFocusRestorer = false)
                     .clipToBounds(),
                 verticalArrangement = Arrangement.spacedBy(0.dp)
