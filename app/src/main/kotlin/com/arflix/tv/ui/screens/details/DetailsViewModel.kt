@@ -1633,18 +1633,34 @@ class DetailsViewModel @Inject constructor(
                 val episodeNumbers = seasonEpisodes.map { it.episodeNumber }
 
                 // 1. Single batch Trakt API call to remove from history
-                runCatching {
+                val batchTraktRemovalResult = runCatching {
                     traktRepository.removeSeasonFromHistory(currentMediaId, season, episodeNumbers)
                 }
 
-                // 2. Concurrent local/Supabase unwatch writes for each episode (Trakt already handled by batch removal above)
-                episodeNumbers.map { epNum ->
+                // 2. Concurrent local/Supabase unwatch writes for each episode.
+                // If the batch Trakt removal failed, fall back to per-episode Trakt sync.
+                val episodeUnwatchResults = episodeNumbers.map { epNum ->
                     async {
                         runCatching {
-                            traktRepository.markEpisodeUnwatched(currentMediaId, season, epNum, syncTrakt = false)
+                            traktRepository.markEpisodeUnwatched(
+                                currentMediaId,
+                                season,
+                                epNum,
+                                syncTrakt = batchTraktRemovalResult.isFailure
+                            )
                         }
                     }
-                }.forEach { it.await() }
+                }.map { it.await() }
+
+                if (batchTraktRemovalResult.isFailure && episodeUnwatchResults.any { it.isFailure }) {
+                    _uiState.value = _uiState.value.copy(
+                        episodes = updatedEpisodes,
+                        seasonProgress = optimisticProgress,
+                        toastMessage = "Failed to sync Season $season as unwatched with Trakt",
+                        toastType = ToastType.ERROR
+                    )
+                    return@launch
+                }
 
                 val refreshedProgress = runCatching { fetchSeasonProgress(currentMediaId) }.getOrNull()
 
