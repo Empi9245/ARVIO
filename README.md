@@ -50,17 +50,13 @@ ARVIO is available on Google Play:
 
 ## Content And Source Policy
 
-ARVIO is a player and organizer for user-configured sources. The repository does not include hosted media content, bundled playlists, IPTV credentials, debrid accounts, or third-party streaming catalogs.
+ARVIO is a media browser and player interface for user-configured sources. It works like a media player or browser: users provide their own services, playlists, addons, and URLs.
 
-Users are responsible for ensuring that any external services, playlists, addons, or URLs they configure are lawful and that they have the right to access the content they use. Contributors should not submit copyrighted media, credentials, private keys, access tokens, or links intended to enable unauthorized access to content.
-
-## DMCA Disclaimer
-
-ARVIO functions as a media browser and player interface for user-configured sources, similar to how a web browser or media player can open URLs provided by the user.
-
-No movies, series, live TV channels, playlists, or other third-party media are hosted by this repository or by ARVIO. Any content accessed through user-configured sources is hosted by third-party services outside this project.
+This repository does not include hosted media content, bundled playlists, IPTV credentials, debrid accounts, third-party streaming catalogs, or links intended to enable unauthorized access to content. No movies, series, live TV channels, playlists, or other third-party media are hosted by this repository or by ARVIO.
 
 Users are solely responsible for their usage and must comply with applicable local laws. If you believe content accessed through an external source violates copyright law, contact the actual file host, service provider, or source maintainer. The ARVIO repository and developers cannot remove content hosted by third parties.
+
+Contributors should not submit copyrighted media, credentials, private keys, access tokens, or links intended to enable unauthorized access to content.
 
 ## Build And Run
 
@@ -148,6 +144,3 @@ This project is licensed under the Apache License 2.0. See [LICENSE](LICENSE) fo
 
 This application was developed with significant AI assistance. Contributions should still be reviewed, tested, and treated as normal source code changes.
 
-## Disclaimer
-
-ARVIO is a media hub application and player interface. It does not host, store, or distribute third-party content. The developers are not responsible for user-configured sources or misuse of the application.
