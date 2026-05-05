@@ -630,22 +630,28 @@ fun HomeScreen(
     LaunchedEffect(allowHomeBackgroundWork) {
         if (!allowHomeBackgroundWork) return@LaunchedEffect
         snapshotFlow {
+            val focusedItem = latestDisplayCategories
+                .getOrNull(focusState.currentRowIndex)
+                ?.items
+                ?.getOrNull(focusState.currentItemIndex)
             Triple(
                 focusState.currentRowIndex,
                 focusState.currentItemIndex,
-                // Include first item ID so the flow re-emits when categories load or CW changes,
-                // preventing distinctUntilChanged from swallowing the initial (0,0) emission.
-                latestDisplayCategories.firstOrNull()?.items?.firstOrNull()?.id ?: -1
+                // Include the exact focused item key so async row updates, especially
+                // Continue Watching reloads, cannot leave the hero bound to an old
+                // first-row fallback while the visual focus is on another card.
+                focusedItem?.let { homeRowItemKey(it) }.orEmpty()
             )
         }
             .distinctUntilChanged()
             .collectLatest { (rowIndex, itemIndex, _) ->
                 val categoriesSnapshot = latestDisplayCategories
                 if (categoriesSnapshot.isEmpty() || focusState.isSidebarFocused) return@collectLatest
-                val row = categoriesSnapshot.getOrNull(rowIndex)
-                val newHeroItem = row?.items?.getOrNull(itemIndex)
-                    ?: row?.items?.firstOrNull()
-                    ?: categoriesSnapshot.firstOrNull()?.items?.firstOrNull()
+                val newHeroItem = categoriesSnapshot
+                    .getOrNull(rowIndex)
+                    ?.items
+                    ?.getOrNull(itemIndex)
+                    ?: return@collectLatest
 
                 val now = SystemClock.elapsedRealtime()
                 val isFastScrolling = now - focusState.lastNavEventTime < fastScrollThresholdMs
@@ -2923,21 +2929,10 @@ private fun HomeViewportRailFocusOverlay(
     val targetWidth = if (effectivePosterMode) 119.dp else 210.dp
     val targetHeight = if (effectivePosterMode) 119.dp * (3f/2f) else 210.dp * (9f/16f)
 
-    val itemWidth by androidx.compose.animation.core.animateDpAsState(
-        targetValue = targetWidth,
-        animationSpec = tween(durationMillis = 180, easing = ArvioSkin.focus.easing),
-        label = "rail_focus_width"
-    )
-    val itemHeight by androidx.compose.animation.core.animateDpAsState(
-        targetValue = targetHeight,
-        animationSpec = tween(durationMillis = 180, easing = ArvioSkin.focus.easing),
-        label = "rail_focus_height"
-    )
-
     ArvioFocusableSurface(
         modifier = Modifier
             .padding(start = startPadding, top = 48.dp)
-            .size(width = itemWidth, height = itemHeight)
+            .size(width = targetWidth, height = targetHeight)
             .zIndex(8f),
         shape = rememberArvioCardShape(ArvioSkin.radius.md),
         backgroundColor = Color.Transparent,
@@ -3280,7 +3275,8 @@ private fun ContentRow(
                     top = 14.dp,
                     bottom = 14.dp
                 ),
-                horizontalArrangement = Arrangement.spacedBy(itemSpacing)
+                horizontalArrangement = Arrangement.spacedBy(itemSpacing),
+                userScrollEnabled = false
             ) {
             itemsIndexed(
                 category.items,

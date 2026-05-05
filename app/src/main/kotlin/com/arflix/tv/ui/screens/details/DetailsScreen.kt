@@ -2360,6 +2360,7 @@ private fun DetailsSimilarRail(
 ) {
     val similarRowState = rememberTvLazyListState()
     val similarCardWidth = if (usePosterCards) 126.dp else 210.dp
+    val similarFocusBleed = if (usePosterCards) 18.dp else 14.dp
     val similarFixedFocus = focusSectionForUi == FocusSection.SIMILAR &&
         detailsRailUsesFixedFirstSlotFocus(
             totalItems = similar.size,
@@ -2397,8 +2398,8 @@ private fun DetailsSimilarRail(
                         outerStartPadding = contentOuterStartPadding,
                         minimum = if (usePosterCards) 140.dp else 210.dp
                     ),
-                    top = 14.dp,
-                    bottom = 14.dp,
+                    top = similarFocusBleed,
+                    bottom = similarFocusBleed,
                 ),
                 horizontalArrangement = Arrangement.spacedBy(14.dp)
             ) {
@@ -2421,7 +2422,7 @@ private fun DetailsSimilarRail(
             if (similarFixedFocus) {
                 FixedDetailsRailFocusOverlay(
                     startPadding = contentStartPadding,
-                    topPadding = 14.dp,
+                    topPadding = similarFocusBleed,
                     width = similarCardWidth,
                     aspectRatio = if (usePosterCards) 2f / 3f else 16f / 9f
                 )

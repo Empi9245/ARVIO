@@ -243,10 +243,20 @@ fun ArvioFocusableSurface(
                     onFocusChanged(it)
                 },
             )
-            .clip(shape)
-            .background(backgroundColor),
     ) {
-        content(visualFocused)
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .clip(shape)
+                .background(backgroundColor)
+        )
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .clip(shape)
+        ) {
+            content(visualFocused)
+        }
     }
 }
 

@@ -4300,10 +4300,15 @@ private fun SettingsRow(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clickable { onClick() }
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick
+            )
             .background(
                 if (isFocused) Color.White.copy(alpha = 0.1f) else BackgroundElevated,
                 RoundedCornerShape(12.dp)
@@ -4365,10 +4370,15 @@ private fun SettingsToggleRow(
     onToggle: (Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clickable { onToggle(!isEnabled) }
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = { onToggle(!isEnabled) }
+            )
             .background(
                 if (isFocused) Color.White.copy(alpha = 0.1f) else BackgroundElevated,
                 RoundedCornerShape(12.dp)
