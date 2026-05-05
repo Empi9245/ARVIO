@@ -1935,11 +1935,11 @@ private fun DetailsTvRows(
     var idx = 0
     val seasonsIdx = if (hasSeasons) idx.also { idx++ } else -1
     val episodesIdx = if (hasEpisodes) idx.also { idx++ } else -1
-    if (hasCast) idx++
+    val castSpacerIdx = if (hasCast) idx.also { idx++ } else -1
     val castIdx = if (hasCast) idx.also { idx++ } else -1
-    if (hasReviews) idx++
+    val reviewsSpacerIdx = if (hasReviews) idx.also { idx++ } else -1
     val reviewsIdx = if (hasReviews) idx.also { idx++ } else -1
-    if (hasSimilar) idx++
+    val similarSpacerIdx = if (hasSimilar) idx.also { idx++ } else -1
     val similarIdx = if (hasSimilar) idx.also { idx++ } else -1
 
     LaunchedEffect(item.mediaType, item.id, currentSeason, hasEpisodes, hasSeasons) {
@@ -1951,9 +1951,9 @@ private fun DetailsTvRows(
 
         val targetIndex = when (focusedSection) {
             FocusSection.BUTTONS, FocusSection.EPISODES, FocusSection.SEASONS -> 0
-            FocusSection.CAST -> castIdx
-            FocusSection.REVIEWS -> reviewsIdx
-            FocusSection.SIMILAR -> similarIdx
+            FocusSection.CAST -> castSpacerIdx.takeIf { it >= 0 } ?: castIdx
+            FocusSection.REVIEWS -> reviewsSpacerIdx.takeIf { it >= 0 } ?: reviewsIdx
+            FocusSection.SIMILAR -> similarSpacerIdx.takeIf { it >= 0 } ?: similarIdx
         }
         if (targetIndex < 0) return@LaunchedEffect
 
