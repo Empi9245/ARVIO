@@ -620,7 +620,6 @@ private fun buildCardSubtitle(item: MediaItem): String {
     val mediaLabel = when (item.mediaType) {
         MediaType.TV -> stringResource(R.string.series)
         MediaType.MOVIE -> stringResource(R.string.movie)
-        else -> ""
     }
     val year = item.year.takeIf { it.isNotBlank() }
     return if (year != null) "$mediaLabel · $year" else mediaLabel
